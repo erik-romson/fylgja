@@ -1,0 +1,28 @@
+# Python and tooling
+.venv/
+__pycache__/
+*.py[cod]
+dist/
+build/
+*.egg-info/
+
+# Coverage and caches
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build and test output
+target/
+
+# Editors and OS
+.idea/
+.DS_Store
+
+# Leftover norn artefacts
+*.checkpoint
+*.history
+*.runs/

@@ -1,0 +1,54 @@
+[project]
+name = "fylgja"
+version = "0.1.0"
+description = "Local macOS daemon that knows where the work is."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.142.2",
+    "pydantic>=2.13.5",
+    "typer>=0.27.2",
+    "uvicorn>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.7.19,<0.8"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.0",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-timeout>=2.4.0",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "PT"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+files = ["src/fylgja"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+asyncio_mode = "auto"
+timeout = 30
+markers = [
+    "live: opt-in tests against installed macOS tools (FYLGJA_RUN_LIVE=1)",
+    "slow: tests taking more than about 2 s or spawning many processes (FYLGJA_RUN_SLOW=1)",
+]
+
+[tool.coverage.run]
+branch = true
+source_pkgs = ["fylgja"]
