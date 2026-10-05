@@ -40,6 +40,9 @@ MODULES = [
     "fylgja.api",
     "fylgja.api.now_models",
     "fylgja.api.now",
+    "fylgja.logsetup",
+    "fylgja.cli.client",
+    "fylgja.cli.render",
 ]
 
 _PROBE = """

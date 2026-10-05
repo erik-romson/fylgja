@@ -11,6 +11,9 @@ dependencies = [
     "uvicorn>=0.54.0",
 ]
 
+[project.scripts]
+fylgja = "fylgja._entry:main"
+
 [project.entry-points."fylgja.collectors"]
 aerospace = "fylgja.collectors.aerospace:plugin"
 claude = "fylgja.collectors.claude:plugin"

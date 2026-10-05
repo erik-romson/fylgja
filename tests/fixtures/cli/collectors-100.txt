@@ -1,0 +1,4 @@
+NAME       ORIGIN                        STATE     API         CAPABILITIES  HEALTH
+aerospace  built-in (fylgja 0.1.0)       enabled   1           windows       ok
+claude     built-in (fylgja 0.1.0)       enabled   1           sessions      degraded: registry unr…
+fake       external (fylgja-fake 0.1.0)  disabled  not_loaded  not_loaded    not_loaded

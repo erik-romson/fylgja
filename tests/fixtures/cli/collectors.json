@@ -1,0 +1,20 @@
+[
+  {
+    "name": "aerospace", "origin": "built-in", "distribution": "fylgja",
+    "distribution_version": "0.1.0", "state": "enabled", "enabled": true, "api_version": 1,
+    "capabilities": ["windows"],
+    "health": {"state": "ok", "checked_at": "2026-10-05T12:00:00Z"}
+  },
+  {
+    "name": "claude", "origin": "built-in", "distribution": "fylgja",
+    "distribution_version": "0.1.0", "state": "enabled", "enabled": true, "api_version": 1,
+    "capabilities": ["sessions"],
+    "health": {"state": "degraded", "detail": "registry unreadable", "error_kind": "io",
+               "checked_at": "2026-10-05T12:00:00Z"}
+  },
+  {
+    "name": "fake", "origin": "external", "distribution": "fylgja-fake",
+    "distribution_version": "0.1.0", "state": "disabled", "enabled": false,
+    "api_version": "not_loaded", "capabilities": "not_loaded", "health": "not_loaded"
+  }
+]

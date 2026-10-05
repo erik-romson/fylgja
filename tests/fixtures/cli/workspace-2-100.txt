@@ -1,0 +1,9 @@
+workspace 2*: api-server — editing routes.py
+
+WINDOW  APP       TITLE
+101*    Terminal  build log
+102     Editor    routes.py
+
+KIND    STATE    WS  PROJECT     ONE-LINER
+claude  working  2   api-server  Editing routes.py
+codex   idle     2   api-server  write the tests

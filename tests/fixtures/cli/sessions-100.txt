@@ -1,0 +1,5 @@
+KIND    STATE                      WS  PROJECT     ONE-LINER
+claude  working                    2   api-server  Editing routes.py
+codex   idle                       2   api-server  write the tests
+claude  waiting_permission (Bash)  3   docs        Waiting for permission to run: make docs
+claude  unknown                    —   —           —

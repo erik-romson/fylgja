@@ -1,0 +1,55 @@
+{
+  "schema": "fylgja.now/1",
+  "generated_at": "2026-10-05T12:00:00Z",
+  "focused": {"window_id": "101", "workspace": "2", "app_name": "Terminal", "title": "build log"},
+  "workspaces": [
+    {
+      "name": "1", "label": "—", "label_source": "none",
+      "one_liner": "—", "focused": false,
+      "windows": [{"id": "100", "app": "Browser", "title": "docs", "focused": false}],
+      "projects": [], "sessions": []
+    },
+    {
+      "name": "2", "label": "api-server", "label_source": "inferred", "inferred_label": "api-server",
+      "one_liner": "api-server — editing routes.py", "focused": true,
+      "windows": [
+        {"id": "101", "app": "Terminal", "title": "build log", "focused": true},
+        {"id": "102", "app": "Editor", "title": "routes.py", "focused": false}
+      ],
+      "projects": ["/work/api-server"],
+      "sessions": ["claude:aaaa1111", "codex:bbbb2222"]
+    },
+    {
+      "name": "3", "label": "docs", "label_source": "manual",
+      "one_liner": "docs — waiting for permission to run a very long command that goes on and on and on past any reasonable width",
+      "focused": false,
+      "windows": [{"id": "103", "app": "Terminal", "title": "t", "focused": false}],
+      "projects": ["/work/docs"], "sessions": ["claude:cccc3333"]
+    }
+  ],
+  "sessions": [
+    {
+      "key": "claude:aaaa1111", "kind": "claude", "native_id": "aaaa1111",
+      "project_path": "/work/api-server", "cwd": "/work/api-server", "state": "working",
+      "host": {"kind": "cmux", "workspace": "2"},
+      "one_liner": "Editing routes.py"
+    },
+    {
+      "key": "codex:bbbb2222", "kind": "codex", "native_id": "bbbb2222",
+      "project_path": "/work/api-server", "cwd": "/work/api-server/tests", "state": "idle", "host": {"kind": "other", "workspace": "2"},
+      "title": "write the tests"
+    },
+    {
+      "key": "claude:cccc3333", "kind": "claude", "native_id": "cccc3333",
+      "project_path": "/work/docs", "state": "waiting_permission", "waiting_reason": "Bash",
+      "host": {"kind": "jetbrains", "workspace": "3"},
+      "one_liner": "Waiting for permission to run: make docs"
+    },
+    {"key": "claude:dddd4444", "kind": "claude", "native_id": "dddd4444", "state": "unknown"}
+  ],
+  "collectors": [
+    {"name": "aerospace", "origin": "built-in", "state": "ok", "restarts": 0},
+    {"name": "claude", "origin": "built-in", "state": "degraded", "restarts": 1, "detail": "registry unreadable"}
+  ],
+  "degraded": ["claude"]
+}
