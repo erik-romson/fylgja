@@ -9,8 +9,8 @@ A workspace without a manual label is named by what is in it, by the first rule 
 3. **none**: ``—``.
 
 The same input always gives the same label, so it never flickers. Manual labels, which always win,
-come with the todo and label work (step 34); this module only infers. The inferred label is stored
-in ``workspaces.inferred_label``.
+come with the todo and label work (step 34); this module infers, and :func:`effective_label` picks
+the label ``/now`` shows. The inferred label is stored in ``workspaces.inferred_label``.
 
 Titles are redacted before they reach this module, and nothing here logs them.
 """
@@ -26,10 +26,14 @@ from typing import Final
 __all__ = [
     "EMPTY_LABEL",
     "GENERIC_DIRECTORIES",
+    "LABEL_INFERRED",
+    "LABEL_MANUAL",
+    "LABEL_NONE",
     "MAX_LABEL",
     "InferredLabel",
     "LabelInput",
     "WindowFacts",
+    "effective_label",
     "infer_label",
     "project_name",
     "title_keywords",
@@ -37,6 +41,11 @@ __all__ = [
 
 EMPTY_LABEL: Final = "—"
 MAX_LABEL: Final = 40
+
+LABEL_MANUAL: Final = "manual"
+LABEL_INFERRED: Final = "inferred"
+LABEL_NONE: Final = "none"
+"""The ``label_source`` values of :func:`effective_label`."""
 
 RULE_PROJECT: Final = "project"
 RULE_APP_TITLE: Final = "app-title"
@@ -147,6 +156,17 @@ def _dominant(names: Iterable[str]) -> str | None:
 
 def _clip(text: str) -> str:
     return text if len(text) <= MAX_LABEL else text[: MAX_LABEL - 1] + "…"
+
+
+def effective_label(manual: str | None, inferred: str | None) -> tuple[str, str]:
+    """``(label, label_source)`` of a workspace: the manual label when set, else the inferred
+    one, else ``—``. ``label_source`` is ``manual``, ``inferred`` or ``none``; an inferred ``—``
+    (nothing to name the workspace by) counts as none."""
+    if manual and manual.strip():
+        return manual, LABEL_MANUAL
+    if inferred and inferred.strip() and inferred != EMPTY_LABEL:
+        return inferred, LABEL_INFERRED
+    return EMPTY_LABEL, LABEL_NONE
 
 
 def infer_label(inputs: LabelInput) -> InferredLabel:

@@ -21,10 +21,17 @@ The store keeps the text in ``session_snapshots.one_liner``; ``/now`` exposes it
 as ``one_liner_from``. The ingest gate has already redacted every free-text field of the activity
 by the time the writer calls this, and ``redact`` makes the function safe on its own as well.
 
-**Workspace hook (step 14).** The workspace one-liner (``PLAN.md`` §7) is
-``<effective label> — <live context>``; it is built from session one-liners by the state engine
-and shares :func:`finalize` for collapsing, redaction and the cap. :data:`WORKSPACE_SEPARATOR` is
-its separator.
+**Workspace one-liner** (§4.6, ``PLAN.md`` §7). :func:`workspace_one_liner` is the effective label,
+then :data:`WORKSPACE_SEPARATOR`, then the most relevant live context of the workspace:
+
+1. the one-liner of a waiting session (the one waiting longest);
+2. else the one-liner of the most recently active session;
+3. else the focused window's parsed title context (filled from step 40; ``title_context``);
+4. else nothing: the label alone.
+
+A session whose one-liner says nothing (``—``) gives no context. Without a label (``—``) the
+context stands alone; with neither, the result is ``—``. It shares :func:`finalize` for
+collapsing, redaction and the cap.
 
 This module imports only the standard library and :mod:`fylgja.models`.
 """
@@ -32,7 +39,9 @@ This module imports only the standard library and :mod:`fylgja.models`.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Final
 
 from fylgja.models import SessionActivity
@@ -42,10 +51,13 @@ __all__ = [
     "MAX_CHARS",
     "RULES",
     "TERMINAL_STATES",
+    "WAITING_STATES",
     "WORKSPACE_SEPARATOR",
+    "WorkspaceSession",
     "finalize",
     "first_sentence",
     "session_one_liner",
+    "workspace_one_liner",
 ]
 
 MAX_CHARS: Final = 160
@@ -60,6 +72,9 @@ TERMINAL_STATES: Final = frozenset(
     {"done", "finished", "succeeded", "failed", "cancelled", "aborted"}
 )
 """Run states (norn) that end rule 2's stage line."""
+
+WAITING_STATES: Final = frozenset({"waiting", "waiting_permission", "waiting_input"})
+"""Session states that wait on the person: the registry's ``waiting`` and the hook states."""
 
 _WHITESPACE: Final = re.compile(r"\s+")
 _CONTROL: Final = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -163,3 +178,56 @@ def session_one_liner(
         if text:
             return finalize(text, redact), rule
     return EMPTY, "none"
+
+
+@dataclass(frozen=True)
+class WorkspaceSession:
+    """What the workspace one-liner needs to know about one live session in the workspace."""
+
+    key: str
+    one_liner: str | None
+    state: str | None = None
+    since: datetime | None = None
+    """When the session entered its current state (orders the waiting ones)."""
+    active_at: datetime | None = None
+    """When the session last did something (orders the others)."""
+
+    @property
+    def waiting(self) -> bool:
+        return self.state in WAITING_STATES
+
+    @property
+    def says_something(self) -> bool:
+        return bool(_clean(self.one_liner)) and _clean(self.one_liner) != EMPTY
+
+
+def _waiting_longest(sessions: Iterable[WorkspaceSession]) -> WorkspaceSession | None:
+    waiting = [s for s in sessions if s.waiting]
+    if not waiting:
+        return None
+    return min(waiting, key=lambda s: (s.since is None, s.since or datetime.max, s.key))
+
+
+def _latest_active(sessions: Iterable[WorkspaceSession]) -> WorkspaceSession | None:
+    ranked = sorted(sessions, key=lambda s: s.key)
+    dated = [s for s in ranked if s.active_at is not None]
+    if dated:
+        return max(dated, key=lambda s: s.active_at or datetime.min)
+    return ranked[0] if ranked else None
+
+
+def workspace_one_liner(
+    label: str | None,
+    sessions: Iterable[WorkspaceSession],
+    *,
+    title_context: str | None = None,
+    redact: Redactor | None = None,
+) -> str:
+    """The workspace one-liner (see the module docstring): label, separator, live context."""
+    useful = [s for s in sessions if s.says_something]
+    chosen = _waiting_longest(useful) or _latest_active(useful)
+    context = _clean(chosen.one_liner) if chosen is not None else _clean(title_context)
+    prefix = _clean(label)
+    if prefix == EMPTY:
+        prefix = ""
+    return finalize(_join(prefix, context, separator=WORKSPACE_SEPARATOR), redact)

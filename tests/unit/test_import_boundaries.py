@@ -35,6 +35,11 @@ MODULES = [
     "fylgja.core.resolver",
     "fylgja.collectors.aerospace",
     "fylgja.collectors.claude",
+    "fylgja.core.system",
+    "fylgja.core.daemon",
+    "fylgja.api",
+    "fylgja.api.now_models",
+    "fylgja.api.now",
 ]
 
 _PROBE = """

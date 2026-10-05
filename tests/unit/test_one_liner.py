@@ -226,6 +226,86 @@ def test_finalize_is_the_shared_cap_for_the_workspace_line() -> None:
 
 
 # --------------------------------------------------------------------------------------------
+# The workspace one-liner (§4.6)
+# --------------------------------------------------------------------------------------------
+
+_T = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+
+
+def _ws(
+    key: str,
+    line: str | None,
+    state: str | None = "idle",
+    *,
+    since: int | None = None,
+    active: int | None = None,
+) -> one_liner.WorkspaceSession:
+    def at(minutes: int | None) -> datetime | None:
+        return None if minutes is None else _T.replace(minute=minutes)
+
+    return one_liner.WorkspaceSession(key, line, state, since=at(since), active_at=at(active))
+
+
+def test_workspace_line_prefers_a_waiting_session() -> None:
+    sessions = [
+        _ws("a", "Edit x.py", "working", active=50),
+        _ws("b", "Waiting for input: confirm", "waiting_input", since=10, active=10),
+    ]
+    assert (
+        one_liner.workspace_one_liner("fylgja", sessions) == "fylgja — Waiting for input: confirm"
+    )
+
+
+def test_workspace_line_takes_the_session_waiting_longest() -> None:
+    sessions = [
+        _ws("a", "Waiting for permission: Bash", "waiting", since=30),
+        _ws("b", "Waiting for input", "waiting_permission", since=5),
+        _ws("c", "Waiting for input: no time", "waiting_input"),
+    ]
+    assert one_liner.workspace_one_liner("ws", sessions) == "ws — Waiting for input"
+
+
+def test_workspace_line_else_takes_the_most_recently_active_session() -> None:
+    sessions = [
+        _ws("a", "Old work", active=1),
+        _ws("b", "Newest work", active=40),
+        _ws("c", "Undated work"),
+    ]
+    assert one_liner.workspace_one_liner("ws", sessions) == "ws — Newest work"
+    undated = [_ws("b", "Second"), _ws("a", "First")]
+    assert one_liner.workspace_one_liner("ws", undated) == "ws — First"
+
+
+def test_workspace_line_skips_sessions_that_say_nothing() -> None:
+    sessions = [_ws("a", EMPTY, "waiting", since=1), _ws("b", None), _ws("c", "Real", active=2)]
+    assert one_liner.workspace_one_liner("ws", sessions) == "ws — Real"
+
+
+def test_workspace_line_falls_back_to_title_context_then_the_label() -> None:
+    assert one_liner.workspace_one_liner("ws", [], title_context="notes.md") == "ws — notes.md"
+    assert one_liner.workspace_one_liner("ws", []) == "ws"
+    assert one_liner.workspace_one_liner(EMPTY, [_ws("a", "Alone", active=1)]) == "Alone"
+    assert one_liner.workspace_one_liner(None, []) == EMPTY
+    assert one_liner.workspace_one_liner(EMPTY, []) == EMPTY
+
+
+def test_workspace_line_is_capped_and_redacted() -> None:
+    long_line = one_liner.workspace_one_liner("label", [_ws("a", "x" * 400, active=1)])
+    assert len(long_line) == MAX_CHARS
+    assert long_line.endswith("…")
+    redacted = one_liner.workspace_one_liner(
+        "label", [_ws("a", "secret", active=1)], redact=lambda text: text.replace("secret", "***")
+    )
+    assert redacted == "label — ***"
+
+
+def test_waiting_states_cover_registry_and_hooks() -> None:
+    assert {"waiting", "waiting_permission", "waiting_input"} == one_liner.WAITING_STATES
+    assert _ws("a", "x", "waiting_input").waiting
+    assert not _ws("a", "x", "working").waiting
+
+
+# --------------------------------------------------------------------------------------------
 # The Claude rules over the transcript fixtures
 # --------------------------------------------------------------------------------------------
 

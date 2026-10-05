@@ -1,0 +1,1427 @@
+{
+  "$defs": {
+    "Build": {
+      "additionalProperties": false,
+      "description": "§4.7: the GitHub Actions runs of the project's branch, folded like Lidskjalv's builds.",
+      "properties": {
+        "error_kind": {
+          "title": "Error Kind",
+          "type": "string"
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness"
+        },
+        "head_sha": {
+          "title": "Head Sha",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pass",
+            "fail",
+            "running",
+            "cancelled",
+            "none"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/BuildWorkflow"
+          },
+          "title": "Workflows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "state",
+        "workflows",
+        "source",
+        "observed_at",
+        "freshness"
+      ],
+      "title": "Build",
+      "type": "object"
+    },
+    "BuildWorkflow": {
+      "additionalProperties": false,
+      "properties": {
+        "conclusion": {
+          "title": "Conclusion",
+          "type": "string"
+        },
+        "run_duration_s": {
+          "title": "Run Duration S",
+          "type": "number"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "integer"
+        },
+        "run_started_at": {
+          "format": "date-time",
+          "title": "Run Started At",
+          "type": "string"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "typical_duration_s": {
+          "title": "Typical Duration S",
+          "type": "number"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "workflow": {
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "BuildWorkflow",
+      "type": "object"
+    },
+    "CollectorInfo": {
+      "additionalProperties": false,
+      "description": "One collector and its health.",
+      "properties": {
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "last_error_kind": {
+          "title": "Last Error Kind",
+          "type": "string"
+        },
+        "last_ok_at": {
+          "format": "date-time",
+          "title": "Last Ok At",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "built-in",
+            "external"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "restarts": {
+          "default": 0,
+          "title": "Restarts",
+          "type": "integer"
+        },
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/HealthState"
+        }
+      },
+      "required": [
+        "name",
+        "origin",
+        "state",
+        "restarts"
+      ],
+      "title": "CollectorInfo",
+      "type": "object"
+    },
+    "ContextItem": {
+      "additionalProperties": false,
+      "description": "What is open in a window: a tab, a chat, a file, a note (filled by application context).",
+      "properties": {
+        "confidence": {
+          "title": "Confidence",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Parsed fields of the item (project, path, URL, profile, channel, ...).",
+          "title": "Data",
+          "type": "object"
+        },
+        "kind": {
+          "description": "What the item is, for example ``tab``, ``chat``, ``file``, ``note`` or ``cmux_tab``.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "link": {
+          "description": "A link back into the app (for example ``obsidian://``).",
+          "title": "Link",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source": {
+          "description": "The collector that produced it.",
+          "title": "Source",
+          "type": "string"
+        },
+        "title": {
+          "description": "Redacted.",
+          "title": "Title",
+          "type": "string"
+        },
+        "unread": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "description": "An explicit unread marker of the app (A15): a count, or ``true`` when it has no count.",
+          "title": "Unread"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ContextItem",
+      "type": "object"
+    },
+    "Facts": {
+      "additionalProperties": false,
+      "description": "The Lidskjalv-compatible facts block of a Claude session (a port of ``_SUMMARY_JQ``).\n\n``tasks`` is Lidskjalv's ``todos``; the session id is ``sessions[].native_id``.",
+      "properties": {
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "last_at": {
+          "description": "Epoch seconds of the last transcript line.",
+          "title": "Last At",
+          "type": "integer"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "prompts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prompts",
+          "type": "array"
+        },
+        "said": {
+          "title": "Said",
+          "type": "string"
+        },
+        "started": {
+          "description": "Epoch seconds of the first transcript line.",
+          "title": "Started",
+          "type": "integer"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/FactsTask"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "tools": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Tools",
+          "type": "object"
+        },
+        "turns": {
+          "title": "Turns",
+          "type": "integer"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "Facts",
+      "type": "object"
+    },
+    "FactsTask": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "content"
+      ],
+      "title": "FactsTask",
+      "type": "object"
+    },
+    "Focused": {
+      "additionalProperties": false,
+      "description": "The focused window.",
+      "properties": {
+        "app_name": {
+          "title": "App Name",
+          "type": "string"
+        },
+        "bundle_id": {
+          "title": "Bundle Id",
+          "type": "string"
+        },
+        "context": {
+          "description": "Filled by application context.",
+          "items": {
+            "$ref": "#/$defs/ContextItem"
+          },
+          "title": "Context",
+          "type": "array"
+        },
+        "session_key": {
+          "description": "The session in the focused window, when exactly one is placed there.",
+          "title": "Session Key",
+          "type": "string"
+        },
+        "since": {
+          "description": "When focus moved here.",
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "title": {
+          "description": "Redacted.",
+          "title": "Title",
+          "type": "string"
+        },
+        "window_id": {
+          "title": "Window Id",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "The AeroSpace workspace.",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "title": "Focused",
+      "type": "object"
+    },
+    "Freshness": {
+      "description": "§4.7: ``fresh`` within twice the source's poll interval, ``stale`` after that, and\n``unavailable`` (with ``error_kind``) when the last attempt failed.",
+      "enum": [
+        "fresh",
+        "stale",
+        "unavailable"
+      ],
+      "title": "Freshness",
+      "type": "string"
+    },
+    "HealthState": {
+      "enum": [
+        "starting",
+        "ok",
+        "degraded",
+        "failed",
+        "disabled"
+      ],
+      "title": "HealthState",
+      "type": "string"
+    },
+    "Host": {
+      "additionalProperties": false,
+      "description": "Where a session runs (A1): the host app, its window and, in cmux, the exact surface.",
+      "properties": {
+        "cmux_surface": {
+          "title": "Cmux Surface",
+          "type": "string"
+        },
+        "cmux_workspace": {
+          "description": "The cmux workspace id (a cmux tab, not an AeroSpace workspace).",
+          "title": "Cmux Workspace",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "string"
+        },
+        "kind": {
+          "description": "``cmux``, ``jetbrains``, ``iterm2`` or ``other``.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "description": "cmux: ``<cmux workspace id>/<surface id>``; JetBrains: the IDE project path.",
+          "title": "Ref",
+          "type": "string"
+        },
+        "unresolved": {
+          "description": "Why no window was found, when none was.",
+          "title": "Unresolved",
+          "type": "string"
+        },
+        "via": {
+          "description": "How the join was made.",
+          "title": "Via",
+          "type": "string"
+        },
+        "window_id": {
+          "title": "Window Id",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "The AeroSpace workspace of the window.",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "title": "Host",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "LabelSource": {
+      "enum": [
+        "manual",
+        "inferred",
+        "none"
+      ],
+      "title": "LabelSource",
+      "type": "string"
+    },
+    "NextItem": {
+      "additionalProperties": false,
+      "description": "One ranked suggestion (filled by the ranking); its list is ``next_list_id``.",
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "rank": {
+          "title": "Rank",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "suggestion_id": {
+          "title": "Suggestion Id",
+          "type": "string"
+        },
+        "target_ref": {
+          "title": "Target Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "suggestion_id",
+        "kind",
+        "target_ref",
+        "score",
+        "reason"
+      ],
+      "title": "NextItem",
+      "type": "object"
+    },
+    "OneLinerRule": {
+      "description": "The §4.6 rule that produced a session's one-liner (``fylgja.core.one_liner.RULES``).",
+      "enum": [
+        "waiting",
+        "stage",
+        "tool",
+        "task",
+        "title_prompt",
+        "title_reply",
+        "none"
+      ],
+      "title": "OneLinerRule",
+      "type": "string"
+    },
+    "Presence": {
+      "additionalProperties": false,
+      "description": "Idle, lock and call state (filled by the presence collector).",
+      "properties": {
+        "in_call": {
+          "title": "In Call",
+          "type": "boolean"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "idle",
+            "locked",
+            "asleep"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "Presence",
+      "type": "object"
+    },
+    "Project": {
+      "additionalProperties": false,
+      "description": "A project: a git root, or a working directory outside any repository.",
+      "properties": {
+        "ahead": {
+          "title": "Ahead",
+          "type": "integer"
+        },
+        "behind": {
+          "title": "Behind",
+          "type": "integer"
+        },
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "build": {
+          "$ref": "#/$defs/Build"
+        },
+        "dirty": {
+          "title": "Dirty",
+          "type": "boolean"
+        },
+        "dirty_count": {
+          "title": "Dirty Count",
+          "type": "integer"
+        },
+        "group": {
+          "description": "The draupnir workspace the clone belongs to.",
+          "title": "Group",
+          "type": "string"
+        },
+        "last_commit_at": {
+          "format": "date-time",
+          "title": "Last Commit At",
+          "type": "string"
+        },
+        "name": {
+          "description": "Its display name: the draupnir group, the repository name or the directory name.",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "pr": {
+          "$ref": "#/$defs/PullRequest"
+        },
+        "remote_url": {
+          "title": "Remote Url",
+          "type": "string"
+        },
+        "repo_name": {
+          "title": "Repo Name",
+          "type": "string"
+        },
+        "repo_root": {
+          "title": "Repo Root",
+          "type": "string"
+        },
+        "sessions": {
+          "description": "Keys of the live sessions in the project.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Sessions",
+          "type": "array"
+        },
+        "todos": {
+          "items": {
+            "$ref": "#/$defs/Todo"
+          },
+          "title": "Todos",
+          "type": "array"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "The AeroSpace workspace the project is mostly in.",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "sessions"
+      ],
+      "title": "Project",
+      "type": "object"
+    },
+    "PullRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "description": "The aggregate state of the PR's checks.",
+          "title": "Checks",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "review_decision": {
+          "title": "Review Decision",
+          "type": "string"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "number"
+      ],
+      "title": "PullRequest",
+      "type": "object"
+    },
+    "Session": {
+      "additionalProperties": false,
+      "description": "A live agent session of any kind.",
+      "properties": {
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "children": {
+          "description": "Sessions nested under this one (norn runs and their agent sessions).",
+          "items": {
+            "$ref": "#/$defs/Session"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "context_pct": {
+          "title": "Context Pct",
+          "type": "number"
+        },
+        "cost_usd": {
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "current_target": {
+          "description": "What the current tool works on: a file path, a command head or a URL host.",
+          "title": "Current Target",
+          "type": "string"
+        },
+        "current_tool": {
+          "title": "Current Tool",
+          "type": "string"
+        },
+        "cwd": {
+          "title": "Cwd",
+          "type": "string"
+        },
+        "entrypoint": {
+          "description": "How the agent was started (Claude: ``cli``, ``sdk-py``, ...).",
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "facts": {
+          "$ref": "#/$defs/Facts"
+        },
+        "first_seen": {
+          "format": "date-time",
+          "title": "First Seen",
+          "type": "string"
+        },
+        "host": {
+          "$ref": "#/$defs/Host"
+        },
+        "key": {
+          "description": "``kind:native_id``.",
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "description": "``claude``, ``codex``, ``opencode``, ``norn``, or a plugin's own kind.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lane_key": {
+          "description": "Equals ``process_key`` (A11): Lidskjalv's lane survives ``/clear``.",
+          "title": "Lane Key",
+          "type": "string"
+        },
+        "last_seen": {
+          "format": "date-time",
+          "title": "Last Seen",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "native_id": {
+          "title": "Native Id",
+          "type": "string"
+        },
+        "one_liner": {
+          "description": "What the session is doing, in one sentence (§4.6), present once it has activity.",
+          "title": "One Liner",
+          "type": "string"
+        },
+        "one_liner_from": {
+          "$ref": "#/$defs/OneLinerRule"
+        },
+        "parent_key": {
+          "title": "Parent Key",
+          "type": "string"
+        },
+        "pid": {
+          "title": "Pid",
+          "type": "integer"
+        },
+        "pipeline": {
+          "title": "Pipeline",
+          "type": "string"
+        },
+        "predecessor_key": {
+          "description": "The session this one replaced in the same process (``/clear``).",
+          "title": "Predecessor Key",
+          "type": "string"
+        },
+        "process_key": {
+          "description": "The OS process (pid plus start time) hosting the session.",
+          "title": "Process Key",
+          "type": "string"
+        },
+        "project_path": {
+          "title": "Project Path",
+          "type": "string"
+        },
+        "remote_url": {
+          "title": "Remote Url",
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "state": {
+          "$ref": "#/$defs/SessionState"
+        },
+        "state_since": {
+          "format": "date-time",
+          "title": "State Since",
+          "type": "string"
+        },
+        "story": {
+          "$ref": "#/$defs/SessionStory"
+        },
+        "title": {
+          "description": "Redacted.",
+          "title": "Title",
+          "type": "string"
+        },
+        "todos": {
+          "items": {
+            "$ref": "#/$defs/Todo"
+          },
+          "title": "Todos",
+          "type": "array"
+        },
+        "tokens": {
+          "$ref": "#/$defs/Tokens"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "waiting_reason": {
+          "title": "Waiting Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "native_id"
+      ],
+      "title": "Session",
+      "type": "object"
+    },
+    "SessionState": {
+      "description": "Every state a session can be in, from every source, defined once for ``fylgja.now/1``.\n\n``unknown`` stands for a state a source reports that is not in this vocabulary.",
+      "enum": [
+        "idle",
+        "busy",
+        "waiting",
+        "working",
+        "running_tool",
+        "waiting_permission",
+        "waiting_input",
+        "turn_done",
+        "seen",
+        "error",
+        "ended",
+        "running",
+        "stale",
+        "passed",
+        "failed",
+        "cancelled",
+        "paused",
+        "unknown"
+      ],
+      "title": "SessionState",
+      "type": "string"
+    },
+    "SessionStory": {
+      "additionalProperties": false,
+      "description": "A cached ARC/NOW story of a session (filled by the summary service).",
+      "properties": {
+        "arc": {
+          "title": "Arc",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "now": {
+          "title": "Now",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/SummaryState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "SessionStory",
+      "type": "object"
+    },
+    "Stage": {
+      "additionalProperties": false,
+      "description": "A pipeline stage (norn).",
+      "properties": {
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "title": "Stage",
+      "type": "object"
+    },
+    "SummaryState": {
+      "description": "The state of a cached summary (§4.2 \"Summary responses\").",
+      "enum": [
+        "fresh",
+        "stale",
+        "pending",
+        "missing",
+        "failed",
+        "disabled"
+      ],
+      "title": "SummaryState",
+      "type": "string"
+    },
+    "Todo": {
+      "additionalProperties": false,
+      "description": "An open or next todo of a workspace, project or session (filled by the todo work).",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "done_at": {
+          "format": "date-time",
+          "title": "Done At",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "link": {
+          "title": "Link",
+          "type": "string"
+        },
+        "scope_kind": {
+          "description": "``workspace``, ``project`` or ``session``.",
+          "title": "Scope Kind",
+          "type": "string"
+        },
+        "scope_ref": {
+          "title": "Scope Ref",
+          "type": "string"
+        },
+        "source": {
+          "description": "``fylgja`` for native todos, else the import source.",
+          "title": "Source",
+          "type": "string"
+        },
+        "source_ref": {
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "next",
+            "done"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "status"
+      ],
+      "title": "Todo",
+      "type": "object"
+    },
+    "Tokens": {
+      "additionalProperties": false,
+      "description": "§4.7: token sums over the transcript's assistant ``message.usage``.",
+      "properties": {
+        "cache_read": {
+          "title": "Cache Read",
+          "type": "integer"
+        },
+        "cache_write": {
+          "title": "Cache Write",
+          "type": "integer"
+        },
+        "error_kind": {
+          "title": "Error Kind",
+          "type": "string"
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness"
+        },
+        "input": {
+          "title": "Input",
+          "type": "integer"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "output": {
+          "title": "Output",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "output",
+        "cache_read",
+        "cache_write",
+        "source",
+        "observed_at",
+        "freshness"
+      ],
+      "title": "Tokens",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "description": "§4.7: quota per provider and spend.",
+      "properties": {
+        "cost": {
+          "$ref": "#/$defs/UsageCost"
+        },
+        "error_kind": {
+          "title": "Error Kind",
+          "type": "string"
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/UsageProvider"
+          },
+          "title": "Providers",
+          "type": "array"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "providers",
+        "source",
+        "observed_at",
+        "freshness"
+      ],
+      "title": "Usage",
+      "type": "object"
+    },
+    "UsageCost": {
+      "additionalProperties": false,
+      "properties": {
+        "error_kind": {
+          "title": "Error Kind",
+          "type": "string"
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "period": {
+          "title": "Period",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "usd": {
+          "title": "Usd",
+          "type": "number"
+        }
+      },
+      "required": [
+        "usd"
+      ],
+      "title": "UsageCost",
+      "type": "object"
+    },
+    "UsageProvider": {
+      "additionalProperties": false,
+      "properties": {
+        "error_kind": {
+          "title": "Error Kind",
+          "type": "string"
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "resets_at": {
+          "format": "date-time",
+          "title": "Resets At",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "used_pct": {
+          "title": "Used Pct",
+          "type": "number"
+        },
+        "window": {
+          "title": "Window",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "title": "UsageProvider",
+      "type": "object"
+    },
+    "Waiting": {
+      "additionalProperties": false,
+      "description": "Something waiting on the person (filled by waiting-on-me), most urgent first.",
+      "properties": {
+        "kind": {
+          "description": "``permission``, ``input``, ``turn_done``, ``build_failed``, ``review_requested`` or\n``unread``.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "target": {
+          "description": "A session key, project path or window id.",
+          "title": "Target",
+          "type": "string"
+        },
+        "target_kind": {
+          "title": "Target Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "target",
+        "reason"
+      ],
+      "title": "Waiting",
+      "type": "object"
+    },
+    "Window": {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "description": "The app name.",
+          "title": "App",
+          "type": "string"
+        },
+        "bundle_id": {
+          "title": "Bundle Id",
+          "type": "string"
+        },
+        "context": {
+          "description": "Filled by application context.",
+          "items": {
+            "$ref": "#/$defs/ContextItem"
+          },
+          "title": "Context",
+          "type": "array"
+        },
+        "focused": {
+          "default": false,
+          "title": "Focused",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The AeroSpace window id.",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "description": "Redacted.",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "focused"
+      ],
+      "title": "Window",
+      "type": "object"
+    },
+    "Workspace": {
+      "additionalProperties": false,
+      "description": "An AeroSpace workspace (never a cmux workspace).",
+      "properties": {
+        "focused": {
+          "default": false,
+          "title": "Focused",
+          "type": "boolean"
+        },
+        "inferred_label": {
+          "title": "Inferred Label",
+          "type": "string"
+        },
+        "label": {
+          "description": "The effective label: manual, else inferred, else ``—``.",
+          "title": "Label",
+          "type": "string"
+        },
+        "label_source": {
+          "$ref": "#/$defs/LabelSource"
+        },
+        "monitor": {
+          "title": "Monitor",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "one_liner": {
+          "description": "The effective label, `` — `` and the most relevant live context (§4.6).",
+          "title": "One Liner",
+          "type": "string"
+        },
+        "projects": {
+          "description": "Paths of the projects of the sessions placed here (see ``projects[]``).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Projects",
+          "type": "array"
+        },
+        "sessions": {
+          "description": "Keys of the sessions placed here (see ``sessions[]``).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Sessions",
+          "type": "array"
+        },
+        "story": {
+          "$ref": "#/$defs/WorkspaceStory",
+          "description": "Filled by the summary service."
+        },
+        "todos": {
+          "description": "Filled by the todo work.",
+          "items": {
+            "$ref": "#/$defs/Todo"
+          },
+          "title": "Todos",
+          "type": "array"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/Window"
+          },
+          "title": "Windows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "label_source",
+        "one_liner",
+        "focused",
+        "windows",
+        "projects",
+        "sessions"
+      ],
+      "title": "Workspace",
+      "type": "object"
+    },
+    "WorkspaceStory": {
+      "additionalProperties": false,
+      "description": "A cached workspace summary (filled by the summary service).",
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/SummaryState"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "WorkspaceStory",
+      "type": "object"
+    }
+  },
+  "$id": "fylgja.now/1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The whole picture in one call (``GET /now``).",
+  "properties": {
+    "collectors": {
+      "items": {
+        "$ref": "#/$defs/CollectorInfo"
+      },
+      "title": "Collectors",
+      "type": "array"
+    },
+    "degraded": {
+      "description": "Names of the collectors that are degraded or failed.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Degraded",
+      "type": "array"
+    },
+    "focused": {
+      "$ref": "#/$defs/Focused"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "next": {
+      "items": {
+        "$ref": "#/$defs/NextItem"
+      },
+      "title": "Next",
+      "type": "array"
+    },
+    "next_list_id": {
+      "description": "The ``list_id`` of ``next[]`` (for ``POST /next/feedback``).",
+      "title": "Next List Id",
+      "type": "string"
+    },
+    "presence": {
+      "$ref": "#/$defs/Presence"
+    },
+    "projects": {
+      "items": {
+        "$ref": "#/$defs/Project"
+      },
+      "title": "Projects",
+      "type": "array"
+    },
+    "schema": {
+      "const": "fylgja.now/1",
+      "default": "fylgja.now/1",
+      "description": "The contract version.",
+      "title": "Schema",
+      "type": "string"
+    },
+    "sessions": {
+      "items": {
+        "$ref": "#/$defs/Session"
+      },
+      "title": "Sessions",
+      "type": "array"
+    },
+    "usage": {
+      "$ref": "#/$defs/Usage"
+    },
+    "waiting": {
+      "items": {
+        "$ref": "#/$defs/Waiting"
+      },
+      "title": "Waiting",
+      "type": "array"
+    },
+    "workspaces": {
+      "items": {
+        "$ref": "#/$defs/Workspace"
+      },
+      "title": "Workspaces",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "generated_at",
+    "collectors",
+    "degraded"
+  ],
+  "title": "Now",
+  "type": "object"
+}

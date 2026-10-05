@@ -32,7 +32,7 @@ import os
 import plistlib
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final, Protocol
@@ -62,6 +62,7 @@ __all__ = [
     "adapter_for",
     "default_adapters",
     "host_kind",
+    "host_loader",
     "jetbrains_stem_for",
     "load_host_data",
     "load_jetbrains",
@@ -715,6 +716,22 @@ async def load_host_data(
         cmux=await source.load(),
         jetbrains=load_jetbrains(fs, home) if with_jetbrains else {},
     )
+
+
+def host_loader(
+    runner: ProcessRunner, fs: FileSystem, *, home: str
+) -> Callable[[], Awaitable[HostData]]:
+    """The loader the daemon hands the resolver: :func:`load_host_data` over the given seams.
+
+    The cmux version is detected once (one ``cmux --version``); the store and the JetBrains lists
+    are read on every call.
+    """
+    source = CmuxSource(runner, fs, home=home)
+
+    async def load() -> HostData:
+        return await load_host_data(source, fs, home=home)
+
+    return load
 
 
 def default_adapters(data: HostData) -> tuple[HostAdapter, ...]:

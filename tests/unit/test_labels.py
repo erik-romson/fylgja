@@ -11,6 +11,7 @@ from fylgja.core.labels import (
     MAX_LABEL,
     LabelInput,
     WindowFacts,
+    effective_label,
     infer_label,
     project_name,
     title_keywords,
@@ -161,3 +162,24 @@ def test_title_keywords_drop_short_generic_numeric_and_repeated_words() -> None:
 
 def test_title_keywords_ignore_the_given_words() -> None:
     assert title_keywords("Safari docs", ignore=["safari"]) == ["docs"]
+
+
+# --- effective_label ------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("manual", "inferred", "expected"),
+    [
+        ("Billing", "fylgja", ("Billing", "manual")),
+        ("Billing", None, ("Billing", "manual")),
+        (None, "fylgja", ("fylgja", "inferred")),
+        ("  ", "fylgja", ("fylgja", "inferred")),
+        (None, EMPTY_LABEL, (EMPTY_LABEL, "none")),
+        (None, "", (EMPTY_LABEL, "none")),
+        (None, None, (EMPTY_LABEL, "none")),
+    ],
+)
+def test_effective_label(
+    manual: str | None, inferred: str | None, expected: tuple[str, str]
+) -> None:
+    assert effective_label(manual, inferred) == expected

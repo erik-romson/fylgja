@@ -2,6 +2,8 @@
 # tables merge key by key, and a list in config.toml replaces the list here.
 
 [api]
+# The API binds to the loopback address only; any other value is refused.
+host = "127.0.0.1"
 port = 7319
 allowed_origins = ["http://127.0.0.1:7319", "http://localhost:7319"]
 

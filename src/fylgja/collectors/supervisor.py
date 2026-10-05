@@ -220,6 +220,9 @@ class Supervisor:
                     detail="ignored cancellation at shutdown",
                     retry_in=None,
                 )
+            elif entry.task is not None and entry.health.state is not HealthState.DISABLED:
+                # A task cancelled before its first step never ran its ``finally``.
+                self._set(entry, state=HealthState.DISABLED, detail="stopped", retry_in=None)
 
     # -- health bookkeeping -----------------------------------------------------------------
 

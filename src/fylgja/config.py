@@ -12,7 +12,7 @@ import tomllib
 from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Final
 
 from pydantic import (
     AfterValidator,
@@ -26,6 +26,7 @@ from pydantic import (
 from fylgja import paths
 
 __all__ = [
+    "LOOPBACK_HOST",
     "ActionsConfig",
     "ApiConfig",
     "Config",
@@ -67,8 +68,17 @@ def _absolute(value: Path) -> Path:
     return value
 
 
+def _loopback(value: str) -> str:
+    if value != LOOPBACK_HOST:
+        raise ValueError(f"must be {LOOPBACK_HOST}: the API binds to the loopback address only")
+    return value
+
+
 Pattern = Annotated[str, AfterValidator(_regex)]
 AbsolutePath = Annotated[Path, AfterValidator(_absolute)]
+
+LOOPBACK_HOST: Final = "127.0.0.1"
+"""The only address the API binds to (``PLAN.md`` §6, A6)."""
 
 
 class _Section(BaseModel):
@@ -76,6 +86,8 @@ class _Section(BaseModel):
 
 
 class ApiConfig(_Section):
+    host: Annotated[str, AfterValidator(_loopback)]
+    """Always ``127.0.0.1``; validation refuses any other value."""
     port: int = Field(ge=0, le=65535)
     allowed_origins: list[str]
 

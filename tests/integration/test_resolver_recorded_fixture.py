@@ -5,6 +5,10 @@
 the registry rows through the Claude parser, the ancestor chains through the Claude ``ps`` parser
 and the host data through the host adapters' parsers, so the whole chain is exercised. The check is
 on 100 % of rows for the workspace, the project, the state, the host and the window.
+
+The same capture also goes through a running daemon (ingest gate, writer, live view, resolver) and
+is read back from ``/now``: the spike table and ``/now`` agree on 100 % of rows (WP1.8's done
+condition).
 """
 
 from __future__ import annotations
@@ -17,6 +21,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from api_support import (
+    Win,
+    activity_snapshot,
+    client,
+    make_daemon,
+    session_snapshot,
+    sessions_collector,
+    window_snapshot,
+    windows_collector,
+)
 
 from fylgja.collectors.claude import parse
 from fylgja.core import hosts
@@ -24,6 +38,7 @@ from fylgja.core.hosts import CmuxData, CmuxStore, HostData, JetBrainsProject
 from fylgja.core.resolver import Placement, Resolution, SessionInput, resolve
 from fylgja.models import ProcessRef
 from fylgja.store.rows import WindowRow
+from fylgja.testing.fakes import FakeClock
 
 CAPTURE = Path(__file__).resolve().parent.parent / "fixtures" / "resolver" / "recorded"
 OBSERVED = datetime(2026, 10, 5, 19, 0, tzinfo=UTC)
@@ -198,3 +213,109 @@ def test_every_workspace_with_a_window_gets_a_label(capture: Capture) -> None:
 def test_expected_rows_have_the_documented_shape(capture: Capture) -> None:
     keys: Sequence[str] = ("pid", "state", "project", "host", "window_id", "workspace", "via")
     assert all(set(keys) <= set(item) for item in capture.expected)
+
+
+# --- the same capture through the daemon and /now (WP1.8's done condition) -----------------
+
+
+async def _now_of(capture: Capture, *, with_cmux_store: bool = True) -> dict[str, Any]:
+    """Feed the capture through a daemon's ingest gate, as its collectors would, and GET /now."""
+    clock = FakeClock(OBSERVED)
+
+    async def host_data() -> HostData:
+        return capture.host_data(with_cmux_store=with_cmux_store)
+
+    daemon = make_daemon(
+        windows_collector(), sessions_collector(), clock=clock, host_loader=host_data
+    )
+    await daemon.start()
+    try:
+        windows = [
+            Win(
+                w.window_id,
+                w.workspace or "",
+                w.app_name or "",
+                w.app_pid or 0,
+                w.title or "",
+                w.app_bundle_id or "",
+            )
+            for w in capture.windows
+        ]
+        daemon.sink("wm").emit(window_snapshot("wm", windows, OBSERVED))
+        payloads = [
+            parse.session_payload(
+                row, process_key=None, predecessor_key=None, ancestry=capture.chains[row.pid]
+            )
+            for row in capture.rows
+        ]
+        daemon.sink("agents").emit(session_snapshot("agents", payloads, OBSERVED))
+        daemon.sink("agents").emit(
+            activity_snapshot(
+                "agents",
+                {parse.session_key(row.session_id): parse.activity_of(row) for row in capture.rows},
+                OBSERVED,
+            )
+        )
+        await daemon.settle()
+        async with client(daemon) as http:
+            response = await http.get("/now")
+        assert response.status_code == 200
+        now: dict[str, Any] = response.json()
+        return now
+    finally:
+        await daemon.stop()
+
+
+@pytest.mark.parametrize("with_cmux_store", [True, False])
+async def test_the_spike_table_and_now_agree_on_every_row(
+    capture: Capture, with_cmux_store: bool
+) -> None:
+    now = await _now_of(capture, with_cmux_store=with_cmux_store)
+    sessions = {s["native_id"]: s for s in now["sessions"]}
+    assert len(sessions) == len(capture.expected) == 14
+    mismatches: list[str] = []
+    for expected in capture.expected:
+        row = next(row for row in capture.rows if row.pid == expected["pid"])
+        session = sessions[row.session_id]
+        host = session.get("host", {})
+        got = {
+            "workspace": host.get("workspace"),
+            "project": os.path.basename(session.get("project_path", "")),
+            "state": session.get("state"),
+            "host": host.get("kind", ""),
+            "window": None if "window_id" not in host else int(host["window_id"]),
+            "unresolved": "unresolved" in host,
+            "name": session.get("name"),
+            "entrypoint": session.get("entrypoint"),
+            "version": session.get("version"),
+            "pid": session.get("pid"),
+        }
+        want = {
+            "workspace": expected["workspace"],
+            "project": expected["project"],
+            "state": parse.map_state(expected["state"]),
+            "host": expected["host"],
+            "window": expected["window_id"],
+            "unresolved": expected["unresolved"] is not None,
+            "name": expected["name"],
+            "entrypoint": expected["entrypoint"],
+            "version": expected["version"],
+            "pid": expected["pid"],
+        }
+        if got != want:
+            mismatches.append(f"pid {expected['pid']}: got {got}, want {want}")
+    assert mismatches == []
+
+
+async def test_now_reports_how_each_cmux_session_was_joined(capture: Capture) -> None:
+    now = await _now_of(capture)
+    cmux = [s for s in now["sessions"] if s.get("host", {}).get("kind") == "cmux"]
+    assert len(cmux) == 8
+    assert {s["host"]["via"] for s in cmux} == {"cmux-session-store"}
+    assert {s["host"]["confidence"] for s in cmux} == {"high"}
+    assert len({s["host"]["cmux_surface"] for s in cmux}) == 8
+    assert all(s["host"]["ref"].endswith(s["host"]["cmux_surface"]) for s in cmux)
+    jetbrains = [s for s in now["sessions"] if s.get("host", {}).get("kind") == "jetbrains"]
+    assert {s["host"]["via"] for s in jetbrains if "unresolved" in s["host"]} == {"none"}
+    windows = {w["id"] for ws in now["workspaces"] for w in ws["windows"]}
+    assert {s["host"]["window_id"] for s in cmux} <= windows
