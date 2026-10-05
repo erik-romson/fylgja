@@ -18,6 +18,8 @@ MODULES = [
     "fylgja.config",
     "fylgja.collectors.registry",
     "fylgja.paths",
+    "fylgja.collectors.context",
+    "fylgja.collectors.supervisor",
 ]
 
 _PROBE = """

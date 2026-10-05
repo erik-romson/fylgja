@@ -51,4 +51,3 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source_pkgs = ["fylgja"]
