@@ -1,0 +1,5 @@
+#!/bin/sh
+# Recording stub for lidskjalv.sh, for the renderer tests: the panel row's click
+# script only has to name it, never run it.
+[ -n "$LIDSKJALV_STUB_TRACK_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_TRACK_LOG"
+exit 0

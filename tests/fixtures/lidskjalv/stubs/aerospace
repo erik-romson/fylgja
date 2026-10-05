@@ -1,0 +1,27 @@
+#!/bin/sh
+# Recording stub for aerospace(1). Serves the three queries this project makes:
+#   list-windows --focused ...                 -> a single window id  (lidskjalv.sh)
+#   list-windows --all --format %{window-id}   -> one id per line     (lidskjalv.sh)
+#   list-windows --all ... %{workspace}        -> id/workspace table  (lidskjalv_sessions.sh)
+# Both --all forms come from one knob, LIDSKJALV_STUB_WINDOWS, so a test sets the
+# desktop once and every caller sees the same one.
+[ -n "$LIDSKJALV_STUB_AEROSPACE_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_AEROSPACE_LOG"
+windows() {
+    if [ -n "${LIDSKJALV_STUB_WINDOWS+set}" ]; then
+        printf '%s\n' "$LIDSKJALV_STUB_WINDOWS"
+    else
+        printf '100\t2\n87\t8\n195\t5\n'
+    fi
+}
+case "$*" in
+    *--focused*)
+        echo "${LIDSKJALV_STUB_WINDOW_ID-100}"
+        ;;
+    *--all*)
+        case "$*" in
+            *workspace*) windows ;;
+            *)           windows | cut -f1 ;;
+        esac
+        ;;
+esac
+exit "${LIDSKJALV_STUB_AEROSPACE_RC:-0}"

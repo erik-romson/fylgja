@@ -1,0 +1,43 @@
+{
+  "workflow_runs": [
+    {
+      "id": 501,
+      "head_sha": "eee555",
+      "workflow_id": 1,
+      "run_number": 50,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/501",
+      "run_started_at": "2025-06-01T10:00:00Z",
+      "updated_at": "2025-06-01T10:05:00Z"
+    },
+    {
+      "id": 502,
+      "head_sha": "eee555",
+      "workflow_id": 2,
+      "run_number": 25,
+      "name": "Docs",
+      "path": ".github/workflows/docs.yml",
+      "status": "completed",
+      "conclusion": "skipped",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/502",
+      "run_started_at": "2025-06-01T10:00:00Z",
+      "updated_at": "2025-06-01T10:00:10Z"
+    },
+    {
+      "id": 503,
+      "head_sha": "eee555",
+      "workflow_id": 3,
+      "run_number": 12,
+      "name": "Optional",
+      "path": ".github/workflows/optional.yml",
+      "status": "completed",
+      "conclusion": "neutral",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/503",
+      "run_started_at": "2025-06-01T10:00:00Z",
+      "updated_at": "2025-06-01T10:00:05Z"
+    }
+  ]
+}

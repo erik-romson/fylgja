@@ -1,0 +1,8 @@
+#!/bin/sh
+# Recording stub for osascript(1): captures the AppleScript it was handed.
+if [ -n "$LIDSKJALV_STUB_OSASCRIPT_LOG" ]; then
+    cat >> "$LIDSKJALV_STUB_OSASCRIPT_LOG"
+fi
+# Non-zero stands in for a terminal that is absent or refuses the event, which
+# is what makes lidskjalv_show.sh's fallback to Terminal.app testable.
+exit "${LIDSKJALV_STUB_OSASCRIPT_RC:-0}"

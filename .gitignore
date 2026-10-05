@@ -26,3 +26,6 @@ target/
 *.checkpoint
 *.history
 *.runs/
+
+# Local fixture deny-list (customer names); never committed
+tests/fixture-denylist.local.txt

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Recording stub for bash4 (Bash 4+ interpreter).
+# Used as SHOWY_QUOTA_BASH_BIN in quota tests.
+#
+# When lidskjalv_quota_plugin.sh does `exec "$_quota_bash" "$_quota_plugin"`, this stub
+# is exec'd with the showy-quota script as $1.  It records:
+#   interpreter=<$0>   -- proves the resolved binary was used, not PATH bash
+#   script=<$1>        -- proves the renderer was passed as argument (exec'd, not sourced)
+#   SHOWY_QUOTA_*      -- environment visible at exec time
+#   PATH               -- proves the position shim was prepended
+if [ -n "${LIDSKJALV_STUB_BASH4_LOG:-}" ]; then
+    printf 'interpreter=%s\n' "$0"                              >> "$LIDSKJALV_STUB_BASH4_LOG"
+    printf 'script=%s\n'      "${1:-}"                          >> "$LIDSKJALV_STUB_BASH4_LOG"
+    printf 'SHOWY_QUOTA_PROVIDERS=%s\n' \
+        "${SHOWY_QUOTA_PROVIDERS:-}"                            >> "$LIDSKJALV_STUB_BASH4_LOG"
+    printf 'SHOWY_QUOTA_SKETCHYBAR_POSITION=%s\n' \
+        "${SHOWY_QUOTA_SKETCHYBAR_POSITION:-}"                  >> "$LIDSKJALV_STUB_BASH4_LOG"
+    printf 'PATH=%s\n'       "${PATH:-}"                        >> "$LIDSKJALV_STUB_BASH4_LOG"
+    printf 'SHOWY_QUOTA_PALETTE_ELAPSED=%s\n' \
+        "${SHOWY_QUOTA_PALETTE_ELAPSED:-}"                      >> "$LIDSKJALV_STUB_BASH4_LOG"
+    printf 'SHOWY_QUOTA_PALETTE_COUNTDOWN=%s\n' \
+        "${SHOWY_QUOTA_PALETTE_COUNTDOWN:-}"                    >> "$LIDSKJALV_STUB_BASH4_LOG"
+fi
+exit 0

@@ -1,0 +1,5 @@
+{"event":"SessionStart","session_id":"07c2d066-18d3-4816-a0d3-d3b83bb11d08","transcript_path":"/Users/user/.claude/projects/-Users-user-projects-ratatosk-tmp-hook-probe3/07c2d066-18d3-4816-a0d3-d3b83bb11d08.jsonl","source":"startup"}
+{"event":"UserPromptSubmit","keys":["cwd","hook_event_name","permission_mode","prompt","session_id","transcript_path"]}
+{"event":"Stop","session_id":"07c2d066-18d3-4816-a0d3-d3b83bb11d08"}
+{"event":"SessionEnd","reason":"clear","session_id":"07c2d066-18d3-4816-a0d3-d3b83bb11d08"}
+{"event":"SessionStart","session_id":"d09ef654-9c0d-4e51-85c9-65eff5f3cba5","transcript_path":"/Users/user/.claude/projects/-Users-user-projects-ratatosk-tmp-hook-probe3/d09ef654-9c0d-4e51-85c9-65eff5f3cba5.jsonl","source":"clear"}

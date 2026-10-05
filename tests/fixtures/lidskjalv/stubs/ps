@@ -1,0 +1,16 @@
+#!/bin/sh
+# Recording stub for ps(1). Returns a canned process start time string,
+# the way `ps -p <pid> -o lstart=` does on macOS.
+[ -n "$LIDSKJALV_STUB_PS_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_PS_LOG"
+# Non-zero stands in for a pid that is no longer running, which is how
+# `lidskjalv.sh show` tells a live lane from an ended one.
+if [ "${LIDSKJALV_STUB_PS_RC:-0}" != "0" ]; then
+    exit "$LIDSKJALV_STUB_PS_RC"
+fi
+# `-o comm=` asks what a pid actually is, which is how the panel decides whether
+# the pid it recorded is still its own window or something that reused it.
+case "$*" in
+    *comm=*) echo "${LIDSKJALV_STUB_PROC_COMM:-}" ;;
+    *)       echo "${LIDSKJALV_STUB_PROC_START:-Thu Jan  1 00:00:00 2026}" ;;
+esac
+exit 0

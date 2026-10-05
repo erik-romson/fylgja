@@ -1,0 +1,6 @@
+#!/bin/sh
+# Recording stub for swift(1). Stands in for the AppKit measurement:
+# "<visibleFrame.origin.y> <backingScaleFactor>".
+[ -n "$LIDSKJALV_STUB_SWIFT_LOG" ] && echo "called" >> "$LIDSKJALV_STUB_SWIFT_LOG"
+[ "${LIDSKJALV_STUB_SWIFT_RC:-0}" = "0" ] || exit "$LIDSKJALV_STUB_SWIFT_RC"
+printf '%s\n' "${LIDSKJALV_STUB_MEASURE-60.0 1.0}"

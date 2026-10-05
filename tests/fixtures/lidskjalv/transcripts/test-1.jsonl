@@ -1,0 +1,16 @@
+{"type": "system", "subtype": "local_command", "timestamp": "2026-08-27T07:49:39.068Z", "cwd": "/test/path/demo", "sessionId": "test-1", "version": "2.1.247", "gitBranch": "feature-x"}
+{"type": "user", "timestamp": "2026-08-27T07:50:00.000Z", "gitBranch": "feature-x", "message": {"role": "user", "content": "wire up the exporter"}}
+{"type": "assistant", "timestamp": "2026-08-27T07:50:05.000Z", "gitBranch": "feature-x", "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "On it."}]}}
+{"type": "assistant", "timestamp": "2026-08-27T07:50:07.000Z", "message": {"model": "claude-opus-5", "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}}
+{"type": "assistant", "timestamp": "2026-08-27T07:50:09.000Z", "message": {"model": "claude-opus-5", "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "git status"}}]}}
+{"type": "assistant", "timestamp": "2026-08-27T07:50:11.000Z", "message": {"model": "claude-opus-5", "content": [{"type": "tool_use", "name": "Read", "input": {"file_path": "/test/path/demo/exporter.py"}}]}}
+{"type": "assistant", "timestamp": "2026-08-27T07:50:20.000Z", "message": {"model": "claude-opus-5", "content": [{"type": "tool_use", "name": "Edit", "input": {"file_path": "/test/path/demo/exporter.py"}}]}}
+{"type": "assistant", "timestamp": "2026-08-27T07:50:30.000Z", "message": {"model": "claude-opus-5", "content": [{"type": "tool_use", "name": "Write", "input": {"file_path": "/test/path/demo/README.md"}}]}}
+{"type": "user", "timestamp": "2026-08-27T07:50:31.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "content": "ok"}]}}
+{"type": "user", "timestamp": "2026-08-27T07:50:32.000Z", "isMeta": true, "message": {"role": "user", "content": "<system-reminder>noise</system-reminder>"}}
+{"type": "user", "timestamp": "2026-08-27T07:50:33.000Z", "isSidechain": true, "message": {"role": "user", "content": "search the repo for exporters"}}
+{"type": "assistant", "timestamp": "2026-08-27T07:51:00.000Z", "message": {"model": "claude-opus-5", "content": [{"type": "tool_use", "name": "TodoWrite", "input": {"todos": [{"content": "wire the exporter", "status": "completed"}, {"content": "add a test", "status": "in_progress"}, {"content": "document it", "status": "pending"}]}}]}}
+{"type": "mode", "mode": "acceptEdits", "sessionId": "test-1"}
+{"type": "last-prompt", "lastPrompt": "add a test for the exporter", "sessionId": "test-1"}
+{"type": "ai-title", "aiTitle": "Exporter wiring and tests", "sessionId": "test-1"}
+{"type": "user", "timestamp": "2026-08-27T08:10:00.000Z", "gitBranch": "feature-x", "message": {"role": "user", "content": "add a test for the exporter"}}

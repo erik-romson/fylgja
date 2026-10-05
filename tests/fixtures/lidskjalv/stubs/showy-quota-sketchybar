@@ -1,0 +1,14 @@
+#!/bin/sh
+# Recording stub for showy-quota-sketchybar.
+# Used as SHOWY_QUOTA_PLUGIN_BIN in quota tests.
+#
+# Records the interpreter ($0) and quota environment variables so tests can
+# assert on which interpreter invoked this script and what environment it saw.
+if [ -n "${LIDSKJALV_STUB_PLUGIN_LOG:-}" ]; then
+    printf 'interpreter=%s\n' "$0"                              >> "$LIDSKJALV_STUB_PLUGIN_LOG"
+    printf 'SHOWY_QUOTA_PROVIDERS=%s\n' \
+        "${SHOWY_QUOTA_PROVIDERS:-}"                            >> "$LIDSKJALV_STUB_PLUGIN_LOG"
+    printf 'SHOWY_QUOTA_SKETCHYBAR_POSITION=%s\n' \
+        "${SHOWY_QUOTA_SKETCHYBAR_POSITION:-}"                  >> "$LIDSKJALV_STUB_PLUGIN_LOG"
+fi
+exit 0

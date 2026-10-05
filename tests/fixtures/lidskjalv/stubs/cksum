@@ -1,0 +1,4 @@
+#!/bin/sh
+# Recording stub for cksum(1). Produces a deterministic numeric checksum.
+# In tests, delegates to real cksum so the hash is stable and predictable.
+exec cksum "$@"

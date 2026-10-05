@@ -1,0 +1,14 @@
+{"event":"SessionStart","keys":["cwd","hook_event_name","model","session_id","source","transcript_path"],"session_id":"d4560ae0-7cb4-4719-832a-c6f90230334f","transcript_path":"/Users/user/.claude/projects/-Users-user-projects-ratatosk-tmp-hook-probe/d4560ae0-7cb4-4719-832a-c6f90230334f.jsonl","source":"startup"}
+{"event":"UserPromptSubmit","keys":["cwd","hook_event_name","permission_mode","prompt","session_id","transcript_path"]}
+{"event":"Stop","keys":["background_tasks","cwd","effort","hook_event_name","last_assistant_message","permission_mode","session_crons","session_id","stop_hook_active","transcript_path"],"has_last_msg":true,"stop_hook_active":false}
+{"event":"UserPromptSubmit","keys":["cwd","hook_event_name","permission_mode","prompt","session_id","transcript_path"]}
+{"event":"PreToolUse","keys":["cwd","effort","hook_event_name","permission_mode","session_id","tool_input","tool_name","tool_use_id","transcript_path"],"tool_name":"Bash"}
+{"event":"PostToolUse","keys":["cwd","duration_ms","effort","hook_event_name","permission_mode","session_id","tool_input","tool_name","tool_response","tool_use_id","transcript_path"],"tool_name":"Bash"}
+{"event":"Stop","keys":["background_tasks","cwd","effort","hook_event_name","last_assistant_message","permission_mode","session_crons","session_id","stop_hook_active","transcript_path"],"has_last_msg":true,"stop_hook_active":false}
+{"event":"UserPromptSubmit","keys":["cwd","hook_event_name","permission_mode","prompt","session_id","transcript_path"]}
+{"event":"PreToolUse","keys":["cwd","effort","hook_event_name","permission_mode","session_id","tool_input","tool_name","tool_use_id","transcript_path"],"tool_name":"Write"}
+{"event":"PermissionRequest","keys":["cwd","effort","hook_event_name","permission_mode","permission_suggestions","session_id","tool_input","tool_name","transcript_path"],"tool_name":"Write"}
+{"event":"Notification","keys":["cwd","hook_event_name","message","notification_type","session_id","transcript_path"],"message":"Claude needs your permission"}
+{"event":"PostToolUse","keys":["cwd","duration_ms","effort","hook_event_name","permission_mode","session_id","tool_input","tool_name","tool_response","tool_use_id","transcript_path"],"tool_name":"Write"}
+{"event":"Stop","keys":["background_tasks","cwd","effort","hook_event_name","last_assistant_message","permission_mode","session_crons","session_id","stop_hook_active","transcript_path"],"has_last_msg":true,"stop_hook_active":false}
+{"event":"SessionEnd","keys":["cwd","hook_event_name","reason","session_id","transcript_path"],"reason":"prompt_input_exit"}

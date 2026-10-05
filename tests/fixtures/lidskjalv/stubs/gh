@@ -1,0 +1,65 @@
+#!/bin/sh
+# Recording stub for gh(1).
+# Logs its arguments and replays a canned response.
+#
+#   LIDSKJALV_STUB_GH_LOG              argument list appended here (one line per call)
+#   LIDSKJALV_STUB_GH_IFNONEMATCH_LOG  "If-None-Match: <value>" appended here when present
+#   LIDSKJALV_STUB_GH_RESPONSE         path to a single response file (fallback)
+#   LIDSKJALV_STUB_GH_MAP              path to a map file: each line is
+#                               <url-substring><FS><response-file>
+#                               where FS is ASCII 034; first match wins
+#   LIDSKJALV_STUB_GH_RC               exit code to use (default: 0)
+
+[ -n "$LIDSKJALV_STUB_GH_LOG" ] && printf '%s\n' "$*" >> "$LIDSKJALV_STUB_GH_LOG"
+
+# Scan args for -H "If-None-Match: ..." and record it
+_prev=""
+for _arg in "$@"; do
+    case "$_prev" in
+        -H)
+            case "$_arg" in
+                [Ii][Ff]-[Nn][Oo][Nn][Ee]-[Mm][Aa][Tt][Cc][Hh]:*)
+                    _val="${_arg#*: }"
+                    [ -n "$LIDSKJALV_STUB_GH_IFNONEMATCH_LOG" ] && \
+                        printf 'If-None-Match: %s\n' "$_val" >> "$LIDSKJALV_STUB_GH_IFNONEMATCH_LOG"
+                    ;;
+            esac
+            ;;
+    esac
+    _prev="$_arg"
+done
+
+# Extract the URL argument (first arg that looks like an API path)
+_url=""
+for _arg in "$@"; do
+    case "$_arg" in
+        repos/*)
+            _url="$_arg"
+            break
+            ;;
+    esac
+done
+
+# Resolve response file: LIDSKJALV_STUB_GH_MAP first, LIDSKJALV_STUB_GH_RESPONSE as fallback
+_response_file=""
+_FS=$(printf '\034')
+if [ -n "${LIDSKJALV_STUB_GH_MAP:-}" ] && [ -f "$LIDSKJALV_STUB_GH_MAP" ] && [ -n "$_url" ]; then
+    while IFS= read -r _line; do
+        _substr="${_line%%${_FS}*}"
+        _file="${_line#*${_FS}}"
+        case "$_url" in
+            *"${_substr}"*)
+                _response_file="$_file"
+                break
+                ;;
+        esac
+    done < "$LIDSKJALV_STUB_GH_MAP"
+fi
+
+if [ -z "$_response_file" ] && [ -n "${LIDSKJALV_STUB_GH_RESPONSE:-}" ]; then
+    _response_file="$LIDSKJALV_STUB_GH_RESPONSE"
+fi
+
+[ -n "$_response_file" ] && [ -f "$_response_file" ] && cat "$_response_file"
+
+exit "${LIDSKJALV_STUB_GH_RC:-0}"

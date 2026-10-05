@@ -1,0 +1,2 @@
+{"event":"SessionStart","keys":["cwd","hook_event_name","model","session_id","source","transcript_path"],"session_id":"288dfd50-0b9a-4497-831f-b7fa5e349306","transcript_path":"/Users/user/.claude/projects/-Users-user-projects-ratatosk-tmp-hook-probe2/288dfd50-0b9a-4497-831f-b7fa5e349306.jsonl","source":"startup"}
+{"event":"UserPromptSubmit","keys":["cwd","hook_event_name","permission_mode","prompt","session_id","transcript_path"]}

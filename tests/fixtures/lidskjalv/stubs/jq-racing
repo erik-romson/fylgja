@@ -1,0 +1,13 @@
+#!/bin/sh
+# jq stub that lands a newer record while the script under test is mid-write.
+#
+# The compare-before-rename guard in lidskjalv.sh only fires when another hook
+# process overtakes this one between the initial read and the mv. Forging a high
+# seq up front cannot reproduce that -- the script would just read it and count
+# past it. This stub creates the real interleaving.
+if [ -n "$LIDSKJALV_STUB_RACE_RECORD" ] && [ -f "$LIDSKJALV_STUB_RACE_RECORD" ]; then
+    jq '.seq = 500 | .state = "compacting"' "$LIDSKJALV_STUB_RACE_RECORD" \
+        > "$LIDSKJALV_STUB_RACE_RECORD.race" 2>/dev/null \
+        && mv "$LIDSKJALV_STUB_RACE_RECORD.race" "$LIDSKJALV_STUB_RACE_RECORD"
+fi
+exec jq "$@"

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Recording stub for open(1). lidskjalv_show.sh reaches for it only when every
+# AppleEvents path has been refused, which is the path that needs no
+# Automation consent.
+[ -n "$LIDSKJALV_STUB_OPEN_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_OPEN_LOG"
+exit "${LIDSKJALV_STUB_OPEN_RC:-0}"

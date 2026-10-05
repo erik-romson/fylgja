@@ -17,6 +17,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "fylgja-fake",
     "httpx>=0.28.1",
     "mypy>=2.4.0",
     "pre-commit>=4.6.2",
@@ -54,3 +55,6 @@ markers = [
 
 [tool.coverage.run]
 branch = true
+
+[tool.uv.sources]
+fylgja-fake = { path = "tests/fake_plugins/fylgja_fake", editable = true }

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Recording stub for sketchybar(1). Logs its arguments, and answers the one
+# query this project makes.
+[ -n "$LIDSKJALV_STUB_SKETCHYBAR_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_SKETCHYBAR_LOG"
+case "$1$2" in
+    --querydisplays)
+        if [ -n "${LIDSKJALV_STUB_DISPLAYS+set}" ]; then
+            printf '%s\n' "$LIDSKJALV_STUB_DISPLAYS"
+        else
+            printf '[{"arrangement-id":1,"UUID":"TEST-UUID-0001","frame":{"x":0,"y":0,"w":3840,"h":2160}}]\n'
+        fi
+        ;;
+esac
+exit 0

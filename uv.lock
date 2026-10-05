@@ -269,6 +269,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fylgja-fake" },
     { name = "httpx" },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -289,6 +290,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fylgja-fake", editable = "tests/fake_plugins/fylgja_fake" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mypy", specifier = ">=2.4.0" },
     { name = "pre-commit", specifier = ">=4.6.2" },
@@ -298,6 +300,11 @@ dev = [
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "ruff", specifier = ">=0.16.10" },
 ]
+
+[[package]]
+name = "fylgja-fake"
+version = "0.1.0"
+source = { editable = "tests/fake_plugins/fylgja_fake" }
 
 [[package]]
 name = "h11"

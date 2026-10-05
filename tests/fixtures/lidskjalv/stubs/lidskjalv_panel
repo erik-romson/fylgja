@@ -1,0 +1,7 @@
+#!/bin/sh
+# Recording stub for the compiled panel. Saves the payload it was handed on
+# stdin and the focus binary it was given, so the CLI tests can assert both
+# without a window server.
+[ -n "$LIDSKJALV_STUB_PANEL_ENV" ] && echo "LIDSKJALV_FOCUS_BIN=$LIDSKJALV_FOCUS_BIN" > "$LIDSKJALV_STUB_PANEL_ENV"
+[ -n "$LIDSKJALV_STUB_PANEL_LOG" ] && cat > "$LIDSKJALV_STUB_PANEL_LOG" || cat > /dev/null
+exit 0

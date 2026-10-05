@@ -1,0 +1,5 @@
+#!/bin/sh
+# Recording stub for kill(1). Logs the pid it was asked to signal, so a test can
+# assert that a recycled pid was left alone.
+[ -n "$LIDSKJALV_STUB_KILL_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_KILL_LOG"
+exit 0

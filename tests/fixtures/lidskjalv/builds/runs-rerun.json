@@ -1,0 +1,30 @@
+{
+  "workflow_runs": [
+    {
+      "id": 402,
+      "head_sha": "ddd444",
+      "workflow_id": 1,
+      "run_number": 42,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/402",
+      "run_started_at": "2025-06-01T11:00:00Z",
+      "updated_at": "2025-06-01T11:05:00Z"
+    },
+    {
+      "id": 401,
+      "head_sha": "ddd444",
+      "workflow_id": 1,
+      "run_number": 41,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/401",
+      "run_started_at": "2025-06-01T10:00:00Z",
+      "updated_at": "2025-06-01T10:04:00Z"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+HTTP/2 200
+content-type: application/json; charset=utf-8
+etag: W/"testEtag789"
+x-ratelimit-remaining: 50
+x-ratelimit-limit: 5000
+
+{
+  "workflow_runs": [
+    {
+      "id": 100,
+      "head_sha": "aaa111",
+      "workflow_id": 1,
+      "run_number": 10,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/100",
+      "run_started_at": "2025-06-01T10:00:00Z",
+      "updated_at": "2025-06-01T10:06:00Z"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+#!/bin/sh
+# Recording stub for git(1).
+# Handles the four invocations lib/builds.sh makes, all arriving as:
+#   git -C <root> <verb> ...
+#
+# Driven by environment variables:
+#   LIDSKJALV_STUB_GIT_LOG          when set, full argument list is appended here
+#   LIDSKJALV_STUB_GIT_REMOTE       answer for: remote get-url origin
+#   LIDSKJALV_STUB_GIT_BRANCH       answer for: branch --show-current
+#   LIDSKJALV_STUB_GIT_HEAD         answer for: rev-parse HEAD
+#   LIDSKJALV_STUB_GIT_ORIGIN_HEAD  answer for: rev-parse origin/<branch>
+#
+# Set a variable to the literal string FAIL to exit 1 printing nothing.
+# Leave a variable unset or empty to print nothing and exit 0.
+
+[ -n "$LIDSKJALV_STUB_GIT_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_GIT_LOG"
+
+# Skip -C <root> prefix when present
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -C) shift; shift ;;  # consume flag and its argument
+        *)  break ;;
+    esac
+done
+
+# Now $@ is the git verb and its arguments
+case "$1" in
+    remote)
+        # git remote get-url origin
+        case "${LIDSKJALV_STUB_GIT_REMOTE:-}" in
+            FAIL) exit 1 ;;
+            "")   exit 0 ;;
+            *)    printf '%s\n' "$LIDSKJALV_STUB_GIT_REMOTE"; exit 0 ;;
+        esac
+        ;;
+    branch)
+        # git branch --show-current
+        case "${LIDSKJALV_STUB_GIT_BRANCH:-}" in
+            FAIL) exit 1 ;;
+            "")   exit 0 ;;
+            *)    printf '%s\n' "$LIDSKJALV_STUB_GIT_BRANCH"; exit 0 ;;
+        esac
+        ;;
+    rev-parse)
+        case "$2" in
+            HEAD)
+                case "${LIDSKJALV_STUB_GIT_HEAD:-}" in
+                    FAIL) exit 1 ;;
+                    "")   exit 0 ;;
+                    *)    printf '%s\n' "$LIDSKJALV_STUB_GIT_HEAD"; exit 0 ;;
+                esac
+                ;;
+            origin/*)
+                case "${LIDSKJALV_STUB_GIT_ORIGIN_HEAD:-}" in
+                    FAIL) exit 1 ;;
+                    "")   exit 0 ;;
+                    *)    printf '%s\n' "$LIDSKJALV_STUB_GIT_ORIGIN_HEAD"; exit 0 ;;
+                esac
+                ;;
+            *)
+                exit 0
+                ;;
+        esac
+        ;;
+    *)
+        exit 0
+        ;;
+esac

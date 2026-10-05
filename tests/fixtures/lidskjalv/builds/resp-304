@@ -1,0 +1,5 @@
+HTTP/2 304
+etag: W/"testEtag123"
+x-ratelimit-remaining: 4870
+x-ratelimit-limit: 5000
+

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Recording stub for swiftc(1). Writes an executable at -o and logs its args, so
+# the install tests can assert the panel is built without needing a toolchain.
+[ -n "$LIDSKJALV_STUB_SWIFTC_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_SWIFTC_LOG"
+[ "${LIDSKJALV_STUB_SWIFTC_RC:-0}" = "0" ] || exit "$LIDSKJALV_STUB_SWIFTC_RC"
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in -o) out="$2"; shift ;; esac
+    shift
+done
+[ -n "$out" ] || exit 1
+printf '#!/bin/sh\nexit 0\n' > "$out" && chmod +x "$out"
+exit 0

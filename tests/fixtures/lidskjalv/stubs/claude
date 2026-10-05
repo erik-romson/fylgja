@@ -1,0 +1,30 @@
+#!/bin/sh
+# Recording stub for claude(1). Serves the one query this project makes:
+#   agents --json  -> the live interactive session roster (lidskjalv_sessions.sh)
+#
+# With LIDSKJALV_STUB_ROSTER unset it prints nothing, which is how the renderer sees a
+# machine with no usable roster -- the state every test written before the
+# roster existed expects.
+[ -n "$LIDSKJALV_STUB_CLAUDE_LOG" ] && echo "$*" >> "$LIDSKJALV_STUB_CLAUDE_LOG"
+[ "${LIDSKJALV_STUB_CLAUDE_RC:-0}" = "0" ] || exit "$LIDSKJALV_STUB_CLAUDE_RC"
+case "$*" in
+    *agents*--json*)
+        [ -n "${LIDSKJALV_STUB_ROSTER+set}" ] && printf '%s\n' "$LIDSKJALV_STUB_ROSTER"
+        ;;
+    *-p*)
+        # The story call. LIDSKJALV_STUB_STORY_RC=1 stands in for a model call that
+        # failed, which must leave the previous summaries standing.
+        #
+        # The reply is two labelled lines (D30). LIDSKJALV_STUB_STORY overrides the
+        # whole reply, so a test can hand back an unlabelled one, a half-labelled
+        # one, or both fields on a single line.
+        [ "${LIDSKJALV_STUB_STORY_RC:-0}" = "0" ] || exit "$LIDSKJALV_STUB_STORY_RC"
+        if [ -n "${LIDSKJALV_STUB_STORY+set}" ]; then
+            printf '%s\n' "$LIDSKJALV_STUB_STORY"
+        else
+            printf 'ARC: %s\n' "${LIDSKJALV_STUB_ARC:-a stubbed arc of the whole session}"
+            printf 'NOW: %s\n' "${LIDSKJALV_STUB_NOW:-a stubbed one-sentence summary}"
+        fi
+        ;;
+esac
+exit 0
