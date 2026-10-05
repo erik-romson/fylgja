@@ -1,0 +1,179 @@
+{
+  "schema": "fylgja.now/1",
+  "generated_at": "2026-10-05T12:00:00Z",
+  "focused": {
+    "window_id": "100",
+    "workspace": "1",
+    "app_name": "cmux",
+    "bundle_id": "com.cmuxterm.app",
+    "title": "Shell",
+    "session_key": "claude:new-2",
+    "since": "2026-10-05T12:00:00Z"
+  },
+  "workspaces": [
+    {
+      "name": "1",
+      "label": "alpha",
+      "label_source": "inferred",
+      "inferred_label": "alpha",
+      "one_liner": "alpha",
+      "focused": true,
+      "windows": [
+        {
+          "id": "100",
+          "app": "cmux",
+          "bundle_id": "com.cmuxterm.app",
+          "title": "Shell",
+          "focused": true
+        }
+      ],
+      "projects": [
+        "/work/alpha"
+      ],
+      "sessions": [
+        "claude:new-2"
+      ]
+    },
+    {
+      "name": "2",
+      "label": "IntelliJ IDEA gamma",
+      "label_source": "inferred",
+      "inferred_label": "IntelliJ IDEA gamma",
+      "one_liner": "IntelliJ IDEA gamma",
+      "focused": false,
+      "windows": [
+        {
+          "id": "101",
+          "app": "IntelliJ IDEA",
+          "bundle_id": "com.jetbrains.intellij",
+          "title": "gamma – Main.java",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "3",
+      "label": "iTerm2 Shell",
+      "label_source": "inferred",
+      "inferred_label": "iTerm2 Shell",
+      "one_liner": "iTerm2 Shell",
+      "focused": false,
+      "windows": [
+        {
+          "id": "102",
+          "app": "iTerm2",
+          "bundle_id": "com.googlecode.iterm2",
+          "title": "Shell",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "4",
+      "label": "Safari Release",
+      "label_source": "inferred",
+      "inferred_label": "Safari Release",
+      "one_liner": "Safari Release",
+      "focused": false,
+      "windows": [
+        {
+          "id": "103",
+          "app": "Safari",
+          "bundle_id": "com.apple.Safari",
+          "title": "Release notes",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "5",
+      "label": "—",
+      "label_source": "none",
+      "one_liner": "—",
+      "focused": false,
+      "windows": [],
+      "projects": [],
+      "sessions": []
+    }
+  ],
+  "sessions": [
+    {
+      "key": "claude:new-2",
+      "kind": "claude",
+      "native_id": "new-2",
+      "cwd": "/work/alpha",
+      "project_path": "/work/alpha",
+      "pid": 501,
+      "state": "idle",
+      "state_since": "2026-10-05T12:00:00Z",
+      "host": {
+        "kind": "cmux",
+        "window_id": "100",
+        "workspace": "1",
+        "via": "parent-chain",
+        "confidence": "window-only"
+      },
+      "entrypoint": "cli",
+      "lane_key": "501-1790000000",
+      "process_key": "501-1790000000",
+      "predecessor_key": "claude:old-1",
+      "facts": {
+        "title": "Review the release notes",
+        "prompt": "summarise the release notes",
+        "said": "Done. The notes are summarised above.",
+        "mode": "default",
+        "branch": "main",
+        "version": "2.1.289",
+        "model": "claude-opus-5",
+        "turns": 2,
+        "started": 1790000100,
+        "last_at": 1790000160,
+        "prompts": [
+          "summarise the release notes"
+        ],
+        "tools": {},
+        "files": [],
+        "tasks": []
+      },
+      "one_liner": "—",
+      "one_liner_from": "none",
+      "first_seen": "2026-10-05T12:00:00Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    }
+  ],
+  "projects": [
+    {
+      "path": "/work/alpha",
+      "name": "alpha",
+      "repo_root": "/work/alpha",
+      "workspace": "1",
+      "sessions": [
+        "claude:new-2"
+      ],
+      "updated_at": "2026-10-05T12:00:00Z"
+    }
+  ],
+  "collectors": [
+    {
+      "name": "agents",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    },
+    {
+      "name": "wm",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    }
+  ],
+  "degraded": []
+}

@@ -1,0 +1,121 @@
+{
+  "schema": "fylgja.now/1",
+  "generated_at": "2026-10-05T12:00:01Z",
+  "focused": {
+    "window_id": "100",
+    "workspace": "1",
+    "app_name": "cmux",
+    "bundle_id": "com.cmuxterm.app",
+    "title": "Shell",
+    "since": "2026-10-05T12:00:00Z"
+  },
+  "workspaces": [
+    {
+      "name": "1",
+      "label": "alpha",
+      "label_source": "inferred",
+      "inferred_label": "alpha",
+      "one_liner": "alpha",
+      "focused": true,
+      "windows": [
+        {
+          "id": "100",
+          "app": "cmux",
+          "bundle_id": "com.cmuxterm.app",
+          "title": "Shell",
+          "focused": true
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "2",
+      "label": "IntelliJ IDEA gamma",
+      "label_source": "inferred",
+      "inferred_label": "IntelliJ IDEA gamma",
+      "one_liner": "IntelliJ IDEA gamma",
+      "focused": false,
+      "windows": [
+        {
+          "id": "101",
+          "app": "IntelliJ IDEA",
+          "bundle_id": "com.jetbrains.intellij",
+          "title": "gamma – Main.java",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "3",
+      "label": "iTerm2 Shell",
+      "label_source": "inferred",
+      "inferred_label": "iTerm2 Shell",
+      "one_liner": "iTerm2 Shell",
+      "focused": false,
+      "windows": [
+        {
+          "id": "102",
+          "app": "iTerm2",
+          "bundle_id": "com.googlecode.iterm2",
+          "title": "Shell",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "4",
+      "label": "Safari Release",
+      "label_source": "inferred",
+      "inferred_label": "Safari Release",
+      "one_liner": "Safari Release",
+      "focused": false,
+      "windows": [
+        {
+          "id": "103",
+          "app": "Safari",
+          "bundle_id": "com.apple.Safari",
+          "title": "Release notes",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "5",
+      "label": "—",
+      "label_source": "none",
+      "one_liner": "—",
+      "focused": false,
+      "windows": [],
+      "projects": [],
+      "sessions": []
+    }
+  ],
+  "collectors": [
+    {
+      "name": "agents",
+      "origin": "built-in",
+      "state": "degraded",
+      "since": "2026-10-05T12:00:01Z",
+      "restarts": 0,
+      "last_error_kind": "synthetic"
+    },
+    {
+      "name": "wm",
+      "origin": "built-in",
+      "state": "ok",
+      "since": "2026-10-05T12:00:01Z",
+      "last_ok_at": "2026-10-05T12:00:01Z",
+      "restarts": 0
+    }
+  ],
+  "degraded": [
+    "agents"
+  ]
+}
