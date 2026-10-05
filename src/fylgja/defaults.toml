@@ -36,6 +36,33 @@ enabled = false
 ttl_seconds = 300
 max_concurrent = 3
 
+# The Claude Code hook events `fylgja install hooks` registers, each as an async `fylgja hook <Event>`
+# command (A2). Notification and SessionEnd use the matcher "": the hook reads the notification type
+# and the end reason from the payload. High-rate events (MessageDisplay, FileChanged) stay out. The
+# installer registers only the events the installed Claude version supports.
+[hooks]
+events = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "PermissionRequest",
+  "PermissionDenied",
+  "Notification",
+  "Stop",
+  "StopFailure",
+  "SubagentStart",
+  "SubagentStop",
+  "TaskCreated",
+  "TaskCompleted",
+  "PreCompact",
+  "PostCompact",
+  "PostModelSwitch",
+  "CwdChanged",
+  "SessionEnd",
+]
+
 # Absolute paths, because launchd's PATH is minimal.
 [paths]
 aerospace = "/opt/homebrew/bin/aerospace"

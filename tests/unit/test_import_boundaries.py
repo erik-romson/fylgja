@@ -45,6 +45,7 @@ MODULES = [
     "fylgja.cli.render",
     "fylgja.cli.install",
     "fylgja.cli.doctor",
+    "fylgja.hook",
 ]
 
 _PROBE = """
@@ -115,3 +116,25 @@ def test_paths_does_not_pull_in_the_rest_of_fylgja() -> None:
         [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=25
     )
     assert result.stdout.strip() == "['fylgja', 'fylgja.paths']"
+
+
+def test_hook_loads_no_third_party_module_and_only_paths() -> None:
+    probe = (
+        "import sys\n"
+        "before = set(sys.modules)\n"
+        "import fylgja.hook\n"
+        "new = set(sys.modules) - before\n"
+        "stdlib = sys.stdlib_module_names\n"
+        "print(sorted(m for m in new if m.split('.')[0] not in stdlib and m != 'fylgja'"
+        " and not m.startswith('fylgja.')))\n"
+        "print(sorted(m for m in sys.modules if m.startswith('fylgja')))\n"
+        "print('typing' in new)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=25
+    )
+    assert result.stdout.splitlines() == [
+        "[]",
+        "['fylgja', 'fylgja.hook', 'fylgja.paths']",
+        "False",
+    ]

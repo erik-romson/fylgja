@@ -36,13 +36,72 @@ def test_the_entry_module_imports_no_third_party_module() -> None:
     assert result.stdout.split() == ["False"]
 
 
-def test_main_hands_over_to_the_typer_app(monkeypatch: pytest.MonkeyPatch) -> None:
+def _fake_typer_app(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
     fake = ModuleType("fylgja.cli.app")
     fake.app = lambda **kwargs: calls.append(kwargs)  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "fylgja.cli.app", fake)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "argv", [["fylgja", "now"], ["fylgja"], ["fylgja", "--help"], ["fylgja", "now", "hook"]]
+)
+def test_main_hands_over_to_the_typer_app(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
+    calls = _fake_typer_app(monkeypatch)
+    monkeypatch.setattr(sys, "argv", argv)
     _entry.main()
     assert calls == [{"prog_name": "fylgja"}]
+
+
+class _HookExit(BaseException):
+    """Stands in for ``os._exit``: the real hook never returns."""
+
+
+@pytest.mark.parametrize(
+    ("argv", "hook_argv"),
+    [
+        (["fylgja", "hook", "Stop"], ["Stop"]),
+        (["fylgja", "hook"], []),
+        (["fylgja", "hook", "--source", "codex", "Stop"], ["--source", "codex", "Stop"]),
+    ],
+)
+def test_hook_is_dispatched_before_typer(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], hook_argv: list[str]
+) -> None:
+    from fylgja import hook
+
+    typer_calls = _fake_typer_app(monkeypatch)
+    seen: list[list[str]] = []
+
+    def fake_hook_main(args: list[str]) -> None:
+        seen.append(list(args))
+        raise _HookExit
+
+    monkeypatch.setattr(hook, "main", fake_hook_main)
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(_HookExit):
+        _entry.main()
+    assert seen == [hook_argv]
+    assert typer_calls == []
+
+
+_HOOK_PROBE = """
+import sys
+import fylgja._entry
+sys.argv = ["fylgja", "hook", "--help"]
+fylgja._entry.main()
+"""
+
+
+def test_hook_dispatch_never_returns_and_exits_zero_silently() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _HOOK_PROBE + "print('not reached')"],
+        capture_output=True,
+        timeout=25,
+        check=False,
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (0, b"", b"")
 
 
 def test_the_console_script_points_at_main() -> None:

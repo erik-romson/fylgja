@@ -1,0 +1,21 @@
+{
+  "schema": "fylgja.hook/1",
+  "id": "6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f",
+  "received_at_ns": 1791231759255399000,
+  "source": "claude",
+  "event_arg": "Stop",
+  "ppid": 4101,
+  "env": {
+    "CLAUDE_CODE_SESSION_ID": "00000000-0000-4000-8000-000000004101",
+    "CLAUDE_PID": "4101",
+    "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/cc-socks/4101.sock",
+    "CMUX_WORKSPACE_ID": "00000000-0000-4000-8000-0000000000a1",
+    "CMUX_SURFACE_ID": "00000000-0000-4000-8000-0000000000a2",
+    "CMUX_TAB_ID": "00000000-0000-4000-8000-0000000000a3",
+    "CMUX_PANEL_ID": "00000000-0000-4000-8000-0000000000a4",
+    "TERM_PROGRAM": "ghostty"
+  },
+  "payload_text": "{\"session_id\":\"00000000-0000-4000-8000-000000004101\",\"transcript_path\":\"/Users/user/.claude/projects/-Users-user-projects-example-1/00000000-0000-4000-8000-000000004101.jsonl\",\"cwd\":\"/Users/user/projects/example-1\",\"permission_mode\":\"default\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":false,\"last_assistant_message\":\"Done.\"}",
+  "truncated": false,
+  "fylgja_version": "0.1.0"
+}

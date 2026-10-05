@@ -31,6 +31,7 @@ __all__ = [
     "ApiConfig",
     "Config",
     "ConfigError",
+    "HooksConfig",
     "PathsConfig",
     "PrivacyConfig",
     "SummariesConfig",
@@ -119,6 +120,24 @@ class SummariesConfig(_Section):
     max_concurrent: int = Field(gt=0)
 
 
+_HOOK_EVENT = re.compile(r"[A-Z][A-Za-z]*")
+
+
+class HooksConfig(_Section):
+    events: list[str]
+    """The Claude Code hook events the installer registers (A2)."""
+
+    @field_validator("events")
+    @classmethod
+    def _event_names(cls, value: list[str]) -> list[str]:
+        for event in value:
+            if _HOOK_EVENT.fullmatch(event) is None:
+                raise ValueError(f"{event!r} is not a hook event name")
+        if len(set(value)) != len(value):
+            raise ValueError("hook events must not repeat")
+        return value
+
+
 class PathsConfig(_Section):
     aerospace: AbsolutePath
     gh: AbsolutePath
@@ -131,6 +150,7 @@ class Config(_Section):
     privacy: PrivacyConfig
     actions: ActionsConfig
     summaries: SummariesConfig
+    hooks: HooksConfig
     paths: PathsConfig
     collectors: dict[str, dict[str, Any]] = Field(default_factory=dict)
 

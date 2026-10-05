@@ -181,3 +181,49 @@ def test_defaults_table_errors_name_defaults_file() -> None:
     with pytest.raises(ConfigError) as info:
         parse_config({}, source="user.toml", defaults=defaults)
     assert info.value.source == "defaults.toml"
+
+
+A2_EVENTS = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "PermissionRequest",
+    "PermissionDenied",
+    "Notification",
+    "Stop",
+    "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "TaskCreated",
+    "TaskCompleted",
+    "PreCompact",
+    "PostCompact",
+    "PostModelSwitch",
+    "CwdChanged",
+    "SessionEnd",
+]
+
+
+def test_default_hook_events_are_the_a2_set() -> None:
+    events = load_config().hooks.events
+    assert events == A2_EVENTS
+    assert "MessageDisplay" not in events
+    assert "FileChanged" not in events
+
+
+def test_user_hook_events_replace_the_default_list() -> None:
+    _write('[hooks]\nevents = ["Stop", "SessionEnd"]\n')
+    assert load_config().hooks.events == ["Stop", "SessionEnd"]
+
+
+@pytest.mark.parametrize(
+    ("events", "fragment"),
+    [('["stop"]', "not a hook event name"), ('["Stop", "Stop"]', "must not repeat")],
+)
+def test_bad_hook_events_are_refused(events: str, fragment: str) -> None:
+    _write(f"[hooks]\nevents = {events}\n")
+    with pytest.raises(ConfigError, match=fragment) as info:
+        load_config()
+    assert info.value.key == "hooks.events"
