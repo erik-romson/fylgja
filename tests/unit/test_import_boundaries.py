@@ -33,6 +33,7 @@ MODULES = [
     "fylgja.core.labels",
     "fylgja.core.project_roots",
     "fylgja.core.resolver",
+    "fylgja.core.sessions",
     "fylgja.collectors.aerospace",
     "fylgja.collectors.claude",
     "fylgja.collectors.claude.inbox",

@@ -1,0 +1,267 @@
+{
+  "scenario": "probe-session",
+  "origin": "tests/fixtures/ratatosk/probe-session/hook-events.ndjson",
+  "pid": 4201,
+  "events": [
+    {
+      "received_at_ns": 1791201600000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": {
+        "state": null,
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201601000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "UserPromptSubmit",
+        "permission_mode": "default",
+        "prompt": "placeholder prompt"
+      },
+      "expect": {
+        "state": "working",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201602000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "Stop",
+        "permission_mode": "default"
+      },
+      "expect": {
+        "state": "turn_done",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201603000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "UserPromptSubmit",
+        "permission_mode": "default",
+        "prompt": "placeholder prompt"
+      },
+      "expect": {
+        "state": "working",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201604000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "default",
+        "tool_name": "Bash",
+        "tool_input": {
+          "file_path": "/work/hook-probe/notes.txt",
+          "content": "placeholder"
+        }
+      },
+      "expect": {
+        "state": "running_tool",
+        "tool": "Bash",
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201605000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "PostToolUse",
+        "permission_mode": "default",
+        "tool_name": "Bash",
+        "tool_input": {
+          "file_path": "/work/hook-probe/notes.txt",
+          "content": "placeholder"
+        },
+        "tool_response": {
+          "ok": true
+        }
+      },
+      "expect": {
+        "state": "working",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201606000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "Stop",
+        "permission_mode": "default"
+      },
+      "expect": {
+        "state": "turn_done",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201607000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "UserPromptSubmit",
+        "permission_mode": "default",
+        "prompt": "placeholder prompt"
+      },
+      "expect": {
+        "state": "working",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201608000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "PreToolUse",
+        "permission_mode": "default",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/work/hook-probe/notes.txt",
+          "content": "placeholder"
+        }
+      },
+      "expect": {
+        "state": "running_tool",
+        "tool": "Write",
+        "target": "notes.txt",
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201609000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "PermissionRequest",
+        "permission_mode": "default",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/work/hook-probe/notes.txt",
+          "content": "placeholder"
+        }
+      },
+      "expect": {
+        "state": "waiting_permission",
+        "tool": "Write",
+        "target": "notes.txt",
+        "reason": "approve Write"
+      }
+    },
+    {
+      "received_at_ns": 1791201610000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "Notification",
+        "permission_mode": "default",
+        "notification_type": "permission_prompt",
+        "message": "Claude needs your permission"
+      },
+      "expect": {
+        "state": "waiting_permission",
+        "tool": "Write",
+        "target": "notes.txt",
+        "reason": "approve Write"
+      }
+    },
+    {
+      "received_at_ns": 1791201611000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "PostToolUse",
+        "permission_mode": "default",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/work/hook-probe/notes.txt",
+          "content": "placeholder"
+        },
+        "tool_response": {
+          "ok": true
+        }
+      },
+      "expect": {
+        "state": "working",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201612000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "Stop",
+        "permission_mode": "default"
+      },
+      "expect": {
+        "state": "turn_done",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201613000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000b1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "SessionEnd",
+        "reason": "prompt_input_exit"
+      },
+      "expect": {
+        "state": "ended",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    }
+  ]
+}

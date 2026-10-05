@@ -13,6 +13,9 @@
 * **commits** it with ``emit_committed`` and **only then** unlinks the file (delete-after-commit).
   Files go to the sink in batches, so the writer groups them into few transactions, while a file
   is unlinked only after *its own* commit has resolved;
+* **skips ignored working directories**: an event whose ``cwd`` matches ``ignore_cwd`` (the
+  registry's list: CodexBar's probe, Fylgja's own summarizer) is removed without an event, so such a
+  session never exists through its hooks either;
 * **dedups on the envelope id**: the event's dedup key derives from it, so a file that survives a
   crash between commit and unlink is ingested a second time as a no-op and then removed;
 * **quarantines** a file that cannot be used (not JSON, wrong schema, unattributable, or rejected
@@ -41,6 +44,7 @@ from typing import Final
 
 from fylgja.collectors.base import Clock, RecordSink
 from fylgja.collectors.claude.normalize import EnvelopeError, normalize, parse_envelope
+from fylgja.collectors.claude.parse import cwd_ignored
 from fylgja.models import HookEvent
 
 __all__ = [
@@ -79,15 +83,18 @@ class DrainResult:
     quarantined: int = 0
     failed: int = 0
     """Files left in place because they could not be committed or removed (tried again)."""
+    ignored: int = 0
+    """Files of an ignored working directory, removed without an event."""
 
     @property
     def handled(self) -> int:
-        return self.committed + self.quarantined
+        return self.committed + self.quarantined + self.ignored
 
     def add(self, other: DrainResult) -> None:
         self.committed += other.committed
         self.quarantined += other.quarantined
         self.failed += other.failed
+        self.ignored += other.ignored
 
 
 class _Watch:
@@ -148,6 +155,7 @@ class InboxDrainer:
         poll_interval: float = 1.0,
         batch_size: int = BATCH_SIZE,
         use_kqueue: bool | None = None,
+        ignore_cwd: tuple[str, ...] = (),
         unlink: _Unlink | None = None,
         rename: _Rename | None = None,
     ) -> None:
@@ -160,6 +168,7 @@ class InboxDrainer:
         self._logger = logger
         self._source = source
         self._kind = kind
+        self._ignore_cwd = ignore_cwd
         self._poll = poll_interval
         self._batch = batch_size
         self._want_kqueue = kqueue_available() if use_kqueue is None else use_kqueue
@@ -282,10 +291,17 @@ class InboxDrainer:
             self._quarantine_file(path, "envelope too large", result)
             return None
         try:
-            return normalize(parse_envelope(content), source=self._source, kind=self._kind)
+            event = normalize(parse_envelope(content), source=self._source, kind=self._kind)
         except EnvelopeError as exc:
             self._quarantine_file(path, str(exc), result)
             return None
+        cwd = event.payload.cwd
+        if cwd is not None and self._ignore_cwd and cwd_ignored(cwd, self._ignore_cwd):
+            # The registry drops these sessions too (CodexBar's probe, Fylgja's summarizer); a hook
+            # event of one must not create a session of its own.
+            self._remove_ignored(path, result)
+            return None
+        return event
 
     def _remove(self, path: Path, result: DrainResult) -> None:
         try:
@@ -299,6 +315,19 @@ class InboxDrainer:
             )
             return
         result.committed += 1
+
+    def _remove_ignored(self, path: Path, result: DrainResult) -> None:
+        try:
+            self._unlink(path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            result.failed += 1
+            self._set_failure(
+                ("inbox_unlink_failed", f"cannot remove a drained file ({_kind(exc)})")
+            )
+            return
+        result.ignored += 1
 
     def _quarantine_file(self, path: Path, reason: str, result: DrainResult) -> None:
         try:

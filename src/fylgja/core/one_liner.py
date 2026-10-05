@@ -4,10 +4,12 @@
 :class:`~fylgja.models.SessionActivity`. No model is called. The first rule that yields text wins:
 
 1. ``waiting``: "Waiting for permission: <tool> <target>" when a tool call is pending, else
-   "Waiting for input: <reason>";
+   "Waiting for input: <reason>". The hook states say which: ``waiting_permission`` is always a
+   permission ("Waiting for permission" when the tool is unknown) and ``waiting_input`` always
+   input;
 2. ``stage``: a norn stage, "<pipeline> · <stage> (<index>/<total>)", or "<pipeline> <status>"
    once the run has finished (the pipeline is the activity's ``title``);
-3. ``tool``: working with a current tool, "<tool> <target>";
+3. ``tool``: working (``working`` or ``running_tool``) with a current tool, "<tool> <target>";
 4. ``task``: working with an open task, the task text;
 5. ``title_prompt``: the title, ": " and the last prompt;
 6. ``title_reply``: the title, ": " and the first sentence of the last reply (either one alone
@@ -52,6 +54,7 @@ __all__ = [
     "RULES",
     "TERMINAL_STATES",
     "WAITING_STATES",
+    "WORKING_STATES",
     "WORKSPACE_SEPARATOR",
     "WorkspaceSession",
     "finalize",
@@ -75,6 +78,9 @@ TERMINAL_STATES: Final = frozenset(
 
 WAITING_STATES: Final = frozenset({"waiting", "waiting_permission", "waiting_input"})
 """Session states that wait on the person: the registry's ``waiting`` and the hook states."""
+
+WORKING_STATES: Final = frozenset({"working", "running_tool"})
+"""Session states in which the agent is at work: the registry's and the hook's."""
 
 _WHITESPACE: Final = re.compile(r"\s+")
 _CONTROL: Final = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -112,11 +118,14 @@ def _join(*parts: str | None, separator: str = " ") -> str:
 
 
 def _waiting(activity: SessionActivity) -> str:
-    if activity.state != "waiting":
+    state = activity.state
+    if state not in WAITING_STATES:
         return ""
     tool = _clean(activity.current_tool)
-    if tool:
+    if tool and state != "waiting_input":
         return "Waiting for permission: " + _join(tool, activity.current_target)
+    if state == "waiting_permission":
+        return "Waiting for permission"
     reason = _clean(activity.waiting_reason)
     return f"Waiting for input: {reason}" if reason else "Waiting for input"
 
@@ -137,14 +146,14 @@ def _stage(activity: SessionActivity) -> str:
 
 
 def _tool(activity: SessionActivity) -> str:
-    if activity.state != "working":
+    if activity.state not in WORKING_STATES:
         return ""
     tool = _clean(activity.current_tool)
     return _join(tool, activity.current_target) if tool else ""
 
 
 def _task(activity: SessionActivity) -> str:
-    return _clean(activity.open_task) if activity.state == "working" else ""
+    return _clean(activity.open_task) if activity.state in WORKING_STATES else ""
 
 
 def _title_prompt(activity: SessionActivity) -> str:

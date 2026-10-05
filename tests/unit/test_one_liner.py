@@ -20,8 +20,19 @@ from fylgja.collectors.claude import facts, parse
 from fylgja.core import one_liner
 from fylgja.core.ingest import IngestGate
 from fylgja.core.one_liner import EMPTY, MAX_CHARS, RULES, session_one_liner
+from fylgja.core.sessions import (
+    HookSignal,
+    RegistrySignal,
+    SessionState,
+    SessionStateEngine,
+    activity_of,
+    ns_of,
+    reduce,
+)
 from fylgja.core.writer import Writer
 from fylgja.models import (
+    HookEvent,
+    HookEventPayload,
     SessionActivity,
     SessionActivityEvent,
     SessionEvent,
@@ -76,6 +87,25 @@ GOLDEN: list[tuple[str, SessionActivity, str, str]] = [
         "Waiting for input: a question",
         "waiting",
     ),
+    (
+        "hook permission with a target",
+        make(state="waiting_permission", current_tool="Write", current_target="notes.txt"),
+        "Waiting for permission: Write notes.txt",
+        "waiting",
+    ),
+    (
+        "hook permission without a tool",
+        make(state="waiting_permission", waiting_reason="approve"),
+        "Waiting for permission",
+        "waiting",
+    ),
+    (
+        "hook input names the reason, never a tool",
+        make(state="waiting_input", waiting_reason="question dialog", current_tool="Bash"),
+        "Waiting for input: question dialog",
+        "waiting",
+    ),
+    ("hook input without a reason", make(state="waiting_input"), "Waiting for input", "waiting"),
     # rule 2: a norn stage
     (
         "stage with a position",
@@ -127,10 +157,22 @@ GOLDEN: list[tuple[str, SessionActivity, str, str]] = [
         "tool",
     ),
     ("tool alone", make(state="working", current_tool="Grep"), "Grep", "tool"),
+    (
+        "a hook's running tool",
+        make(state="running_tool", current_tool="Bash", current_target="ls"),
+        "Bash ls",
+        "tool",
+    ),
     # rule 4: an open task
     (
         "open task",
         make(state="working", open_task="  write   the\nschema ", title="T", last_prompt="p"),
+        "write the schema",
+        "task",
+    ),
+    (
+        "open task while a tool runs without a name",
+        make(state="running_tool", open_task="write the schema"),
         "write the schema",
         "task",
     ),
@@ -432,11 +474,182 @@ def test_every_fixture_session_gets_a_non_empty_line_in_every_state() -> None:
 
 
 # --------------------------------------------------------------------------------------------
+# The waiting rules driven from real state transitions (WP2.3)
+# --------------------------------------------------------------------------------------------
+
+
+def _signal(event: str, n: int, **fields: Any) -> HookSignal:
+    moment = T0.replace(second=n)
+    return HookSignal(event=event, received_at_ns=ns_of(moment), observed_at=moment, **fields)
+
+
+def _line(state: SessionState | None, base: SessionActivity | None = None) -> tuple[str, str]:
+    assert state is not None
+    return session_one_liner(activity_of(state, base))
+
+
+TRANSITIONS: list[tuple[str, list[HookSignal], tuple[str, str]]] = [
+    ("a prompt", [_signal("UserPromptSubmit", 1)], ("Fix: add a test", "title_prompt")),
+    (
+        "a tool starts",
+        [_signal("UserPromptSubmit", 1), _signal("PreToolUse", 2, tool_name="Bash")],
+        ("Bash", "tool"),
+    ),
+    (
+        "a file tool starts",
+        [_signal("PreToolUse", 1, tool_name="Edit", target="module.py")],
+        ("Edit module.py", "tool"),
+    ),
+    (
+        "the tool asks for permission",
+        [
+            _signal("PreToolUse", 1, tool_name="Edit", target="module.py"),
+            _signal("PermissionRequest", 2, tool_name="Edit", target="module.py"),
+        ],
+        ("Waiting for permission: Edit module.py", "waiting"),
+    ),
+    (
+        "the notification follows the request",
+        [
+            _signal("PreToolUse", 1, tool_name="Edit", target="module.py"),
+            _signal("PermissionRequest", 2, tool_name="Edit", target="module.py"),
+            _signal("Notification", 3, notification_type="permission_prompt"),
+        ],
+        ("Waiting for permission: Edit module.py", "waiting"),
+    ),
+    (
+        "a notification alone",
+        [_signal("Notification", 1, notification_type="permission_prompt")],
+        ("Waiting for permission", "waiting"),
+    ),
+    (
+        "the user grants it",
+        [
+            _signal("PermissionRequest", 1, tool_name="Bash"),
+            _signal("PostToolUse", 2, tool_name="Bash"),
+        ],
+        ("Fix: add a test", "title_prompt"),
+    ),
+    (
+        "the agent needs input",
+        [_signal("Notification", 1, notification_type="agent_needs_input")],
+        ("Waiting for input: agent needs input", "waiting"),
+    ),
+    (
+        "an elicitation dialog",
+        [
+            _signal("PreToolUse", 1, tool_name="Bash"),
+            _signal("Notification", 2, notification_type="elicitation_dialog"),
+        ],
+        ("Waiting for input: question dialog", "waiting"),
+    ),
+    (
+        "the turn is done",
+        [_signal("UserPromptSubmit", 1), _signal("Stop", 2)],
+        ("Fix: add a test", "title_prompt"),
+    ),
+    (
+        "the person answers",
+        [
+            _signal("Notification", 1, notification_type="agent_needs_input"),
+            _signal("UserPromptSubmit", 2),
+        ],
+        ("Fix: add a test", "title_prompt"),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("events", "expected"),
+    [case[1:] for case in TRANSITIONS],
+    ids=[case[0] for case in TRANSITIONS],
+)
+def test_the_waiting_rules_fire_from_real_state_transitions(
+    events: list[HookSignal], expected: tuple[str, str]
+) -> None:
+    base = SessionActivity(title="Fix", last_prompt="add a test")
+    state: SessionState | None = None
+    for event in events:
+        state = reduce(state, event)
+    assert _line(state, base) == expected
+
+
+def test_a_hook_state_replaces_the_registry_waiting_line() -> None:
+    registry = SessionActivity(
+        state="waiting",
+        current_tool="Bash",
+        current_target="rm -rf build",
+        waiting_reason="approve Bash",
+        title="Fix",
+    )
+    assert session_one_liner(registry) == ("Waiting for permission: Bash rm -rf build", "waiting")
+    granted = reduce(
+        reduce(None, _signal("PermissionRequest", 1, tool_name="Bash")),
+        _signal("PostToolUse", 2, tool_name="Bash"),
+    )
+    assert _line(granted, registry) == ("Fix", "title_reply")  # no longer waiting
+    asked = reduce(None, _signal("PermissionRequest", 1, tool_name="Bash"))
+    assert _line(asked, registry) == ("Waiting for permission: Bash rm -rf build", "waiting")
+
+
+def test_the_registry_is_the_fallback_before_the_first_hook() -> None:
+    state = reduce(None, RegistrySignal("waiting", T0, waiting_reason="input needed"))
+    assert _line(state, SessionActivity(state="waiting", waiting_reason="input needed")) == (
+        "Waiting for input: input needed",
+        "waiting",
+    )
+
+
+def test_the_engine_hands_the_writer_activities_whose_line_is_the_waiting_rule() -> None:
+    emitted: list[Any] = []
+    engine = SessionStateEngine(emitted.append, lambda key: None)
+
+    def record(event: str, n: int, **fields: Any) -> HookEvent:
+        return HookEvent(
+            source="claude",
+            entity_id="claude:s",
+            observed_at=T0.replace(second=n),
+            payload=HookEventPayload(session_id="s", event=event, **fields),
+        )
+
+    engine.apply(record("PreToolUse", 1, tool_name="Write", edited_paths=("/w/notes.txt",)))
+    engine.apply(record("PermissionRequest", 2, tool_name="Write", edited_paths=("/w/notes.txt",)))
+    engine.apply(record("Notification", 3, notification_type="elicitation_dialog"))
+    lines = [
+        session_one_liner(item.payload)
+        for item in emitted
+        if isinstance(item, SessionActivityEvent)
+    ]
+    assert lines == [
+        ("Write notes.txt", "tool"),
+        ("Waiting for permission: Write notes.txt", "waiting"),
+        ("Waiting for input: question dialog", "waiting"),
+    ]
+
+
+# --------------------------------------------------------------------------------------------
 # Property: any activity gives a non-empty line of at most 160 characters
 # --------------------------------------------------------------------------------------------
 
 _ALPHABET = "abc XYZ.!?\n\t\x00\x1b—é日本😀[]():/\\'\"0123456789"
-_STATES = [None, "idle", "working", "waiting", "running", "failed", "done", "cancelled", "x"]
+_STATES = [
+    None,
+    "idle",
+    "working",
+    "waiting",
+    "running",
+    "failed",
+    "done",
+    "cancelled",
+    "x",
+    "running_tool",
+    "waiting_permission",
+    "waiting_input",
+    "turn_done",
+    "seen",
+    "error",
+    "ended",
+]
 
 
 def _random_text(rng: random.Random) -> str | None:

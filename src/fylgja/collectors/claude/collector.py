@@ -138,6 +138,7 @@ class ClaudeCollector:
             context.logger,
             poll_interval=settings.inbox_poll_seconds,
             use_kqueue=False if settings.inbox_watch == "poll" else None,
+            ignore_cwd=ignore_cwd,
         )
         self.statusline = StatuslineReader(
             context.paths.data_dir / "statusline", context.sink, context.clock, context.logger

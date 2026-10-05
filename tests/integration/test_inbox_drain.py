@@ -116,6 +116,65 @@ class GatedSink:
         await self.inner.emit_committed(record)
 
 
+# -- ignored working directories ----------------------------------------------------------------
+
+
+async def test_a_hook_event_of_an_ignored_directory_is_removed_without_an_event(
+    stack: Stack,
+) -> None:
+    ignored = put(
+        stack,
+        payload={
+            "session_id": SESSION,
+            "hook_event_name": "Stop",
+            "cwd": "/Users/x/Library/Application Support/CodexBar/ClaudeProbe",
+        },
+    )
+    kept = put(
+        stack,
+        payload={"session_id": SESSION, "hook_event_name": "Stop", "cwd": "/work/project"},
+    )
+    nameless = put(stack, payload={"session_id": SESSION, "hook_event_name": "Stop"})
+    drainer = stack.drainer(ignore_cwd=("CodexBar/ClaudeProbe", "/state/summarizer"))
+    result = await drainer.drain()
+    assert (result.committed, result.ignored, result.quarantined, result.failed) == (2, 1, 0, 0)
+    assert result.handled == 3
+    assert not ignored.exists()
+    assert not kept.exists()
+    assert not nameless.exists()
+    assert len(stack.rows()) == 2
+    assert drainer.totals.ignored == 1
+
+
+async def test_without_an_ignore_list_every_event_is_drained(stack: Stack) -> None:
+    put(
+        stack,
+        payload={"session_id": SESSION, "hook_event_name": "Stop", "cwd": "/state/summarizer"},
+    )
+    result = await stack.drainer().drain()
+    assert (result.committed, result.ignored) == (1, 0)
+
+
+async def test_an_ignored_file_that_cannot_be_removed_is_retried(stack: Stack) -> None:
+    path = put(
+        stack,
+        payload={"session_id": SESSION, "hook_event_name": "Stop", "cwd": "/state/summarizer"},
+    )
+
+    def refuse(target: Any) -> None:
+        raise PermissionError("denied")
+
+    drainer = stack.drainer(ignore_cwd=("/state/summarizer",), unlink=refuse)
+    result = await drainer.drain()
+    assert (result.ignored, result.failed) == (0, 1)
+    assert path.exists()
+    assert drainer.failure is not None
+    assert drainer.failure[0] == "inbox_unlink_failed"
+    vanished = stack.drainer(ignore_cwd=("/state/summarizer",))
+    path.unlink()
+    assert (await vanished.drain()).handled == 0
+
+
 # -- delete-after-commit ------------------------------------------------------------------------
 
 

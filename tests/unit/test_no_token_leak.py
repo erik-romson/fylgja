@@ -160,7 +160,13 @@ def _event_count() -> int:
         return 0
     try:
         with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
-            return int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
+            # The state machine adds derived session and activity events (WP2.3); the drain's own
+            # records are the hook events and the statusline's usage rows.
+            return int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM events WHERE entity_kind IN ('hook_event', 'usage')"
+                ).fetchone()[0]
+            )
     except sqlite3.Error:
         return 0
 

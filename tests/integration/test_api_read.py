@@ -9,6 +9,7 @@ does to ``/now``: its data is absent and the response is still 200.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -33,7 +34,7 @@ from api_support import (
 
 from fylgja.api.now_models import NOW_SCHEMA, Now
 from fylgja.core.daemon import Daemon
-from fylgja.models import HealthState, SessionActivity
+from fylgja.models import HealthState, HookEvent, HookEventPayload, SessionActivity
 from fylgja.testing.fakes import FakeClock, FakeFS
 
 CMUX = "com.cmuxterm.app"
@@ -268,6 +269,84 @@ async def test_sessions_carry_state_host_continuity_facts_and_one_liner(daemon: 
     }
     assert "one_liner" not in codex
     assert "state" not in codex
+
+
+def _hook(event: str, seconds: int, **fields: Any) -> HookEvent:
+    return HookEvent(
+        source="agents",
+        entity_id="claude:s-2",
+        observed_at=T0 + timedelta(seconds=seconds),
+        payload=HookEventPayload(session_id="s-2", event=event, **fields),
+    )
+
+
+async def test_hook_states_flow_into_now_and_a_finished_turn_becomes_seen(daemon: Daemon) -> None:
+    """WP2.3 end to end: hook events change the session's state in ``/now`` without changing the
+    schema, the registry's next report cannot undo them and the focus stream marks the turn seen."""
+    agents, wm = daemon.sink("agents"), daemon.sink("wm")
+
+    async def second() -> Any:
+        sessions = by_key((await _get(daemon, "/now"))["sessions"], "key")
+        return sessions["claude:s-2"]
+
+    agents.emit(_hook("PermissionRequest", 1, tool_name="Edit", edited_paths=("/work/beta/x.py",)))
+    await daemon.settle()
+    asked = await second()
+    assert asked["state"] == "waiting_permission"
+    assert asked["state_since"] == "2026-10-05T12:00:01Z"
+    assert asked["waiting_reason"] == "approve Edit"
+    assert (asked["one_liner"], asked["one_liner_from"]) == (
+        "Waiting for permission: Edit x.py",
+        "waiting",
+    )
+
+    # the registry polls again and still says "working": the hook state stands
+    agents.emit(
+        activity_snapshot(
+            "agents",
+            {"claude:s-2": SessionActivity(state="working", title="Refactor")},
+            T0 + timedelta(seconds=2),
+        )
+    )
+    await daemon.settle()
+    assert (await second())["state"] == "waiting_permission"
+
+    agents.emit(_hook("Stop", 3))
+    await daemon.settle()
+    done = await second()
+    assert (done["state"], done["state_since"]) == ("turn_done", "2026-10-05T12:00:03Z")
+
+    wm.emit(focus_event("wm", "100", "2", T0 + timedelta(seconds=4)))  # another window
+    await daemon.settle()
+    assert (await second())["state"] == "turn_done"
+    wm.emit(focus_event("wm", "102", "10", T0 + timedelta(seconds=5)))  # the session's window
+    await daemon.settle()
+    seen = await second()
+    assert (seen["state"], seen["state_since"]) == ("seen", "2026-10-05T12:00:05Z")
+    assert seen["title"] == "Refactor"
+    Now.model_validate(await _get(daemon, "/now"))
+    assert (await _get(daemon, "/now"))["schema"] == NOW_SCHEMA
+
+
+async def test_a_session_with_hooks_only_appears_in_now(daemon: Daemon) -> None:
+    daemon.sink("agents").emit(
+        HookEvent(
+            source="agents",
+            entity_id="claude:h-9",
+            observed_at=T0 + timedelta(seconds=1),
+            payload=HookEventPayload(
+                session_id="h-9", event="UserPromptSubmit", pid=777, cwd="/work/alpha"
+            ),
+        )
+    )
+    await daemon.settle()
+    sessions = by_key((await _get(daemon, "/now"))["sessions"], "key")
+    hooked = sessions["claude:h-9"]
+    assert (hooked["state"], hooked["pid"], hooked["project_path"]) == (
+        "working",
+        777,
+        "/work/alpha",
+    )
 
 
 async def test_projects_group_sessions_and_know_their_workspace(daemon: Daemon) -> None:

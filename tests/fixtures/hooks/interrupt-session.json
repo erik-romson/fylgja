@@ -1,0 +1,40 @@
+{
+  "scenario": "interrupt-session",
+  "origin": "tests/fixtures/ratatosk/interrupt-session/hook-events.ndjson",
+  "pid": 4202,
+  "events": [
+    {
+      "received_at_ns": 1791201600000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000d1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": {
+        "state": null,
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201601000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000d1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "UserPromptSubmit",
+        "permission_mode": "default",
+        "prompt": "placeholder prompt"
+      },
+      "expect": {
+        "state": "working",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    }
+  ]
+}

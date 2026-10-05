@@ -1,0 +1,89 @@
+{
+  "scenario": "clear-model-session",
+  "origin": "tests/fixtures/ratatosk/clear-model-session/hook-events.ndjson",
+  "pid": 4204,
+  "events": [
+    {
+      "received_at_ns": 1791201600000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000c1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": {
+        "state": null,
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201601000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000c1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "UserPromptSubmit",
+        "permission_mode": "default",
+        "prompt": "placeholder prompt"
+      },
+      "expect": {
+        "state": "working",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201602000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000c1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "Stop",
+        "permission_mode": "default"
+      },
+      "expect": {
+        "state": "turn_done",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201603000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000c1",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "SessionEnd",
+        "reason": "clear"
+      },
+      "expect": {
+        "state": "ended",
+        "tool": null,
+        "target": null,
+        "reason": null
+      }
+    },
+    {
+      "received_at_ns": 1791201604000000000,
+      "payload": {
+        "session_id": "00000000-0000-4000-8000-0000000000c2",
+        "transcript_path": "/work/.claude/projects/hook-probe/transcript.jsonl",
+        "cwd": "/work/hook-probe",
+        "hook_event_name": "SessionStart",
+        "source": "clear"
+      },
+      "expect": {
+        "state": null,
+        "tool": null,
+        "target": null,
+        "reason": null,
+        "predecessor": "claude:00000000-0000-4000-8000-0000000000c1"
+      }
+    }
+  ]
+}

@@ -10,7 +10,9 @@ Data flows **registry → supervisor → ingest gate → writer → state engine
 * between the gate and the writer sits the state engine's tap: the **resolver** sees every record
   (the ancestor chains it needs are never stored) and so does :class:`SessionMemory`, which keeps
   what ``/now`` shows but the store has no column for (the facts block, the entrypoint and the
-  version);
+  version). The **session state machine** (:mod:`fylgja.core.sessions`, WP2.3) filters the records
+  before that: it turns hook events into session state, overlays it on the registry's activity and
+  marks a finished turn ``seen`` when its window gains focus;
 * the writer commits and hands each transaction's changes to the **live view**; a change of
   sessions, windows or workspaces schedules a resolver refresh, which writes the placements and
   inferred labels back through the writer;
@@ -58,6 +60,7 @@ from fylgja.core.live_view import Collection, LiveSnapshot, LiveUpdate, LiveView
 from fylgja.core.project_roots import ProjectLocator
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolver
 from fylgja.core.retention import MaintenanceJob
+from fylgja.core.sessions import SessionStateEngine
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.core.writer import Writer, WriterClosed, session_key, split_session_key
 from fylgja.models import (
@@ -234,17 +237,33 @@ class SessionMemory:
 # --------------------------------------------------------------------------------------------
 
 RecordObserver = Callable[[Record], None]
+RecordFilter = Callable[[Record], Record]
 
 
 class _Tap:
     """The ingest gate's writer: shows every accepted record to the state engine, then queues it.
 
-    An observer that raises is logged and skipped; it never costs the record.
+    A filter may replace the record before it is queued and observed; an observer only looks. One
+    that raises is logged and skipped; it never costs the record.
     """
 
-    def __init__(self, writer: Writer, observers: Sequence[RecordObserver]) -> None:
+    def __init__(
+        self,
+        writer: Writer,
+        observers: Sequence[RecordObserver],
+        filters: Sequence[RecordFilter] = (),
+    ) -> None:
         self._writer = writer
         self._observers = tuple(observers)
+        self._filters = tuple(filters)
+
+    def _filter(self, record: Record) -> Record:
+        for apply in self._filters:
+            try:
+                record = apply(record)
+            except Exception:
+                logger.exception("state engine filter failed")
+        return record
 
     def _observe(self, record: Record) -> None:
         for observer in self._observers:
@@ -254,12 +273,14 @@ class _Tap:
                 logger.exception("state engine observer failed")
 
     def submit(self, record: Record, *, received_at: datetime | None = None) -> None:
+        record = self._filter(record)
         self._writer.submit(record, received_at=received_at)
         self._observe(record)
 
     async def submit_committed(
         self, record: Record, *, received_at: datetime | None = None
     ) -> object:
+        record = self._filter(record)
         self._observe(record)
         return await self._writer.submit_committed(record, received_at=received_at)
 
@@ -330,6 +351,7 @@ class Daemon:
         self.view = LiveView()
         self.writer = Writer(database, clock=self.clock, on_commit=self.view.apply)
         self.memory = SessionMemory()
+        self.session_state = SessionStateEngine(self.writer.submit, self._window_of)
         self.resolver = Resolver(
             self.writer,
             self.view,
@@ -339,7 +361,11 @@ class Daemon:
         )
         self.resolver.on_ids_changed = self._mark_dirty
         self.gate = IngestGate(
-            _Tap(self.writer, (self.resolver.observe, self.memory.observe)),
+            _Tap(
+                self.writer,
+                (self.resolver.observe, self.memory.observe),
+                (self.session_state.apply,),
+            ),
             [item.plugin for item in self.registry if item.runnable and item.plugin is not None],
             privacy=PrivacyFilter.from_config(config.privacy),
             clock=self.clock,
@@ -395,6 +421,10 @@ class Daemon:
             await self.writer.start()
             self.lifecycle.append("start:writer")
             self._rebuild_view()
+            self.session_state.seed(
+                (row.session_key, row.source, row.state, row.state_since, row.waiting_reason)
+                for row in self.view.sessions.values()
+            )
             self.lifecycle.append("start:live_view")
             self._unsubscribe = self.view.subscribe(self._on_update)
             self._mark_dirty()  # place what the store already holds
@@ -471,6 +501,7 @@ class Daemon:
             if change.collection is Collection.SESSIONS and change.row is None:
                 self.memory.forget(change.key)
                 self.resolver.forget(change.key)
+                self.session_state.forget(change.key)
         if update.collections & _ENGINE_TRIGGERS:
             self._mark_dirty()
 
@@ -501,6 +532,11 @@ class Daemon:
             await self.clock.sleep(self._tick)
             self.gate.refresh()
             self._mark_dirty()
+
+    def _window_of(self, key: str) -> str | None:
+        """The resolver's window of a live session (what a focus change is matched against)."""
+        row = self.view.sessions.get(key)
+        return None if row is None else row.window_id
 
     async def _load_hosts(self) -> HostData:
         """Host data for a refresh; nothing is read while no session needs placing."""
