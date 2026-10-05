@@ -231,6 +231,8 @@ class FakeFS:
 
     def __init__(self, files: Mapping[Path | str, bytes | str] | None = None) -> None:
         self._files: dict[PurePosixPath, tuple[bytes, float]] = {}
+        self._inodes: dict[PurePosixPath, int] = {}
+        self._next_inode = itertools.count(1)
         self._dirs: set[PurePosixPath] = {PurePosixPath("/")}
         self._errors: dict[PurePosixPath, OSError] = {}
         self.reads: list[PurePosixPath] = []
@@ -245,6 +247,14 @@ class FakeFS:
         key = _key(path)
         self._add_parents(key)
         self._files[key] = (_bytes(data), mtime)
+        self._inodes.setdefault(key, next(self._next_inode))  # a rewrite keeps the inode
+
+    def replace_file(
+        self, path: Path | str, data: bytes | str = b"", *, mtime: float = 0.0
+    ) -> None:
+        """Write ``path`` the way an atomic replace does: a new inode."""
+        self._inodes.pop(_key(path), None)
+        self.add_file(path, data, mtime=mtime)
 
     def add_dir(self, path: Path | str) -> None:
         key = _key(path)
@@ -302,7 +312,9 @@ class FakeFS:
         if key not in self._files:
             raise self._missing(key)
         data, mtime = self._files[key]
-        return FileInfo(size=len(data), mtime=mtime)
+        return FileInfo(
+            size=len(data), mtime=mtime, ino=self._inodes[key], mtime_ns=round(mtime * 1e9)
+        )
 
     def unlink(self, path: Path | str) -> None:
         key = _key(path)
@@ -310,6 +322,7 @@ class FakeFS:
         if key not in self._files:
             raise self._missing(key)
         del self._files[key]
+        self._inodes.pop(key, None)
 
 
 # --------------------------------------------------------------------------------------------

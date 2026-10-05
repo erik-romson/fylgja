@@ -380,14 +380,16 @@ SELECT {_SESSION_COLUMNS} FROM sessions WHERE ended_at IS NULL ORDER BY session_
 
 UPSERT_SESSION: Final = """
 INSERT INTO sessions
-    (session_key, kind, native_id, source, pid, cwd, name, model, branch, host_kind, host_ref,
-     parent_key, remote_url, first_seen, last_seen, ended_at)
+    (session_key, kind, native_id, source, pid, process_key, cwd, name, model, branch, host_kind,
+     host_ref, parent_key, predecessor_key, remote_url, first_seen, last_seen, ended_at)
 VALUES
-    (:session_key, :kind, :native_id, :source, :pid, :cwd, :name, :model, :branch, :host_kind,
-     :host_ref, :parent_key, :remote_url, :first_seen, :last_seen, :ended_at)
+    (:session_key, :kind, :native_id, :source, :pid, :process_key, :cwd, :name, :model, :branch,
+     :host_kind, :host_ref, :parent_key, :predecessor_key, :remote_url, :first_seen, :last_seen,
+     :ended_at)
 ON CONFLICT (session_key) DO UPDATE SET
     source = excluded.source,
     pid = coalesce(excluded.pid, sessions.pid),
+    process_key = coalesce(excluded.process_key, sessions.process_key),
     cwd = coalesce(excluded.cwd, sessions.cwd),
     name = coalesce(excluded.name, sessions.name),
     model = coalesce(excluded.model, sessions.model),
@@ -395,6 +397,7 @@ ON CONFLICT (session_key) DO UPDATE SET
     host_kind = coalesce(excluded.host_kind, sessions.host_kind),
     host_ref = coalesce(excluded.host_ref, sessions.host_ref),
     parent_key = coalesce(excluded.parent_key, sessions.parent_key),
+    predecessor_key = coalesce(excluded.predecessor_key, sessions.predecessor_key),
     remote_url = coalesce(excluded.remote_url, sessions.remote_url),
     first_seen = min(sessions.first_seen, excluded.first_seen),
     last_seen = excluded.last_seen,
@@ -452,6 +455,7 @@ def upsert_session(
         column: values.get(column)
         for column in (
             "pid",
+            "process_key",
             "cwd",
             "name",
             "model",
@@ -459,6 +463,7 @@ def upsert_session(
             "host_kind",
             "host_ref",
             "parent_key",
+            "predecessor_key",
             "remote_url",
             "ended_at",
         )

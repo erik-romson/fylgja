@@ -29,6 +29,7 @@ MODULES = [
     "fylgja.core.ingest",
     "fylgja.core.retention",
     "fylgja.collectors.aerospace",
+    "fylgja.collectors.claude",
 ]
 
 _PROBE = """

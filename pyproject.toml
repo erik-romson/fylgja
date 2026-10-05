@@ -13,6 +13,7 @@ dependencies = [
 
 [project.entry-points."fylgja.collectors"]
 aerospace = "fylgja.collectors.aerospace:plugin"
+claude = "fylgja.collectors.claude:plugin"
 
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8"]

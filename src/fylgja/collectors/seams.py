@@ -57,6 +57,10 @@ class FileInfo:
     size: int
     mtime: float
     is_dir: bool = False
+    ino: int = 0
+    """The inode number; ``0`` when the filesystem does not report one."""
+    mtime_ns: int = 0
+    """The modification time in nanoseconds; ``0`` when only ``mtime`` is known."""
 
 
 @runtime_checkable

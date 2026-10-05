@@ -165,6 +165,14 @@ class SessionPayload(_Frozen):
     remote_url: str | None = None
     started_at: AwareDatetime | None = None
     ended_at: AwareDatetime | None = None
+    process_key: str | None = None
+    """The OS process (pid plus start time) hosting the session; stable across ``/clear`` (A11)."""
+    predecessor_key: str | None = None
+    """The session key of the session this one replaced in the same process (A11)."""
+    entrypoint: str | None = None
+    version: str | None = None
+    """The agent's own version; messaging is gated on it per target (A9)."""
+    peer_protocol: int | None = None
 
 
 class Stage(_Frozen):

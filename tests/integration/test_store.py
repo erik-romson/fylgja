@@ -842,6 +842,30 @@ async def test_workspaces_focus_and_presence(writer: Writer, db_path: Path, view
     assert view.workspaces["3"].first_seen == at(0)
 
 
+async def test_sessions_keep_process_key_and_predecessor(
+    writer: Writer, db_path: Path, view: LiveView
+) -> None:
+    """A11: the continuity fields are stored, and a later record that omits them keeps them."""
+
+    def event(seconds: float, **fields: Any) -> SessionEvent:
+        return SessionEvent(
+            source="claude",
+            entity_id="claude:b",
+            observed_at=at(seconds),
+            payload=SessionPayload(kind="claude", native_id="b", pid=100, **fields),
+        )
+
+    await emit_all(writer, event(0, process_key="100-1", predecessor_key="claude:a"))
+    assert view.sessions["claude:b"].process_key == "100-1"
+    assert view.sessions["claude:b"].predecessor_key == "claude:a"
+    await emit_all(writer, event(2))
+    stored = rows(
+        db_path,
+        "SELECT process_key, predecessor_key FROM sessions WHERE session_key = 'claude:b'",
+    )
+    assert tuple(stored[0]) == ("100-1", "claude:a")
+
+
 async def test_sessions_merge_end_and_reopen(writer: Writer, db_path: Path, view: LiveView) -> None:
     def listing(seconds: float, *ids: str, name: str | None = None) -> SessionSnapshot:
         return SessionSnapshot(

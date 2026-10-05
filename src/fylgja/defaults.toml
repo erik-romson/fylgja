@@ -48,3 +48,10 @@ codexbar = "/opt/homebrew/bin/codexbar"
 [collectors.aerospace]
 enabled = true
 snapshot_interval_seconds = 30
+
+[collectors.claude]
+enabled = true
+# Registry rows whose cwd matches are dropped: CodexBar's probe sessions. Fylgja's own summarizer
+# cwd is always added. A relative entry matches its path components anywhere in the cwd; an
+# absolute entry matches that directory and everything below it.
+ignore_cwd = ["CodexBar/ClaudeProbe"]

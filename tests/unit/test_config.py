@@ -32,7 +32,10 @@ def test_defaults_load_without_a_user_file() -> None:
     assert config.privacy.redact_patterns
     assert config.privacy.ignore_bundle_ids
     assert config.privacy.ignore_title_patterns
-    assert config.collectors == {"aerospace": {"enabled": True, "snapshot_interval_seconds": 30}}
+    assert config.collectors == {
+        "aerospace": {"enabled": True, "snapshot_interval_seconds": 30},
+        "claude": {"enabled": True, "ignore_cwd": ["CodexBar/ClaudeProbe"]},
+    }
 
 
 def test_every_default_path_is_absolute() -> None:
