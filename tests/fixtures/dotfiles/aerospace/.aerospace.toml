@@ -1,0 +1,6 @@
+# Stub of an AeroSpace configuration (shape only).
+start-at-login = true
+
+[mode.main.binding]
+alt-h = 'focus left'
+alt-l = 'focus right'

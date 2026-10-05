@@ -3,7 +3,9 @@
 ``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions`` and
 ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from it, prints a
 table or, with ``--json``, the JSON, and exits **3** with a clear message when the daemon is down.
-``fylgja --help`` imports no daemon code and starts nothing.
+``doctor``, ``install config`` and ``install launchd`` run locally (the A7 exceptions): doctor
+checks the setup and changes nothing, and the installers print a diff and write only with
+``--apply``. ``fylgja --help`` imports no daemon code and starts nothing.
 
 Exit codes: 0 success, 1 the daemon answered with an error (or the item does not exist),
 2 a configuration error or bad usage, 3 the daemon is not running.
@@ -35,8 +37,16 @@ collectors_app = typer.Typer(
     help="The collector plugins.", no_args_is_help=True, pretty_exceptions_enable=False
 )
 app.add_typer(collectors_app, name="collectors")
+install_app = typer.Typer(
+    help="Install Fylgja's configuration into ~/dotfiles and its launchd agent. "
+    "Without --apply every command only prints what it would change.",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
+app.add_typer(install_app, name="install")
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Print the daemon's JSON.")]
+ApplyOption = Annotated[bool, typer.Option("--apply", help="Write the changes (default: diff).")]
 
 
 def _fail(message: str, code: int) -> NoReturn:
@@ -54,7 +64,8 @@ def _fetch(path: str) -> Any:
         return client.get_json(path)
     except client.DaemonDown as exc:
         _fail(
-            f"daemon not running ({exc.reason}) at {exc.url}; start it with `fylgja serve`",
+            f"daemon not running ({exc.reason}) at {exc.url}; start it with `fylgja serve` "
+            "or `fylgja install launchd --apply`",
             client.EXIT_DAEMON_DOWN,
         )
     except client.ApiError as exc:
@@ -119,3 +130,53 @@ def collectors_list(as_json: JsonOption = False) -> None:
     """The collector plugins, their capabilities and their health."""
     payload = _fetch("/collectors")
     _show(payload, as_json, lambda: render.render_collectors(payload, _width()))
+
+
+@app.command()
+def doctor(
+    as_json: Annotated[bool, typer.Option("--json", help="Print the checks as JSON.")] = False,
+) -> None:
+    """Check the setup: config, plugins, paths, daemon, port, hook commands and dotfiles.
+
+    Runs locally and changes nothing. Exits 0 when no check fails (warnings are allowed), else 1.
+    """
+    import asyncio
+
+    from fylgja.cli import doctor as checks_module
+    from fylgja.core.system import SubprocessRunner
+
+    checks = asyncio.run(checks_module.run_doctor(runner=SubprocessRunner()))
+    typer.echo(
+        checks_module.render_json(checks)
+        if as_json
+        else checks_module.render_checks(checks, _width())
+    )
+    raise typer.Exit(checks_module.exit_code(checks))
+
+
+@install_app.command("config")
+def install_config(apply: ApplyOption = False) -> None:
+    """Create config.toml in ~/dotfiles, list it in dotfiles.conf and link it into place."""
+    import asyncio
+
+    from fylgja.cli import install
+    from fylgja.core.system import SubprocessRunner
+
+    code = asyncio.run(
+        install.run_install_config(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
+    )
+    raise typer.Exit(code)
+
+
+@install_app.command("launchd")
+def install_launchd(apply: ApplyOption = False) -> None:
+    """Write the LaunchAgent plist for `fylgja serve` and bootstrap it with launchctl."""
+    import asyncio
+
+    from fylgja.cli import install
+    from fylgja.core.system import SubprocessRunner
+
+    code = asyncio.run(
+        install.run_install_launchd(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
+    )
+    raise typer.Exit(code)

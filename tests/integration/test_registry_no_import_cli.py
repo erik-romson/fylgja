@@ -74,10 +74,48 @@ def test_collectors_list_and_a_full_serve_never_import_a_disabled_external(
         assert rows[name]["api_version"] == 1
 
 
+def test_doctor_never_imports_a_disabled_external(isolated_env: Path) -> None:
+    """``fylgja doctor`` (a local command, no daemon) leaves the bomb's sentinel absent."""
+    port = free_port()
+    write_config(port)
+    for args in (("doctor", "--json"), ("doctor",)):
+        result = fylgja(*args)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not _sentinel().exists()
+    checks = {c["name"]: c for c in json.loads(fylgja("doctor", "--json").stdout)["checks"]}
+    for name in ("fake", "fake_import_bomb"):
+        assert checks[f"plugin:{name}"]["status"] == "ok"
+        assert "not imported" in checks[f"plugin:{name}"]["detail"]
+        assert f"source:{name}" not in checks  # a disabled external's doctor() is never asked
+    assert checks["daemon"]["status"] == "warn"
+    assert not _sentinel().exists()
+
+
+def test_doctor_alongside_a_running_daemon_still_leaves_no_sentinel(isolated_env: Path) -> None:
+    port = free_port()
+    write_config(port)
+    with serving(port, isolated_env / "serve.out") as served:
+        result = fylgja("doctor", "--json")
+        served.stop(signal.SIGTERM)
+    assert result.returncode == 0, result.stdout + result.stderr
+    checks = {c["name"]: c for c in json.loads(result.stdout)["checks"]}
+    assert checks["daemon"]["status"] == "ok"
+    assert checks["daemon-collectors"]["status"] == "ok"
+    assert checks["port"]["detail"].endswith("held by the Fylgja daemon")
+    assert not _sentinel().exists()
+
+
 def test_the_bomb_does_go_off_when_it_is_enabled(isolated_env: Path) -> None:
-    """Positive control: without it the absence above could hold for the wrong reason."""
+    """Positive control: without it the absence above could hold for the wrong reason.
+
+    ``doctor`` imports it too once it is enabled, and reports the failure.
+    """
     port = free_port()
     write_config(port, "[collectors.fake_import_bomb]\nenabled = true\n")
+    result = fylgja("doctor", "--json")
+    assert result.returncode == 1  # the failed import is a failing check
+    assert _sentinel().read_text(encoding="utf-8") == "imported\n"
+    _sentinel().unlink()
     with serving(port, isolated_env / "serve.out") as served:
         row = _rows(fylgja("collectors", "list", "--json").stdout)["fake_import_bomb"]
         assert row["state"] == "enabled"

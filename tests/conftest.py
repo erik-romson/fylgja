@@ -12,8 +12,12 @@ import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from fylgja.cli.install import Layout
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_ROOT = REPO_ROOT / "target" / "tests"
@@ -76,3 +80,18 @@ def isolated_env(
         yield root
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.fixture
+def fake_home(isolated_env: Path, monkeypatch: pytest.MonkeyPatch) -> Layout:
+    """A fake ``$HOME`` with symlinks into a copy of ``tests/fixtures/dotfiles/``.
+
+    ``FYLGJA_CONFIG_DIR`` points at ``<home>/.config/fylgja`` so that the config file link lands
+    where dotfiles expects it, and ``FYLGJA_STATE_DIR`` at ``<home>/.local/state/fylgja``.
+    """
+    from dotfiles_support import build_home
+
+    home = isolated_env / "home"
+    monkeypatch.setenv("FYLGJA_CONFIG_DIR", str(home / ".config" / "fylgja"))
+    monkeypatch.setenv("FYLGJA_STATE_DIR", str(home / ".local" / "state" / "fylgja"))
+    return build_home(home)

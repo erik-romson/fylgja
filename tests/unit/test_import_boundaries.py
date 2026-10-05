@@ -43,6 +43,8 @@ MODULES = [
     "fylgja.logsetup",
     "fylgja.cli.client",
     "fylgja.cli.render",
+    "fylgja.cli.install",
+    "fylgja.cli.doctor",
 ]
 
 _PROBE = """
