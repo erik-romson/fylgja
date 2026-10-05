@@ -1,0 +1,25 @@
+<application>
+  <component name="RecentProjectsManager">
+    <option name="additionalInfo">
+      <map>
+        <entry key="$USER_HOME$/DataGripProjects/test">
+          <value>
+            <RecentProjectMetaInfo frameTitle="test – rub [customer-1_PROD_STATS prod]" opened="true" projectWorkspaceId="2mAUvUHQI3hKiGqFBOx5xYEd52L">
+              <option name="activationTimestamp" value="1791181933867" />
+              <option name="binFolder" value="$APPLICATION_HOME_DIR$/bin" />
+              <option name="build" value="DB-243.23654.19" />
+              <option name="buildTimestamp" value="1734468960000" />
+              <option name="colorInfo">
+                <RecentProjectColorInfo associatedIndex="0" />
+              </option>
+              <frame x="3839" y="992" width="3840" height="989" extendedState="6" />
+              <option name="productionCode" value="DB" />
+              <option name="projectOpenTimestamp" value="1758258499052" />
+            </RecentProjectMetaInfo>
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="lastOpenedProject" value="$USER_HOME$/DataGripProjects/test" />
+  </component>
+</application>

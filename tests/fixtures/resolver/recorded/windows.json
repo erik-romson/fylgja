@@ -1,0 +1,218 @@
+[
+  {
+    "app-bundle-id": "com.jetbrains.datagrip",
+    "app-name": "DataGrip",
+    "app-pid": 14083,
+    "monitor-id": 1,
+    "window-id": 70,
+    "window-title": "test \u2013 ODS_CBS_S\u2026AIL_CURR_V [@wss.west-europe.\u2026flakecomputing.com]",
+    "workspace": "8"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 92,
+    "window-title": "CBS-2564-portcorrection-integration \u2013 source.xml [pom]",
+    "workspace": "3"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 95,
+    "window-title": "customer-1 CBS-2614 \u2013 customer-1-mxml.xsd [biztalk-mxml-connector-domain]",
+    "workspace": "5"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 2677,
+    "window-title": "customer-1 feature-CBS-2628-show-mappingsuggestion-in-blenda [~/projects/WSS-EA-Ecommerce/customer-1/feature-CBS-2628-show-mappingsuggestion-in-blenda] \u2013 README.md",
+    "workspace": "9"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 94,
+    "window-title": "docker-e2e-testcontainers \u2013 00-all-scenarios.md [pom]",
+    "workspace": "7"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 96,
+    "window-title": "egnedata-partnerportal main \u2013 hetzner-finland-deployment-plan-plan-questions.md",
+    "workspace": "10"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 1898,
+    "window-title": "main [~/projects/erik-romson/fylgja/main] \u2013 PLAN-plan-questions.md",
+    "workspace": "2"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 91,
+    "window-title": "main \u2013 shipserv-prodnumber-testcases-stripped.json [content-improver-caller main]",
+    "workspace": "4"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 93,
+    "window-title": "wss-cbs-gatus \u2013 monitored-application-prerequisites.md",
+    "workspace": "3"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 88,
+    "window-title": "wss-customer-1 \u2013 why-does-transactions-go-into-bucket.md [customer-1-root]",
+    "workspace": "6"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 2804,
+    "window-title": "wss-customer-1-portal-integration main \u2013 prod-cbs4667211/po/expected.xml [portal-integration-integration-tests]",
+    "workspace": "5"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 120,
+    "window-title": "CBS-2564-port-correction \u2013 Repository Diff: pyproject....",
+    "workspace": "11"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 2569,
+    "window-title": "customer-1-contentimprover-services-py coverage-cc-skill \u2013 README.md",
+    "workspace": "11"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 2596,
+    "window-title": "customer-1-contentimprover-services-py features-CBS-2634-set-delivery-date \u2013 CBS-2634-plan-questions.md",
+    "workspace": "11"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 121,
+    "window-title": "draupnir-main \u2013 README.md",
+    "workspace": "18"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 114,
+    "window-title": "jupyter",
+    "workspace": "17"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 1707,
+    "window-title": "lidskjlav main",
+    "workspace": "16"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 118,
+    "window-title": "main [~/projects/WSS-EA-Ecommerce/customer-1-contentimprover-services-py/main] \u2013 port-correction-service-plan-final-plan.md [main]",
+    "workspace": "13"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 119,
+    "window-title": "main-develop \u2013 ~/dotfiles/cmux/.config/cmux/cmux.json",
+    "workspace": "16"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 123,
+    "window-title": "norn main \u2013 ~/Downloads/IntegrationMessage_8193793820.json",
+    "workspace": "12"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 117,
+    "window-title": "ratatosk",
+    "workspace": "14"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 115,
+    "window-title": "wss-customer-1-data-analytics-develop-investigation",
+    "workspace": "20"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 116,
+    "window-title": "wss-customer-1-data-analytics-py [~/projects/WSS-EA-Ecommerce/wss-customer-1-data-analytics-py] \u2013 ~/projects/WSS-EA-Ecommerce/customer-1-contentimprover-services-py/main/pyproject.toml",
+    "workspace": "19"
+  },
+  {
+    "app-bundle-id": "com.cmuxterm.app",
+    "app-name": "cmux",
+    "app-pid": 14076,
+    "monitor-id": 1,
+    "window-id": 66,
+    "window-title": "portal-integration",
+    "workspace": "1"
+  }
+]

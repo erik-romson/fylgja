@@ -29,6 +29,10 @@ MODULES = [
     "fylgja.core.ingest",
     "fylgja.core.retention",
     "fylgja.core.one_liner",
+    "fylgja.core.hosts",
+    "fylgja.core.labels",
+    "fylgja.core.project_roots",
+    "fylgja.core.resolver",
     "fylgja.collectors.aerospace",
     "fylgja.collectors.claude",
 ]

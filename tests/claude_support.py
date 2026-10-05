@@ -100,11 +100,18 @@ def copy_fixture_rows(directory: Path, names: Sequence[str] | None = None) -> li
 
 
 class PsRunner:
-    """A ``ps -o pid=,lstart= -p <pids>`` that answers from a table of start times."""
+    """A ``ps -o pid=,lstart= -p <pids>`` that answers from a table of start times.
+
+    ``ps -A -o pid=,ppid=,comm=`` (the ancestor chains, WP1.8) answers from ``table``; by default
+    every started pid is a child of pid 1 named ``claude``. Those calls go to ``table_calls``.
+    """
 
     def __init__(self) -> None:
         self.starts: dict[int, float] = {}
         self.calls: list[tuple[str, ...]] = []
+        self.table: dict[int, tuple[int, str]] | None = None
+        self.table_calls: list[tuple[str, ...]] = []
+        self.table_error: BaseException | None = None
         self.error: BaseException | None = None
         self.returncode: int | None = None
         self.stdout: bytes | None = None
@@ -116,6 +123,15 @@ class PsRunner:
         timeout: float | None = None,  # noqa: ASYNC109 - mirrors subprocess timeouts
         stdin: bytes | None = None,
     ) -> ProcessResult:
+        if "-A" in argv:
+            self.table_calls.append(tuple(argv))
+            if self.table_error is not None:
+                raise self.table_error
+            table = (
+                {pid: (1, "claude") for pid in self.starts} if self.table is None else self.table
+            )
+            lines = "".join(f"{pid:>5} {ppid:>5} {comm}\n" for pid, (ppid, comm) in table.items())
+            return ProcessResult(tuple(argv), 0, lines.encode())
         self.calls.append(tuple(argv))
         if self.error is not None:
             raise self.error

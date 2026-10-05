@@ -28,6 +28,7 @@ from typing import Any, Final
 
 from fylgja.collectors.claude.facts import PendingTool, open_task
 from fylgja.models import (
+    ProcessRef,
     SessionActivity,
     SessionActivitySnapshot,
     SessionPayload,
@@ -46,11 +47,13 @@ __all__ = [
     "RowRejected",
     "activity_of",
     "activity_snapshot",
+    "ancestor_chain",
     "check_liveness",
     "cwd_ignored",
     "map_state",
     "parse_proc_start",
     "parse_ps_starts",
+    "parse_ps_table",
     "parse_row",
     "process_key",
     "registry_pid",
@@ -75,6 +78,10 @@ PROC_START_TOLERANCE_SECONDS: Final = 1.0
 _REGISTRY_NAME: Final = re.compile(r"[0-9]+\.json")
 _BRIDGE_ID: Final = re.compile(r"[A-Za-z0-9_-]{1,200}")
 _LSTART_FORMAT: Final = "%a %b %d %H:%M:%S %Y"
+_PS_TABLE_LINE: Final = re.compile(r"\s*(\d+)\s+(\d+)\s+(\S.*?)\s*")
+
+MAX_CHAIN: Final = 64
+"""The longest ancestor chain kept; a real one is under ten."""
 
 STATUS_TO_STATE: Final[Mapping[str, str]] = {
     "idle": "idle",
@@ -211,6 +218,36 @@ def parse_ps_starts(text: str) -> dict[int, datetime]:
     return starts
 
 
+def parse_ps_table(text: str) -> dict[int, tuple[int, str]]:
+    """Parse ``ps -A -o pid=,ppid=,comm=`` output into ``{pid: (ppid, comm)}``.
+
+    ``comm`` may hold spaces (an application path). Lines that do not parse are skipped.
+    """
+    table: dict[int, tuple[int, str]] = {}
+    for line in text.splitlines():
+        match = _PS_TABLE_LINE.fullmatch(line)
+        if match is not None:
+            table[int(match[1])] = (int(match[2]), match[3])
+    return table
+
+
+def ancestor_chain(table: Mapping[int, tuple[int, str]], pid: int) -> tuple[ProcessRef, ...]:
+    """``pid`` and its ancestors, nearest first, up to (not including) pid 1.
+
+    The walk stops at a pid the table does not list, at a loop and after :data:`MAX_CHAIN` steps.
+    A ``pid`` that the table does not list gives an empty chain.
+    """
+    chain: list[ProcessRef] = []
+    seen: set[int] = set()
+    current = pid
+    while current > 1 and current in table and current not in seen and len(chain) < MAX_CHAIN:
+        seen.add(current)
+        ppid, comm = table[current]
+        chain.append(ProcessRef(pid=current, ppid=ppid, comm=comm))
+        current = ppid
+    return tuple(chain)
+
+
 class Liveness(StrEnum):
     LIVE = "live"
     DEAD = "dead"
@@ -301,6 +338,7 @@ def session_payload(
     process_key: str | None,
     predecessor_key: str | None,
     facts: Mapping[str, Any] | None = None,
+    ancestry: tuple[ProcessRef, ...] | None = None,
 ) -> SessionPayload:
     started = (
         None if row.started_at_ms is None else datetime.fromtimestamp(row.started_at_ms / 1000, UTC)
@@ -320,6 +358,7 @@ def session_payload(
         entrypoint=row.entrypoint,
         version=row.version,
         peer_protocol=row.peer_protocol,
+        ancestry=ancestry or None,
     )
 
 

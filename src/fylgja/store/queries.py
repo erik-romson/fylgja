@@ -329,6 +329,23 @@ def get_workspace(connection: sqlite3.Connection, name: str) -> WorkspaceRow | N
     return None if row is None else WorkspaceRow.from_db(row)
 
 
+UPDATE_INFERRED_LABEL: Final = """
+UPDATE workspaces SET inferred_label = :label, inferred_at = :at
+WHERE name = :name AND closed_at IS NULL AND inferred_label IS NOT :label
+"""
+
+
+def set_inferred_label(
+    connection: sqlite3.Connection, *, name: str, label: str | None, at: str
+) -> WorkspaceRow | None:
+    """Store the inferred label of an open workspace. Returns the row when the label changed.
+
+    ``inferred_at`` moves only with the label. The manual label is never touched (WP3.x).
+    """
+    cursor = connection.execute(UPDATE_INFERRED_LABEL, {"name": name, "label": label, "at": at})
+    return get_workspace(connection, name) if cursor.rowcount else None
+
+
 def unfocus_other_workspaces(
     connection: sqlite3.Connection, *, source: str, focused: str, at: str
 ) -> list[WorkspaceRow]:
@@ -521,6 +538,49 @@ def update_session_from_activity(
     )
 
 
+UPDATE_SESSION_PLACEMENT: Final = """
+UPDATE sessions SET
+    project_path = :project_path,
+    host_kind = :host_kind,
+    host_ref = :host_ref,
+    window_id = :window_id,
+    workspace = :workspace
+WHERE session_key = :session_key AND ended_at IS NULL
+  AND (project_path IS NOT :project_path OR host_kind IS NOT :host_kind
+       OR host_ref IS NOT :host_ref OR window_id IS NOT :window_id
+       OR workspace IS NOT :workspace)
+"""
+
+
+def set_session_placement(
+    connection: sqlite3.Connection,
+    *,
+    session_key: str,
+    project_path: str | None,
+    host_kind: str | None,
+    host_ref: str | None,
+    window_id: str | None,
+    workspace: str | None,
+) -> SessionRow | None:
+    """Write the resolver's join of a live session (WP1.8).
+
+    The resolver owns these five columns, so a ``None`` clears a join that no longer holds.
+    Returns the changed row, or ``None`` when the session is gone or nothing changed.
+    """
+    cursor = connection.execute(
+        UPDATE_SESSION_PLACEMENT,
+        {
+            "session_key": session_key,
+            "project_path": project_path,
+            "host_kind": host_kind,
+            "host_ref": host_ref,
+            "window_id": window_id,
+            "workspace": workspace,
+        },
+    )
+    return get_session(connection, session_key) if cursor.rowcount else None
+
+
 def get_session(connection: sqlite3.Connection, session_key: str) -> SessionRow | None:
     row = connection.execute(SELECT_SESSION, (session_key,)).fetchone()
     return None if row is None else SessionRow.from_db(row)
@@ -678,15 +738,16 @@ SELECT_PROJECTS: Final = f"SELECT {_PROJECT_COLUMNS} FROM projects ORDER BY path
 
 UPSERT_PROJECT: Final = """
 INSERT INTO projects
-    (path, repo_root, remote_url, repo_name, branch, dirty, ahead, behind, pr_number, pr_state,
-     review_decision, last_commit_at, updated_at)
+    (path, repo_root, remote_url, repo_name, group_name, branch, dirty, ahead, behind, pr_number,
+     pr_state, review_decision, last_commit_at, updated_at)
 VALUES
-    (:path, :repo_root, :remote_url, :repo_name, :branch, :dirty, :ahead, :behind, :pr_number,
-     :pr_state, :review_decision, :last_commit_at, :updated_at)
+    (:path, :repo_root, :remote_url, :repo_name, :group_name, :branch, :dirty, :ahead, :behind,
+     :pr_number, :pr_state, :review_decision, :last_commit_at, :updated_at)
 ON CONFLICT (path) DO UPDATE SET
     repo_root = coalesce(excluded.repo_root, projects.repo_root),
     remote_url = coalesce(excluded.remote_url, projects.remote_url),
     repo_name = coalesce(excluded.repo_name, projects.repo_name),
+    group_name = coalesce(excluded.group_name, projects.group_name),
     branch = coalesce(excluded.branch, projects.branch),
     dirty = coalesce(excluded.dirty, projects.dirty),
     ahead = coalesce(excluded.ahead, projects.ahead),
@@ -712,11 +773,16 @@ WHERE projects.build_observed_at IS NULL
 """
 
 
-def _get_project(connection: sqlite3.Connection, path: str) -> ProjectRow:
+def get_project(connection: sqlite3.Connection, path: str) -> ProjectRow | None:
     row = connection.execute(SELECT_PROJECT, (path,)).fetchone()
+    return None if row is None else ProjectRow.from_db(row)
+
+
+def _get_project(connection: sqlite3.Connection, path: str) -> ProjectRow:
+    row = get_project(connection, path)
     if row is None:  # pragma: no cover - callers upsert first
         raise LookupError(path)
-    return ProjectRow.from_db(row)
+    return row
 
 
 def upsert_project(
@@ -729,6 +795,7 @@ def upsert_project(
             "repo_root",
             "remote_url",
             "repo_name",
+            "group_name",
             "branch",
             "ahead",
             "behind",

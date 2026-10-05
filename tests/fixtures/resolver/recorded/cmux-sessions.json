@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "sessions": {
+    "00000000-0000-4000-8000-000000000004": {
+      "sessionId": "00000000-0000-4000-8000-000000000004",
+      "pid": 14963,
+      "cwd": "/Users/user/projects/WSS-EA-Ecommerce/customer-1/main",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000001",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000001",
+      "agentLifecycle": "running"
+    },
+    "00000000-0000-4000-8000-000000000013": {
+      "sessionId": "00000000-0000-4000-8000-000000000013",
+      "pid": 70229,
+      "cwd": "/Users/user/projects/erik-romson/lidskjalv",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000002",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000002",
+      "agentLifecycle": "idle"
+    },
+    "00000000-0000-4000-8000-000000000002": {
+      "sessionId": "00000000-0000-4000-8000-000000000002",
+      "pid": 14936,
+      "cwd": "/Users/user/projects/erik.romson/norn/main",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000003",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000003",
+      "agentLifecycle": "running"
+    },
+    "00000000-0000-4000-8000-000000000014": {
+      "sessionId": "00000000-0000-4000-8000-000000000014",
+      "pid": 79854,
+      "cwd": "/Users/user/projects/erik-romson/draupnir/main",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000004",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000004",
+      "agentLifecycle": "needsInput"
+    },
+    "00000000-0000-4000-8000-000000000006": {
+      "sessionId": "00000000-0000-4000-8000-000000000006",
+      "pid": 15163,
+      "cwd": "/Users/user/projects/egnedata/egnedata-kmp/main",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000005",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000005",
+      "agentLifecycle": "running"
+    },
+    "00000000-0000-4000-8000-000000000003": {
+      "sessionId": "00000000-0000-4000-8000-000000000003",
+      "pid": 14949,
+      "cwd": "/Users/user/projects/cmux",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000006",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000006",
+      "agentLifecycle": "running"
+    },
+    "00000000-0000-4000-8000-000000000007": {
+      "sessionId": "00000000-0000-4000-8000-000000000007",
+      "pid": 15179,
+      "cwd": "/Users/user/projects/egnedata/egnedata-partnerportal/feature-review-crypto",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000007",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000007",
+      "agentLifecycle": "running"
+    },
+    "00000000-0000-4000-8000-000000000101": {
+      "sessionId": "00000000-0000-4000-8000-000000000101",
+      "pid": 38983,
+      "cwd": "/Users/user/projects/erik-romson/draupnir/main",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000004",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000004",
+      "agentLifecycle": "idle"
+    },
+    "00000000-0000-4000-8000-000000000005": {
+      "sessionId": "00000000-0000-4000-8000-000000000005",
+      "pid": 14978,
+      "cwd": "/Users/user/projects/erik-romson/draupnir/main",
+      "workspaceId": "aaaaaaaa-0000-4000-8000-000000000008",
+      "surfaceId": "bbbbbbbb-0000-4000-8000-000000000008",
+      "agentLifecycle": "running"
+    }
+  }
+}

@@ -31,6 +31,7 @@ __all__ = [
     "default_registry_dir",
     "default_seams",
     "local_epoch",
+    "ps_process_table",
     "ps_start_times",
 ]
 
@@ -134,6 +135,28 @@ class PsFailure(Exception):
         self.detail = detail
 
 
+async def _run_ps(
+    runner: ProcessRunner,
+    argv: Sequence[str],
+    *,
+    timeout: float,  # noqa: ASYNC109 - a subprocess timeout
+) -> ProcessResult:
+    ps = argv[0]
+    try:
+        result = await runner.run(argv, timeout=timeout)
+    except FileNotFoundError as exc:
+        raise PsFailure("ps_missing", f"ps not found: {ps}") from exc
+    except PermissionError as exc:
+        raise PsFailure("ps_not_executable", f"ps is not executable: {ps}") from exc
+    except TimeoutError as exc:
+        raise PsFailure("ps_timeout", "ps timed out") from exc
+    except OSError as exc:
+        raise PsFailure("ps_failed", f"cannot run ps: {type(exc).__name__}") from exc
+    if result.returncode not in (0, 1):
+        raise PsFailure("ps_failed", f"ps exited with status {result.returncode}")
+    return result
+
+
 async def ps_start_times(
     runner: ProcessRunner,
     ps: str,
@@ -148,17 +171,17 @@ async def ps_start_times(
     if not pids:
         return {}
     argv = [ps, "-o", "pid=,lstart=", "-p", ",".join(str(pid) for pid in sorted(pids))]
-    try:
-        result = await runner.run(argv, timeout=timeout)
-    except FileNotFoundError as exc:
-        raise PsFailure("ps_missing", f"ps not found: {ps}") from exc
-    except PermissionError as exc:
-        raise PsFailure("ps_not_executable", f"ps is not executable: {ps}") from exc
-    except TimeoutError as exc:
-        raise PsFailure("ps_timeout", "ps timed out") from exc
-    except OSError as exc:
-        raise PsFailure("ps_failed", f"cannot run ps: {type(exc).__name__}") from exc
-    if result.returncode not in (0, 1):
-        raise PsFailure("ps_failed", f"ps exited with status {result.returncode}")
+    result = await _run_ps(runner, argv, timeout=timeout)
     text = result.stdout.decode("utf-8", errors="replace")
     return {pid: local_epoch(start) for pid, start in parse.parse_ps_starts(text).items()}
+
+
+async def ps_process_table(
+    runner: ProcessRunner,
+    ps: str,
+    *,
+    timeout: float,  # noqa: ASYNC109 - a subprocess timeout
+) -> dict[int, tuple[int, str]]:
+    """Every process as ``{pid: (ppid, comm)}`` from one ``ps -A -o pid=,ppid=,comm=`` call."""
+    result = await _run_ps(runner, [ps, "-A", "-o", "pid=,ppid=,comm="], timeout=timeout)
+    return parse.parse_ps_table(result.stdout.decode("utf-8", errors="replace"))

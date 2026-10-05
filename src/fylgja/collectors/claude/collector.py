@@ -12,6 +12,10 @@ in the store.
 - The A11 continuity record: ``process_key`` is the pid plus the process start time, and a session
   that replaces another in the same process (``/clear``) names it as ``predecessor_key``.
 - State comes from the registry ``status`` until hook state arrives (WP2.3).
+- Each live session carries the chain of its ancestor processes (WP1.8), so the resolver can find
+  the host app without I/O. One ``ps -A -o pid=,ppid=,comm=`` call runs in a poll that has a live
+  session without a chain (a new session or a new process); the chains are kept until the process
+  is gone. A failing call only costs the chains: the sessions are still listed.
 
 A snapshot is emitted when it differs from the last one, and at least every
 ``heartbeat_seconds`` so ``last_seen`` stays fresh. A missing registry or a failing ``ps`` never
@@ -31,9 +35,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from fylgja import paths
 from fylgja.collectors.base import CollectorContext
 from fylgja.collectors.claude import parse, transcript
-from fylgja.collectors.claude.adapter import PsFailure, Seams, ps_start_times
+from fylgja.collectors.claude.adapter import PsFailure, Seams, ps_process_table, ps_start_times
 from fylgja.collectors.claude.registry import Continuity, PollResult, RegistryPoller
-from fylgja.models import HealthReport, HealthState, SessionActivity, SessionPayload
+from fylgja.models import HealthReport, HealthState, ProcessRef, SessionActivity, SessionPayload
 
 __all__ = ["ClaudeCollector", "ClaudeSettings", "PollStats", "ignore_list"]
 
@@ -103,6 +107,8 @@ class ClaudeCollector:
         self._continuity = Continuity()
         self._registry_failure: tuple[str, str] | None = None
         self._ps_failure: tuple[str, str] | None = None
+        self._chain_failure: tuple[str, str] | None = None
+        self._chains: dict[int, tuple[str, tuple[ProcessRef, ...]]] = {}
         self._polled = False
         self._last_emitted: list[_ListedSession] | None = None
         self._last_emit_at = 0.0
@@ -138,10 +144,41 @@ class ClaudeCollector:
             return False
         self._set_ps_failure(None)
 
+        await self._refresh_chains(candidates, starts)
         listed = self._live_sessions(candidates, starts)
         self._update_stats(result, candidates)
         self._polled = True
         return self._emit(listed)
+
+    async def _refresh_chains(
+        self, candidates: dict[int, parse.RegistryRow], starts: dict[int, float]
+    ) -> None:
+        """Keep the ancestor chain of every live process; ask ``ps`` only for new ones."""
+        keys = {
+            pid: parse.process_key(pid, starts[pid])
+            for pid, row in candidates.items()
+            if pid in starts and parse.check_liveness(row, starts[pid]) is parse.Liveness.LIVE
+        }
+        self._chains = {
+            pid: entry for pid, entry in self._chains.items() if keys.get(pid) == entry[0]
+        }
+        missing = [pid for pid in keys if pid not in self._chains]
+        if not missing:
+            return
+        try:
+            table = await ps_process_table(
+                self._seams.runner,
+                self._settings.ps_command,
+                timeout=self._settings.command_timeout_seconds,
+            )
+        except PsFailure as failure:
+            self._set_chain_failure((failure.kind, failure.detail))
+            return
+        self._set_chain_failure(None)
+        for pid in missing:
+            chain = parse.ancestor_chain(table, pid)
+            if chain:
+                self._chains[pid] = (keys[pid], chain)
 
     def _live_sessions(
         self, candidates: dict[int, parse.RegistryRow], starts: dict[int, float]
@@ -164,8 +201,13 @@ class ClaudeCollector:
             predecessor = self._continuity.observe(key, row.session_id)
             tail = self._tail(row)
             facts = None if tail is None else tail.facts()
+            chain = self._chains.get(pid)
             payload = parse.session_payload(
-                row, process_key=key, predecessor_key=predecessor, facts=facts
+                row,
+                process_key=key,
+                predecessor_key=predecessor,
+                facts=facts,
+                ancestry=None if chain is None else chain[1],
             )
             listed[parse.session_key(row.session_id)] = (
                 parse.session_key(row.session_id),
@@ -249,6 +291,10 @@ class ClaudeCollector:
     def _set_ps_failure(self, failure: tuple[str, str] | None) -> None:
         self._note("ps", self._ps_failure, failure)
         self._ps_failure = failure
+
+    def _set_chain_failure(self, failure: tuple[str, str] | None) -> None:
+        self._note("process table", self._chain_failure, failure)
+        self._chain_failure = failure
 
     def _note(
         self, what: str, before: tuple[str, str] | None, after: tuple[str, str] | None

@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-05",
+  "home": "/Users/user",
+  "command_line": "join_table.py --capture-out target/fixture-staging/join/2026-10-05 --json",
+  "aerospace": "aerospace CLI client version: 0.21.3-Beta d56e1637c3a1ed660d0cadd7534e94fb3218d1c3",
+  "cmux": "cmux 0.64.25 (106) [b685a275c]",
+  "claude_cli": "2.1.289 (Claude Code)",
+  "claude_row_versions": [
+    "2.1.284",
+    "2.1.289"
+  ],
+  "macos": "27.0.1"
+}

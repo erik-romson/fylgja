@@ -56,6 +56,7 @@ __all__ = [
     "PresenceEvent",
     "PresencePayload",
     "PresenceSnapshot",
+    "ProcessRef",
     "ProjectEvent",
     "ProjectPayload",
     "ProjectSnapshot",
@@ -151,6 +152,14 @@ class FocusPayload(_Frozen):
     title: str | None = None
 
 
+class ProcessRef(_Frozen):
+    """One process of an ancestor chain: ``ps -A -o pid=,ppid=,comm=`` (WP1.8)."""
+
+    pid: int
+    ppid: int
+    comm: str
+
+
 class SessionPayload(_Frozen):
     kind: str
     native_id: str
@@ -173,6 +182,9 @@ class SessionPayload(_Frozen):
     version: str | None = None
     """The agent's own version; messaging is gated on it per target (A9)."""
     peer_protocol: int | None = None
+    ancestry: tuple[ProcessRef, ...] | None = None
+    """The session process and its ancestors, nearest first. The resolver walks it to find the host
+    app (WP1.8). Carried on the record and never stored in a column."""
 
 
 class Stage(_Frozen):
