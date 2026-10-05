@@ -1,0 +1,142 @@
+[
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "1",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "2",
+    "workspace-is-focused": true,
+    "workspace-is-visible": true
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "3",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "4",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "5",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "6",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "7",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "8",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "9",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "10",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "11",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "12",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "13",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "14",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "15",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "16",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "17",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "18",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "19",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  },
+  {
+    "monitor-id": 1,
+    "monitor-name": "Display 1",
+    "workspace": "20",
+    "workspace-is-focused": false,
+    "workspace-is-visible": false
+  }
+]

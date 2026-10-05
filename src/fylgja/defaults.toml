@@ -44,3 +44,7 @@ codexbar = "/opt/homebrew/bin/codexbar"
 # Built-in collectors add their [collectors.<name>] tables here as they land. External plugins are
 # never listed: they load only with an explicit `enabled = true` in the user's config.toml.
 [collectors]
+
+[collectors.aerospace]
+enabled = true
+snapshot_interval_seconds = 30

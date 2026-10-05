@@ -1,0 +1,281 @@
+[
+  {
+    "app-bundle-id": "com.eltima.cmd1.pro.mas",
+    "app-name": "Commander One PRO",
+    "app-pid": 14082,
+    "monitor-id": 1,
+    "window-id": 109,
+    "window-title": "Alpha Bravo/Charlie/delta/echo/Foxtrot-Golf-Hotel/india-juliet-kilo/lima",
+    "workspace": "1"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.datagrip",
+    "app-name": "DataGrip",
+    "app-pid": 14083,
+    "monitor-id": 1,
+    "window-id": 70,
+    "window-title": "alpha – Bravo_Charlie_Delta…Echo_Foxtrot_Golf [@hotel.india-juliet.…kilo.lima]",
+    "workspace": "8"
+  },
+  {
+    "app-bundle-id": "com.electron.dockerdesktop",
+    "app-name": "Docker Desktop",
+    "app-pid": 10920,
+    "monitor-id": 1,
+    "window-id": 2215,
+    "window-title": "Alpha - Bravo Charlie",
+    "workspace": "7"
+  },
+  {
+    "app-bundle-id": "com.google.Chrome",
+    "app-name": "Google Chrome",
+    "app-pid": 14079,
+    "monitor-id": 1,
+    "window-id": 496,
+    "window-title": "Alpha Bravo Charlie - Delta Echo - foxtrot (golf)",
+    "workspace": "1"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 92,
+    "window-title": "Alpha-bravo-charlie-delta – echo.foxtrot [golf]",
+    "workspace": "3"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 95,
+    "window-title": "alpha Bravo-charlie – delta-echo.foxtrot [golf-hotel-india-juliet]",
+    "workspace": "5"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 2677,
+    "window-title": "alpha bravo-Charlie-delta-echo-foxtrot-golf-hotel [~/india/Juliet-Kilo-Lima/alpha/bravo-Charlie-delta-echo-foxtrot-golf-hotel] – India.juliet",
+    "workspace": "9"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 94,
+    "window-title": "alpha-bravo-charlie – delta-echo-foxtrot.golf [hotel]",
+    "workspace": "7"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 96,
+    "window-title": "alpha-bravo charlie – delta-echo-foxtrot-golf-hotel-india.juliet",
+    "workspace": "10"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 1898,
+    "window-title": "alpha [~/bravo/charlie-delta/echo/foxtrot] – Golf-hotel-india.juliet",
+    "workspace": "2"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 91,
+    "window-title": "alpha – bravo-charlie-delta-echo.foxtrot [golf-hotel-india juliet]",
+    "workspace": "4"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 93,
+    "window-title": "alpha-bravo-charlie – delta-echo-foxtrot.golf",
+    "workspace": "3"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 88,
+    "window-title": "alpha-bravo – charlie-delta-echo-foxtrot-golf-hotel.india [juliet-kilo]",
+    "workspace": "6"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.intellij",
+    "app-name": "IntelliJ IDEA",
+    "app-pid": 14073,
+    "monitor-id": 1,
+    "window-id": 2804,
+    "window-title": "alpha-bravo-charlie-delta echo – foxtrot-golf/hotel/india.juliet [kilo-lima-alpha-bravo]",
+    "workspace": "5"
+  },
+  {
+    "app-bundle-id": "com.microsoft.Outlook",
+    "app-name": "Microsoft Outlook",
+    "app-pid": 36930,
+    "monitor-id": 1,
+    "window-id": 1173,
+    "window-title": "Alpha • user@example.com",
+    "workspace": "10"
+  },
+  {
+    "app-bundle-id": "com.microsoft.teams2",
+    "app-name": "Microsoft Teams",
+    "app-pid": 70376,
+    "monitor-id": 1,
+    "window-id": 1031,
+    "window-title": "Alpha | Bravo, Charlie Delta Echo | Foxtrot Golf",
+    "workspace": "10"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 120,
+    "window-title": "Alpha-bravo-charlie-delta – Echo Foxtrot: golf....",
+    "workspace": "11"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 2569,
+    "window-title": "alpha-bravo-charlie-delta echo-foxtrot-golf – Hotel.india",
+    "workspace": "11"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 2596,
+    "window-title": "alpha-bravo-charlie-delta echo-Foxtrot-golf-hotel-india-juliet – Kilo-lima-alpha-bravo.charlie",
+    "workspace": "11"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 121,
+    "window-title": "alpha-bravo – Charlie.delta",
+    "workspace": "18"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 114,
+    "window-title": "alpha",
+    "workspace": "17"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 1707,
+    "window-title": "alpha bravo",
+    "workspace": "16"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 118,
+    "window-title": "alpha [~/bravo/Charlie-Delta-Echo/foxtrot-golf-hotel-india/juliet] – kilo-lima-alpha-bravo-charlie-delta.echo [foxtrot]",
+    "workspace": "13"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 119,
+    "window-title": "alpha-bravo – ~/charlie/delta/.echo/foxtrot/golf.hotel",
+    "workspace": "16"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 123,
+    "window-title": "alpha bravo – ~/Charlie/Delta_echo.foxtrot",
+    "workspace": "12"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 117,
+    "window-title": "alpha",
+    "workspace": "14"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 115,
+    "window-title": "alpha-bravo-charlie-delta-echo-foxtrot",
+    "workspace": "20"
+  },
+  {
+    "app-bundle-id": "com.jetbrains.pycharm",
+    "app-name": "PyCharm",
+    "app-pid": 14080,
+    "monitor-id": 1,
+    "window-id": 116,
+    "window-title": "alpha-bravo-charlie-delta-echo [~/foxtrot/Golf-Hotel-India/juliet-kilo-lima-alpha-bravo] – ~/charlie/Delta-Echo-Foxtrot/golf-hotel-india-juliet/kilo/lima.alpha",
+    "workspace": "19"
+  },
+  {
+    "app-bundle-id": "com.tinyspeck.slackmacgap",
+    "app-name": "Slack",
+    "app-pid": 7172,
+    "monitor-id": 1,
+    "window-id": 1064,
+    "window-title": "! alpha-bravo-charlie-delta (Echo) - Foxtrot - golf hotel india - Juliet",
+    "workspace": "10"
+  },
+  {
+    "app-bundle-id": "com.cmuxterm.app",
+    "app-name": "cmux",
+    "app-pid": 14076,
+    "monitor-id": 1,
+    "window-id": 66,
+    "window-title": "alpha-bravo",
+    "workspace": "1"
+  },
+  {
+    "app-bundle-id": "com.github.variar.klogg",
+    "app-name": "klogg log viewer",
+    "app-pid": 14088,
+    "monitor-id": 1,
+    "window-id": 82,
+    "window-title": "alpha (bravo).charlie - delta (echo foxtrot.golf.hotel.india)",
+    "workspace": "1"
+  }
+]

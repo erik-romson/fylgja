@@ -32,7 +32,7 @@ def test_defaults_load_without_a_user_file() -> None:
     assert config.privacy.redact_patterns
     assert config.privacy.ignore_bundle_ids
     assert config.privacy.ignore_title_patterns
-    assert config.collectors == {}
+    assert config.collectors == {"aerospace": {"enabled": True, "snapshot_interval_seconds": 30}}
 
 
 def test_every_default_path_is_absolute() -> None:
@@ -148,7 +148,7 @@ def test_explicit_path_is_used(tmp_path: Path) -> None:
 def test_collector_tables_stay_raw() -> None:
     _write(
         """
-[collectors.aerospace]
+[collectors.sample]
 poll_seconds = 2
 nested = { a = [1, 2] }
 
@@ -158,8 +158,8 @@ anything = "goes"
 """
     )
     config = load_config()
-    assert config.collectors["aerospace"] == {"poll_seconds": 2, "nested": {"a": [1, 2]}}
-    assert config.collector_enabled("aerospace") is None
+    assert config.collectors["sample"] == {"poll_seconds": 2, "nested": {"a": [1, 2]}}
+    assert config.collector_enabled("sample") is None
     assert config.collector_enabled("vendor_thing") is True
     assert config.collector_enabled("missing") is None
     assert config.collector_settings("vendor_thing") == {"anything": "goes"}

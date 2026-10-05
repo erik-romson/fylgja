@@ -8,6 +8,8 @@ Every fake is in-memory and needs neither the network nor an installed tool.
   errors.
 - :class:`FakeFS` is a small in-memory filesystem with injectable errors.
 - :class:`FakeLineStream` feeds lines, torn lines and end of stream to a reader.
+- :class:`FakeStreamOpener` hands scripted line streams to a collector that opens a long-lived
+  command (``aerospace subscribe``) and counts opens and open streams.
 - :class:`RecordingSink` is a :class:`~fylgja.collectors.base.RecordSink` that keeps what it got.
 """
 
@@ -18,11 +20,12 @@ import errno
 import heapq
 import itertools
 from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
-from fylgja.collectors.seams import FileInfo, ProcessResult
+from fylgja.collectors.seams import FileInfo, LineStream, ProcessResult
 from fylgja.models import EntityKind, Record
 
 __all__ = [
@@ -31,6 +34,7 @@ __all__ = [
     "FakeFS",
     "FakeLineStream",
     "FakeProcessRunner",
+    "FakeStreamOpener",
     "RecordingSink",
     "settle",
 ]
@@ -366,6 +370,45 @@ class FakeLineStream:
             if not line:
                 return
             yield line
+
+
+class FakeStreamOpener:
+    """Opens scripted :class:`FakeLineStream` objects, one per open, in order.
+
+    With no stream left, an open yields a new silent stream that stays open until the collector
+    leaves it, unless ``error`` is set: then every such open raises it (for example
+    :class:`FileNotFoundError` for a missing binary). Pass the instance where a collector wants a
+    ``Callable[[Sequence[str]], AsyncContextManager[LineStream]]``.
+    """
+
+    def __init__(self, *streams: FakeLineStream, error: BaseException | None = None) -> None:
+        self._queue = list(streams)
+        self.error = error
+        self.calls: list[tuple[str, ...]] = []
+        """The argv of every open, in order."""
+        self.active = 0
+        """Streams that are open right now."""
+
+    def add(self, stream: FakeLineStream) -> None:
+        self._queue.append(stream)
+
+    def __call__(self, argv: Sequence[str]) -> AbstractAsyncContextManager[LineStream]:
+        return self._open(tuple(argv))
+
+    @asynccontextmanager
+    async def _open(self, argv: tuple[str, ...]) -> AsyncIterator[LineStream]:
+        self.calls.append(argv)
+        if self._queue:
+            stream = self._queue.pop(0)
+        elif self.error is not None:
+            raise self.error
+        else:
+            stream = FakeLineStream()
+        self.active += 1
+        try:
+            yield stream
+        finally:
+            self.active -= 1
 
 
 # --------------------------------------------------------------------------------------------

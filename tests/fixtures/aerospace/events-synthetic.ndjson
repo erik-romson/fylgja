@@ -1,0 +1,3 @@
+{"_event":"window-detected","windowId":4242,"workspace":"3"}
+{"_event":"binding-triggered","mode":"main","binding":"<redacted-keystroke>"}
+{"_event":"some-future-event","windowId":1}
