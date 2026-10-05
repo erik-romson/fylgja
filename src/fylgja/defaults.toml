@@ -1,0 +1,46 @@
+# Packaged defaults (PLAN-final-plan.md §4.3). The user's config.toml is merged over this file:
+# tables merge key by key, and a list in config.toml replaces the list here.
+
+[api]
+port = 7319
+allowed_origins = ["http://127.0.0.1:7319", "http://localhost:7319"]
+
+[privacy]
+# Regular expressions whose matches are replaced in titles and prompt text before persistence.
+redact_patterns = [
+  "sk-[A-Za-z0-9_-]{16,}",
+  "gh[pousr]_[A-Za-z0-9]{20,}",
+  "(?i)bearer\\s+[A-Za-z0-9._~+/=-]{16,}",
+]
+# Records from these applications are dropped before they reach SQLite or SSE.
+ignore_bundle_ids = [
+  "com.apple.keychainaccess",
+  "com.1password.1password",
+  "com.agilebits.onepassword7",
+]
+# Windows whose title matches one of these regular expressions are dropped.
+ignore_title_patterns = ["(?i)\\bprivate browsing\\b", "(?i)\\bincognito\\b"]
+
+[actions.message]
+enabled = false
+max_chars = 8000
+
+[actions.applescript]
+chrome = false
+iterm2 = false
+
+[summaries]
+enabled = false
+ttl_seconds = 300
+max_concurrent = 3
+
+# Absolute paths, because launchd's PATH is minimal.
+[paths]
+aerospace = "/opt/homebrew/bin/aerospace"
+gh = "/opt/homebrew/bin/gh"
+git = "/usr/bin/git"
+codexbar = "/opt/homebrew/bin/codexbar"
+
+# Built-in collectors add their [collectors.<name>] tables here as they land. External plugins are
+# never listed: they load only with an explicit `enabled = true` in the user's config.toml.
+[collectors]
