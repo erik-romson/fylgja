@@ -20,6 +20,14 @@ MODULES = [
     "fylgja.paths",
     "fylgja.collectors.context",
     "fylgja.collectors.supervisor",
+    "fylgja.privacy",
+    "fylgja.store.db",
+    "fylgja.store.queries",
+    "fylgja.store.rows",
+    "fylgja.core.live_view",
+    "fylgja.core.writer",
+    "fylgja.core.ingest",
+    "fylgja.core.retention",
 ]
 
 _PROBE = """

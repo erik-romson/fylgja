@@ -38,6 +38,9 @@ select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "PT"]
 strict = true
 python_version = "3.13"
 files = ["src/fylgja"]
+# mypy 2.x caches in SQLite files (cache.*.db) by default. Plain files keep every database in
+# the tree under target/tests, which the store's acceptance check asserts.
+sqlite_cache = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
