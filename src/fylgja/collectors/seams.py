@@ -22,6 +22,7 @@ __all__ = [
     "LineStream",
     "ProcessResult",
     "ProcessRunner",
+    "RangeReader",
 ]
 
 
@@ -86,6 +87,19 @@ class FileSystem(Protocol):
     def stat(self, path: Path | str) -> FileInfo: ...
 
     def unlink(self, path: Path | str) -> None: ...
+
+
+@runtime_checkable
+class RangeReader(Protocol):
+    """A filesystem that can read part of a file, so a growing file is tailed without rereading.
+
+    Kept apart from :class:`FileSystem` so existing implementations stay valid. A consumer that
+    gets a plain :class:`FileSystem` reads the whole file and slices it.
+    """
+
+    def read_range(self, path: Path | str, offset: int, length: int) -> bytes:
+        """Up to ``length`` bytes starting at ``offset`` (fewer at the end of the file)."""
+        ...
 
 
 @runtime_checkable

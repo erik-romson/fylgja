@@ -28,6 +28,7 @@ MODULES = [
     "fylgja.core.writer",
     "fylgja.core.ingest",
     "fylgja.core.retention",
+    "fylgja.core.one_liner",
     "fylgja.collectors.aerospace",
     "fylgja.collectors.claude",
 ]

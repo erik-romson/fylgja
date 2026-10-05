@@ -556,11 +556,14 @@ ACTIVITY_OWNED: Final = (
     "stage",
     "last_prompt",
     "last_reply",
+    "one_liner",
 )
-"""Columns a ``SessionActivity`` record sets; each record replaces all of them."""
+"""Columns a ``SessionActivity`` record sets; each record replaces all of them.
+
+``one_liner`` is derived by the writer from the record (§4.6); it is owned so that a changed title
+alone opens a new interval."""
 
 ACTIVITY_CARRIED: Final = (
-    "one_liner",
     "context_pct",
     "cost_usd",
     "tokens_input",

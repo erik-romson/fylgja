@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from fylgja import paths
 from fylgja.collectors.base import CollectorContext
-from fylgja.collectors.claude import parse
+from fylgja.collectors.claude import parse, transcript
 from fylgja.collectors.claude.adapter import PsFailure, Seams, ps_start_times
 from fylgja.collectors.claude.registry import Continuity, PollResult, RegistryPoller
 from fylgja.models import HealthReport, HealthState, SessionActivity, SessionPayload
@@ -49,6 +49,10 @@ class ClaudeSettings(BaseModel):
 
     registry_dir: Path | None = None
     """The registry directory; default ``~/.claude/sessions``."""
+    projects_dir: Path | None = None
+    """Where the transcripts are; default ``~/.claude/projects``."""
+    transcript_max_read_bytes: int = Field(default=transcript.DEFAULT_MAX_READ, gt=0)
+    """Bytes of one transcript read per poll; a larger backlog is read over several polls."""
     poll_interval_seconds: float = Field(default=2.0, gt=0)
     full_reparse_seconds: float = Field(default=60.0, gt=0)
     heartbeat_seconds: float = Field(default=30.0, gt=0)
@@ -82,12 +86,17 @@ class ClaudeCollector:
         registry_dir: Path,
         seams: Seams,
         ignore_cwd: tuple[str, ...],
+        projects_dir: Path | None = None,
     ) -> None:
         self._settings = settings
         self._context = context
         self._seams = seams
         self._ignore_cwd = ignore_cwd
         self._directory = registry_dir
+        self._projects = (
+            projects_dir if projects_dir is not None else registry_dir.parent / "projects"
+        )
+        self._transcripts: dict[str, transcript.SessionTranscript] = {}
         self._poller = RegistryPoller(
             seams.fs, registry_dir, full_reparse_seconds=settings.full_reparse_seconds
         )
@@ -153,16 +162,49 @@ class ClaudeCollector:
             key = parse.process_key(pid, started)
             process_keys.add(key)
             predecessor = self._continuity.observe(key, row.session_id)
-            payload = parse.session_payload(row, process_key=key, predecessor_key=predecessor)
+            tail = self._tail(row)
+            facts = None if tail is None else tail.facts()
+            payload = parse.session_payload(
+                row, process_key=key, predecessor_key=predecessor, facts=facts
+            )
             listed[parse.session_key(row.session_id)] = (
                 parse.session_key(row.session_id),
                 payload,
-                parse.activity_of(row),
+                parse.activity_of(row, facts, None if tail is None else tail.pending_tool()),
             )
-        self._continuity.retain(process_keys, {item[1].native_id for item in listed.values()})
+        live_ids = {item[1].native_id for item in listed.values()}
+        self._transcripts = {sid: t for sid, t in self._transcripts.items() if sid in live_ids}
+        self._continuity.retain(process_keys, live_ids)
         self.stats.dead = dead
         self.stats.reused = reused
         return list(listed.values())
+
+    def _tail(self, row: parse.RegistryRow) -> transcript.SessionTranscript | None:
+        """The session's transcript, brought up to date; ``None`` while it has no file.
+
+        A transcript that cannot be read is treated as absent: the session is still listed, from
+        its registry row alone.
+        """
+        tail = self._transcripts.get(row.session_id)
+        try:
+            if tail is None:
+                path = transcript.locate(self._seams.fs, self._projects, row.session_id, row.cwd)
+                if path is None:
+                    return None
+                tail = transcript.SessionTranscript(
+                    transcript.TranscriptTail(
+                        self._seams.fs, path, max_read=self._settings.transcript_max_read_bytes
+                    )
+                )
+                self._transcripts[row.session_id] = tail
+            tail.update()
+            if not tail.present:  # moved or deleted: look for it again at the next poll
+                del self._transcripts[row.session_id]
+                return None
+        except OSError:
+            self._transcripts.pop(row.session_id, None)
+            return None
+        return tail
 
     def _update_stats(self, result: PollResult, candidates: dict[int, parse.RegistryRow]) -> None:
         stats = self.stats

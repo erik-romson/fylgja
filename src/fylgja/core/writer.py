@@ -70,6 +70,7 @@ from fylgja import paths
 from fylgja.collectors.base import Clock
 from fylgja.collectors.context import SystemClock
 from fylgja.core.live_view import FOCUS_KEY, Change, Collection
+from fylgja.core.one_liner import session_one_liner
 from fylgja.models import (
     BuildPayload,
     EntityKind,
@@ -307,6 +308,9 @@ def _activity(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
     if before is None or before.ended_at is not None:
         return  # activity of an ended session is not recorded
     columns = _columns(activity)
+    # The title may have arrived with an earlier record; the one-liner uses the session's latest.
+    known = activity if activity.title else activity.model_copy(update={"title": before.title})
+    one_liner, _ = session_one_liner(known)
     values = {
         "state": activity.state,
         "waiting_reason": activity.waiting_reason,
@@ -316,6 +320,7 @@ def _activity(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
         "stage": columns["stage"],
         "last_prompt": activity.last_prompt,
         "last_reply": activity.last_reply,
+        "one_liner": one_liner,
     }
     put = queries.put_activity(
         connection, session_key=key, source=obs.source, values=values, at=obs.at

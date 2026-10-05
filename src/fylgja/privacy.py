@@ -11,7 +11,8 @@ writer, so nothing below reaches SQLite, the live view or SSE in raw form:
   context titles (and the string values of a context item's ``data``), session names, every free
   text field of :class:`~fylgja.models.SessionActivity` and todo text.
 * **Caps.** ``last_prompt`` is cut to 300 characters and ``last_reply`` to 800, after redaction
-  (so a secret that straddles the cut is still redacted).
+  (so a secret that straddles the cut is still redacted). The same holds for the ``prompt`` and
+  ``said`` of a session's ``facts`` block, whose strings are all redacted.
 
 :func:`minimize_hook_payload` is the A5 minimizer for raw hook payloads: it keeps only the
 allowlisted normalized fields and drops tool input and response bodies.
@@ -79,6 +80,9 @@ _CAPS: Final[Mapping[tuple[type[BaseModel], str], int]] = {
     (SessionActivity, "last_prompt"): PROMPT_MAX_CHARS,
     (SessionActivity, "last_reply"): REPLY_MAX_CHARS,
 }
+
+_FACT_CAPS: Final[Mapping[str, int]] = {"prompt": PROMPT_MAX_CHARS, "said": REPLY_MAX_CHARS}
+"""Caps on the facts block's ``prompt`` and ``said``, as for ``last_prompt`` and ``last_reply``."""
 
 _IGNORABLE: Final = (WindowPayload, FocusPayload, ContextItemPayload)
 """Payloads that name an app and a window title, and so can match the ignore lists."""
@@ -179,6 +183,10 @@ class PrivacyFilter:
                 cleaned = truncate(cleaned, cap)
             if cleaned != value:
                 update[name] = cleaned
+        if isinstance(payload, SessionActivity) and payload.facts:
+            facts = self._redact_facts(payload.facts)
+            if facts != payload.facts:
+                update["facts"] = facts
         if isinstance(payload, ContextItemPayload) and payload.data:
             data = self._redact_json(payload.data)
             if data != payload.data:
@@ -186,6 +194,15 @@ class PrivacyFilter:
         if not update:
             return payload
         return payload.model_copy(update=update)
+
+    def _redact_facts(self, facts: Mapping[str, Any]) -> dict[str, Any]:
+        """Redact every string of a facts block, then cut ``prompt`` and ``said`` to their caps."""
+        redacted: dict[str, Any] = self._redact_json(dict(facts))
+        for name, cap in _FACT_CAPS.items():
+            value = redacted.get(name)
+            if isinstance(value, str):
+                redacted[name] = truncate(value, cap)
+        return redacted
 
     def _redact_json(self, value: Any) -> Any:
         if isinstance(value, str):

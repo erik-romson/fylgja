@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-10-05T09:00:00.000Z","version":"2.1.289","message":{"role":"user","content":"fix the build"}}
+{"type":"assistant","timestamp":"2026-10-05T09:00:03.000Z","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"tool_use","id":"tu-a","name":"Read","input":{"file_path":"/work/project/src/app.py"}}]}}
+{"type":"user","timestamp":"2026-10-05T09:00:04.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-a","content":"..."}]}}
+{"type":"assistant","timestamp":"2026-10-05T09:00:06.000Z","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"text","text":"Running the tests now. This may take a while."},{"type":"tool_use","id":"tu-b","name":"Bash","input":{"command":"pytest -q tests/ --token=abc","description":"run"}}]}}

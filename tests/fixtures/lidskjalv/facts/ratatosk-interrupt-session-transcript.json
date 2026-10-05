@@ -1,0 +1,20 @@
+{
+  "branch": "HEAD",
+  "files": [],
+  "last_at": 1781604543,
+  "mode": "normal",
+  "model": "<synthetic>",
+  "prompt": "",
+  "prompts": [
+    "Write a detailed 800-word essay about the history of the Norse god Ratatoskr. Take your time and be thorough.",
+    "[Request interrupted by user]"
+  ],
+  "said": "I'll write this essay for you—though I should flag one thing up front and weave it into the piece: in the surviving Norse sources, Ratatoskr is not a god but a **squirrel**. I've written the essay accordingly, since inventing a divine history would misrepresent the mythology. --- # Ratatoskr: The Messenger Squirrel of the World Tree In the sprawling cosmology of Norse mythology, few creatures are as vivid—or as slyly entertaining—as Ratatoskr, the squirrel who races up and down the trunk of the world tree, Yggdrasil. It is worth correcting a common misconception at the outset: Ratatoskr is not a god. He belongs instead to the menagerie of animals that populate Yggdrasil, the immense ash tree whose branches and roots bind together the Nine Worlds of Norse belief. Yet despite his modest stat",
+  "session_id": "rt-interrupt-session-transcript",
+  "started": 1781604519,
+  "title": "Write essay on Ratatoskr Norse mythology",
+  "todos": [],
+  "tools": {},
+  "turns": 2,
+  "version": "2.1.178"
+}

@@ -16,3 +16,17 @@ at runtime.
 
 `procStart` is wall-clock text in UTC, whereas `ps -o lstart=` prints local time, so tests build their
 `ps` output from the instant, never from the text.
+
+## `transcripts/`
+
+Synthetic transcripts (no live capture holds these shapes; the machine has no `TaskCreate` or
+`TaskUpdate` record at all, see `docs/revalidation/2026-10-05-claude-transcripts.md`):
+
+| File | What it covers |
+|---|---|
+| `task-tools-synthetic.jsonl` | `TaskCreate` ×3, then `TaskUpdate` (in progress, delete, rename, unknown id). **Synthetic shape** based on the documented task tools |
+| `running-tool-synthetic.jsonl` | a `Read` with its result, then a `Bash` call with no result yet (the session is running it) |
+
+The Lidskjalv and ratatosk transcripts used for the facts parity test live under
+`tests/fixtures/lidskjalv/transcripts/` and `tests/fixtures/ratatosk/`; their jq output is under
+`tests/fixtures/lidskjalv/facts/` (written by `spikes/gen_lidskjalv_facts_goldens.py`).

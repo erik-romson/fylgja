@@ -1,0 +1,26 @@
+{
+  "branch": "HEAD",
+  "files": [
+    "/Users/user/projects/ratatosk/tmp/hook-probe/probe.txt"
+  ],
+  "last_at": 1781604135,
+  "mode": "normal",
+  "model": "claude-opus-4-8",
+  "prompt": "Create a new file named probe.txt containing the text hello, using the Write tool.",
+  "prompts": [
+    "Reply with exactly the word: pong. Nothing else.",
+    "Run this shell command using the Bash tool: echo ratatosk-probe-marker-42",
+    "Create a new file named probe.txt containing the text hello, using the Write tool."
+  ],
+  "said": "Created `probe.txt` containing the text `hello`.",
+  "session_id": "rt-probe-session-transcript",
+  "started": 1781603946,
+  "title": "Respond with pong",
+  "todos": [],
+  "tools": {
+    "Bash": 1,
+    "Write": 1
+  },
+  "turns": 5,
+  "version": "2.1.178"
+}

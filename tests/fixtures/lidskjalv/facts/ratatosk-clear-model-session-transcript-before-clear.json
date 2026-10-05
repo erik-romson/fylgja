@@ -1,0 +1,19 @@
+{
+  "branch": "HEAD",
+  "files": [],
+  "last_at": 1781613338,
+  "mode": "normal",
+  "model": "claude-opus-4-8",
+  "prompt": "",
+  "prompts": [
+    "Say: one"
+  ],
+  "said": "one",
+  "session_id": "rt-clear-model-session-transcript-before-clear",
+  "started": 1781613326,
+  "title": "",
+  "todos": [],
+  "tools": {},
+  "turns": 1,
+  "version": "2.1.178"
+}

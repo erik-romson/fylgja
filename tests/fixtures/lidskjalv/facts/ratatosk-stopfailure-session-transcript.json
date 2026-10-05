@@ -1,0 +1,19 @@
+{
+  "branch": "HEAD",
+  "files": [],
+  "last_at": 1781604784,
+  "mode": "normal",
+  "model": "<synthetic>",
+  "prompt": "",
+  "prompts": [
+    "Say hello."
+  ],
+  "said": "API Error: Unable to connect to API (ConnectionRefused)",
+  "session_id": "rt-stopfailure-session-transcript",
+  "started": 1781604588,
+  "title": "",
+  "todos": [],
+  "tools": {},
+  "turns": 1,
+  "version": "2.1.178"
+}

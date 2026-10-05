@@ -194,6 +194,8 @@ class SessionActivity(_Frozen):
     last_reply: str | None = None
     title: str | None = None
     branch: str | None = None
+    facts: dict[str, JsonValue] | None = None
+    """Lidskjalv-compatible ``facts`` block (Claude, WP1.7); ``/now`` ``sessions[].facts``."""
 
 
 class TodoPayload(_Frozen):

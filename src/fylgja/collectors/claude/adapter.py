@@ -27,11 +27,17 @@ __all__ = [
     "PsFailure",
     "Seams",
     "SubprocessRunner",
+    "default_projects_dir",
     "default_registry_dir",
     "default_seams",
     "local_epoch",
     "ps_start_times",
 ]
+
+
+def default_projects_dir() -> Path:
+    """``~/.claude/projects``, where the transcripts live, with ``HOME`` read at call time."""
+    return Path.home() / ".claude" / "projects"
 
 
 def default_registry_dir() -> Path:
@@ -45,6 +51,11 @@ class LocalFileSystem:
     def read_bytes(self, path: Path | str) -> bytes:
         with open(path, "rb") as handle:  # noqa: PTH123 - `open` is what the key-file test spies on
             return handle.read()
+
+    def read_range(self, path: Path | str, offset: int, length: int) -> bytes:
+        with open(path, "rb") as handle:  # noqa: PTH123 - same spy point as `read_bytes`
+            handle.seek(offset)
+            return handle.read(length)
 
     def read_text(self, path: Path | str, encoding: str = "utf-8") -> str:
         return self.read_bytes(path).decode(encoding)

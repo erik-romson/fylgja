@@ -344,6 +344,7 @@ def test_session_activity_fields_all_optional() -> None:
         "last_reply": None,
         "title": None,
         "branch": None,
+        "facts": None,
     }
     assert set(Stage.model_fields) == {"name", "index", "total"}
     full = SessionActivity(
@@ -357,6 +358,7 @@ def test_session_activity_fields_all_optional() -> None:
         last_reply="r",
         title="ti",
         branch="main",
+        facts={"turns": 2, "prompts": ["p"], "tasks": [{"status": "pending", "content": "c"}]},
     )
     assert SessionActivity.model_validate_json(full.model_dump_json()) == full
 

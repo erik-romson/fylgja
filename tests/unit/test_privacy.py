@@ -304,6 +304,43 @@ def test_filter_refuses_non_records() -> None:
         make_filter().filter(WindowPayload())  # type: ignore[arg-type]
 
 
+def test_the_facts_block_is_redacted_and_capped_like_the_activity() -> None:
+    privacy = make_filter()
+    facts = {
+        "title": f"about {SECRET}",
+        "prompt": "a" * 290 + " " + SECRET + " " + "b" * 400,
+        "said": "r" * 2000,
+        "prompts": [f"first {SECRET}", "plain"],
+        "tasks": [{"status": "pending", "content": SECRET}],
+        "tools": {"Bash": 2},
+        "turns": 3,
+    }
+    record = SessionActivityEvent(
+        source="claude",
+        entity_id="claude:s",
+        observed_at=T0,
+        payload=SessionActivity(facts=facts),
+    )
+    filtered = privacy.filter(record)
+    assert isinstance(filtered, SessionActivityEvent)
+    result = filtered.payload.facts
+    assert result is not None
+    assert SECRET[:8] not in str(result)
+    assert result["title"] == f"about {REDACTED}"
+    assert result["prompts"] == [f"first {REDACTED}", "plain"]
+    assert result["tasks"] == [{"status": "pending", "content": REDACTED}]
+    assert len(str(result["prompt"])) == PROMPT_MAX_CHARS
+    assert result["said"] == "r" * REPLY_MAX_CHARS
+    assert (result["tools"], result["turns"]) == ({"Bash": 2}, 3)
+    clean = SessionActivityEvent(
+        source="claude",
+        entity_id="claude:s",
+        observed_at=T0,
+        payload=SessionActivity(facts={"title": "plain"}),
+    )
+    assert privacy.filter(clean) is clean
+
+
 def test_from_config_uses_the_privacy_section() -> None:
     privacy = PrivacyFilter.from_config(load_config().privacy)
     assert privacy.redact("key ghp_" + "a" * 30) == f"key {REDACTED}"

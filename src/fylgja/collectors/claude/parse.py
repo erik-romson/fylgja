@@ -26,6 +26,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any, Final
 
+from fylgja.collectors.claude.facts import PendingTool, open_task
 from fylgja.models import (
     SessionActivity,
     SessionActivitySnapshot,
@@ -295,7 +296,11 @@ def remote_url(bridge_session_id: str | None) -> str | None:
 
 
 def session_payload(
-    row: RegistryRow, *, process_key: str | None, predecessor_key: str | None
+    row: RegistryRow,
+    *,
+    process_key: str | None,
+    predecessor_key: str | None,
+    facts: Mapping[str, Any] | None = None,
 ) -> SessionPayload:
     started = (
         None if row.started_at_ms is None else datetime.fromtimestamp(row.started_at_ms / 1000, UTC)
@@ -306,6 +311,8 @@ def session_payload(
         pid=row.pid,
         cwd=row.cwd,
         name=row.name,
+        model=_fact(facts, "model"),
+        branch=_fact(facts, "branch"),
         remote_url=remote_url(row.bridge_session_id),
         started_at=started,
         process_key=process_key,
@@ -316,10 +323,39 @@ def session_payload(
     )
 
 
-def activity_of(row: RegistryRow) -> SessionActivity:
+def _fact(facts: Mapping[str, Any] | None, name: str) -> str | None:
+    """A non-empty string of the facts block, else ``None``."""
+    value = None if facts is None else facts.get(name)
+    return value if isinstance(value, str) and value else None
+
+
+def activity_of(
+    row: RegistryRow,
+    facts: Mapping[str, Any] | None = None,
+    pending: PendingTool | None = None,
+) -> SessionActivity:
+    """The Claude ``SessionActivity`` (§4.6): the registry state plus the transcript's facts.
+
+    ``current_tool`` and ``current_target`` come from the newest tool call without a result, and
+    only while the session is working or waiting. The title falls back to the registry name until
+    the transcript has an ``ai-title``.
+    """
     state = map_state(row.status)
+    tool = pending if state in ("working", "waiting") else None
+    tasks = facts.get("tasks") if facts is not None else None
+    prompts = facts.get("prompts") if facts is not None else None
+    last_typed = prompts[-1] if isinstance(prompts, list) and prompts else None
     return SessionActivity(
-        state=state, waiting_reason=row.waiting_for if state == "waiting" else None
+        state=state,
+        waiting_reason=row.waiting_for if state == "waiting" else None,
+        current_tool=None if tool is None else tool.name,
+        current_target=None if tool is None else tool.target,
+        open_task=open_task(tasks) if isinstance(tasks, list) else None,
+        last_prompt=_fact(facts, "prompt") or (last_typed if isinstance(last_typed, str) else None),
+        last_reply=_fact(facts, "said"),
+        title=_fact(facts, "title") or row.name,
+        branch=_fact(facts, "branch"),
+        facts=None if facts is None else dict(facts),
     )
 
 

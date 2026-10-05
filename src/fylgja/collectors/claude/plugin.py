@@ -23,12 +23,14 @@ def _factory(settings: BaseModel, context: CollectorContext) -> Collector:
     if not isinstance(settings, ClaudeSettings):
         raise TypeError("claude collector got foreign settings")
     registry_dir = settings.registry_dir
+    projects_dir = settings.projects_dir
     # Looked up at call time so tests can replace the seams and HOME.
     return ClaudeCollector(
         settings,
         context,
         registry_dir=adapter.default_registry_dir() if registry_dir is None else registry_dir,
         seams=adapter.default_seams(),
+        projects_dir=adapter.default_projects_dir() if projects_dir is None else projects_dir,
         ignore_cwd=ignore_list(settings),
     )
 
