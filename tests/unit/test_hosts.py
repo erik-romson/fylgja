@@ -26,6 +26,7 @@ from fylgja.core.hosts import (
     Iterm2Host,
     JetBrainsHost,
     JetBrainsProject,
+    cmux_ids_from_env,
 )
 from fylgja.testing.fakes import FakeFS, FakeProcessRunner
 
@@ -126,6 +127,19 @@ def _record(
 def _cmux_host(*records: dict[str, Any]) -> CmuxHost:
     store = hosts.parse_cmux_store(_store_text(*records))
     return CmuxHost(CmuxData(store=store))
+
+
+def test_cmux_ids_come_from_the_hook_environment_ids() -> None:
+    assert cmux_ids_from_env({"CMUX_WORKSPACE_ID": "w", "CMUX_SURFACE_ID": "s"}) == CmuxIds(
+        "w", "s"
+    )
+    assert cmux_ids_from_env({"CMUX_SURFACE_ID": "s", "TERM_PROGRAM": "x"}) == CmuxIds(None, "s")
+    assert cmux_ids_from_env({"CMUX_WORKSPACE_ID": "w", "CMUX_SURFACE_ID": ""}) == CmuxIds(
+        "w", None
+    )
+    assert cmux_ids_from_env({"CMUX_TAB_ID": "t", "TERM_PROGRAM": "ghostty"}) is None
+    assert cmux_ids_from_env({}) is None
+    assert cmux_ids_from_env(None) is None
 
 
 def test_cmux_without_any_id_falls_back_to_window_level() -> None:

@@ -33,6 +33,7 @@ from fylgja.models import (
     ContextItemPayload,
     Event,
     FocusPayload,
+    HookEventPayload,
     Record,
     SessionActivity,
     SessionPayload,
@@ -73,12 +74,14 @@ _TEXT_FIELDS: Final[Mapping[type[BaseModel], tuple[str, ...]]] = {
         "waiting_reason",
     ),
     TodoPayload: ("text",),
+    HookEventPayload: ("prompt",),
 }
 """Free-text fields that are redacted, per payload model."""
 
 _CAPS: Final[Mapping[tuple[type[BaseModel], str], int]] = {
     (SessionActivity, "last_prompt"): PROMPT_MAX_CHARS,
     (SessionActivity, "last_reply"): REPLY_MAX_CHARS,
+    (HookEventPayload, "prompt"): PROMPT_MAX_CHARS,
 }
 
 _FACT_CAPS: Final[Mapping[str, int]] = {"prompt": PROMPT_MAX_CHARS, "said": REPLY_MAX_CHARS}

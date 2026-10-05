@@ -3,21 +3,31 @@
 A canary ``CLAUDE_CODE_MESSAGING_TOKEN`` and ``CMUX_SOCKET_CAPABILITY`` sit in the hook's
 environment, next to every allowlisted variable. No file the hook writes may contain them.
 
-Later steps extend this file: the inbox drain (step 19) checks the database, and messaging
-(step 31) checks the collector, logs and API responses. Use :data:`CANARIES`,
-:func:`canary_env` and :func:`assert_no_canary` for those checks.
+The inbox drain (step 19) extends this to the full §4.5 rule: the real ``fylgja hook`` runs with the
+canaries in its environment, the daemon's Claude collector drains the inbox into SQLite, and the
+canaries appear in **no log, spool file, database row or API response**. Messaging (step 31) adds
+its own checks. Use :data:`CANARIES`, :func:`canary_env` and :func:`assert_no_canary`.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
+import sqlite3
+import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
+from api_support import Dist, EntryPoint, client, config, no_hosts
 from hook_support import all_bytes_under, clean_env, envelope_files, feed, run_hook
 
 from fylgja import hook, paths
+from fylgja.collectors.claude import plugin as claude_plugin
+from fylgja.core.daemon import Daemon
+from fylgja.testing.fakes import FakeFS
 
 CANARIES = {
     "CLAUDE_CODE_MESSAGING_TOKEN": "canary-messaging-token-7f3a91c2",
@@ -114,3 +124,109 @@ def test_the_check_itself_finds_a_planted_canary(isolated_env: Path) -> None:
     planted.write_text(json.dumps({"token": CANARIES["CLAUDE_CODE_MESSAGING_TOKEN"]}))
     with pytest.raises(AssertionError):
         assert_no_canary(*_files())
+
+
+# -- the full rule: hook, drain, database, API and logs -----------------------------------------
+
+BODY_SECRET = "tool-body-secret-0d9a41b7"
+"""A secret in a tool input and response: the spool keeps it until commit, the database never."""
+
+
+def _payload(event: str, **extra: object) -> bytes:
+    return json.dumps(
+        {"session_id": "abc", "hook_event_name": event, "cwd": "/w", **extra}
+    ).encode()
+
+
+def _db_dump() -> list[tuple[str, bytes]]:
+    """Every table of the database as text (the file is also scanned byte for byte)."""
+    path = paths.database_file()
+    if not path.exists():
+        return []
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
+        tables = [
+            r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        ]
+        return [
+            (f"row of {table}", json.dumps(row, default=str).encode())
+            for table in tables
+            for row in connection.execute(f'SELECT * FROM "{table}"')  # noqa: S608 - own schema
+        ]
+
+
+def _event_count() -> int:
+    path = paths.database_file()
+    if not path.exists():
+        return 0
+    try:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
+            return int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
+    except sqlite3.Error:
+        return 0
+
+
+async def test_canaries_reach_no_log_spool_file_database_row_or_api_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    events = [
+        ("SessionStart", _payload("SessionStart", source="startup")),
+        (
+            "PostToolUse",
+            _payload(
+                "PostToolUse",
+                tool_name="Edit",
+                tool_input={"file_path": "/w/a.py", "new_string": BODY_SECRET},
+                tool_response={"output": BODY_SECRET},
+            ),
+        ),
+        ("UserPromptSubmit", _payload("UserPromptSubmit", prompt="please fix the build")),
+        ("Stop", _payload("Stop")),
+        (
+            "StatusLine",
+            b'{"session_id":"abc","cost":{"total_cost_usd":1.5},"context_window":{"used_percentage":12}}',
+        ),
+    ]
+    for name, stdin in events:
+        result = run_hook(name, stdin=stdin, env=canary_env())
+        assert (result.returncode, result.stdout, result.stderr) == (0, b"", b"")
+    spooled = envelope_files()
+    assert len(spooled) == 4
+    assert any(BODY_SECRET.encode() in path.read_bytes() for path in spooled), (
+        "the spool keeps the raw payload until commit"
+    )
+    assert_no_canary(*_files())
+
+    registry = paths.data_dir().parent / "registry"
+    registry.mkdir()
+    entry = EntryPoint("claude", "fylgja.collectors.claude:plugin", Dist("fylgja"), claude_plugin)
+    daemon = Daemon(
+        config({"collectors": {"claude": {"enabled": True, "registry_dir": str(registry)}}}),
+        entry_points=lambda: [entry],
+        fs=FakeFS(),
+        host_loader=no_hosts,
+        home="/home/tester",
+    )
+    await daemon.start()
+    try:
+        deadline = time.monotonic() + 20
+        while (_event_count() < 5 or envelope_files()) and time.monotonic() < deadline:  # noqa: ASYNC110
+            await asyncio.sleep(0.05)
+        assert envelope_files() == [], "the inbox was not drained"
+        assert _event_count() == 5, "hook events and the statusline reading did not reach SQLite"
+
+        responses: list[tuple[str, bytes]] = []
+        async with client(daemon) as http:
+            for route in ("/now", "/sessions", "/workspaces", "/collectors", "/health", "/"):
+                reply = await http.get(route)
+                responses.append((f"GET {route}", reply.content))
+    finally:
+        await daemon.stop()
+
+    log_text = "\n".join(f"{r.name} {r.getMessage()}" for r in caplog.records).encode()
+    assert_no_canary(("captured log", log_text), *responses)
+    assert_no_canary(*_files())  # the files now include the database, its WAL and the quarantine
+    assert_no_canary(*_db_dump())
+    secret = BODY_SECRET.encode()
+    assert not any(secret in blob for _, blob in [*_files(), *_db_dump(), *responses])
+    assert secret not in log_text

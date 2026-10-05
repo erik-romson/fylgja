@@ -6,18 +6,22 @@ from __future__ import annotations
 import asyncio
 import heapq
 import itertools
+import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, time, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from fylgja import paths
 from fylgja.core.retention import (
     ARCHIVE_RETENTION,
+    QUARANTINE_RETENTION,
     RAW_EVENT_RETENTION,
     MaintenanceJob,
     RetentionPolicy,
     apply_retention,
+    prune_quarantine,
     seconds_until,
 )
 from fylgja.core.writer import Tx, Writer
@@ -246,3 +250,116 @@ async def test_the_job_runs_nightly_on_the_injected_clock(writer: Writer) -> Non
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+# -- quarantined hook-inbox files (WP2.2): older than 7 days go -----------------------------------
+
+
+def _stamp(path: Path, mtime: datetime) -> Path:
+    """Give ``path`` an exact mtime (microsecond precision, as the boundary tests need)."""
+    nanoseconds = (mtime - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1) * 1000
+    os.utime(path, ns=(nanoseconds, nanoseconds), follow_symlinks=False)
+    return path
+
+
+def _quarantined(source: str, name: str, mtime: datetime) -> Path:
+    directory = paths.quarantine_dir(source)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / name
+    path.write_text("{}")
+    return _stamp(path, mtime)
+
+
+def _names(source: str) -> list[str]:
+    return sorted(p.name for p in paths.quarantine_dir(source).iterdir())
+
+
+def test_the_quarantine_retention_is_seven_days() -> None:
+    assert QUARANTINE_RETENTION == timedelta(days=7)
+    assert RetentionPolicy().quarantine == timedelta(days=7)
+
+
+def test_a_quarantined_file_is_deleted_only_when_older_than_seven_days() -> None:
+    cut = NOW - QUARANTINE_RETENTION
+    _quarantined("claude", "keep-boundary", cut)
+    _quarantined("claude", "drop-boundary", cut - TICK)
+    _quarantined("claude", "keep-recent", NOW - timedelta(days=1))
+    _quarantined("claude", "drop-ancient", NOW - timedelta(days=400))
+    _quarantined("codex", "drop-other-source", cut - timedelta(hours=1))
+    _quarantined("codex", "keep-other-source", cut + timedelta(hours=1))
+
+    assert prune_quarantine(paths.hook_inbox_root(), NOW) == 3
+    assert _names("claude") == ["keep-boundary", "keep-recent"]
+    assert _names("codex") == ["keep-other-source"]
+    assert prune_quarantine(paths.hook_inbox_root(), NOW) == 0
+
+    # One microsecond later the boundary file is older than seven days too.
+    assert prune_quarantine(paths.hook_inbox_root(), NOW + TICK) == 1
+    assert _names("claude") == ["keep-recent"]
+
+
+def test_only_regular_files_in_a_real_quarantine_directory_are_touched() -> None:
+    old = NOW - timedelta(days=30)
+    inbox = paths.inbox_dir("claude")
+    spool = inbox / "1791231759255399000-6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f.json"
+    _quarantined("claude", "kept-quarantine-dir", NOW)  # makes the directory
+    spool.write_text("{}")
+    _stamp(spool, old)  # an old spool file is not the quarantine's business
+    nested = paths.quarantine_dir("claude") / "a-directory"
+    nested.mkdir()
+    (nested / "inner").write_text("x")
+    _stamp(nested / "inner", old)
+    link = paths.quarantine_dir("claude") / "a-link"
+    link.symlink_to(spool)
+    _stamp(link, old)
+
+    elsewhere = paths.data_dir() / "elsewhere"
+    elsewhere.mkdir()
+    victim = elsewhere / "victim"
+    victim.write_text("x")
+    _stamp(victim, old)
+    linked_source = paths.hook_inbox_root() / "linked"
+    linked_source.symlink_to(elsewhere)
+    (elsewhere / "quarantine").mkdir()
+    _stamp(_quarantined_in(elsewhere / "quarantine", "old-behind-a-link", old), old)
+
+    assert prune_quarantine(paths.hook_inbox_root(), NOW) == 0
+    assert spool.exists()
+    assert (nested / "inner").exists()
+    assert link.is_symlink()
+    assert victim.exists()
+    assert (elsewhere / "quarantine" / "old-behind-a-link").exists()
+
+
+def _quarantined_in(directory: Path, name: str, mtime: datetime) -> Path:
+    path = directory / name
+    path.write_text("{}")
+    return _stamp(path, mtime)
+
+
+def test_a_missing_inbox_root_deletes_nothing() -> None:
+    assert not paths.hook_inbox_root().exists()
+    assert prune_quarantine(paths.hook_inbox_root(), NOW) == 0
+
+
+async def test_the_maintenance_job_prunes_the_quarantine_and_reports_it(writer: Writer) -> None:
+    cut = NOW - QUARANTINE_RETENTION
+    _quarantined("claude", "keep", cut)
+    _quarantined("claude", "drop", cut - TICK)
+    report = await MaintenanceJob(writer, clock=FakeClock(NOW)).run_once()
+    assert report.quarantine_deleted == 1
+    assert _names("claude") == ["keep"]
+    later = await MaintenanceJob(writer, clock=FakeClock(NOW + TICK)).run_once()
+    assert later.quarantine_deleted == 1
+    assert _names("claude") == []
+
+
+async def test_a_custom_policy_and_inbox_root_are_honoured(writer: Writer, tmp_path: Path) -> None:
+    root = tmp_path / "other-inbox-root"
+    directory = root / "claude" / "quarantine"
+    directory.mkdir(parents=True)
+    young = _quarantined_in(directory, "two-days-old", NOW - timedelta(days=2))
+    policy = RetentionPolicy(quarantine=timedelta(days=1))
+    job = MaintenanceJob(writer, clock=FakeClock(NOW), policy=policy, inbox_root=root)
+    assert (await job.run_once()).quarantine_deleted == 1
+    assert not young.exists()

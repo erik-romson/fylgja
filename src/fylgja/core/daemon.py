@@ -337,6 +337,7 @@ class Daemon:
             locator=ProjectLocator(filesystem),
             clock=self.clock,
         )
+        self.resolver.on_ids_changed = self._mark_dirty
         self.gate = IngestGate(
             _Tap(self.writer, (self.resolver.observe, self.memory.observe)),
             [item.plugin for item in self.registry if item.runnable and item.plugin is not None],

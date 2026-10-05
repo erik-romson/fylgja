@@ -46,6 +46,8 @@ from fylgja.core.hosts import HostData
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.models import (
     HealthState,
+    HookEvent,
+    HookEventPayload,
     SessionActivity,
     SessionActivityEvent,
     SessionEvent,
@@ -236,6 +238,51 @@ async def test_records_committed_through_emit_committed_are_observed_too() -> No
     finally:
         await daemon.stop()
     assert (only["key"], only["version"]) == ("claude:e", "2.1.300")
+
+
+async def test_hook_time_cmux_ids_make_the_resolver_refresh_and_join_exactly() -> None:
+    """A hook event with ``CMUX_*`` ids reaches the resolver and triggers a refresh (WP2.2)."""
+    cmux = Win("66", "1", "cmux", 400, "t", "com.cmuxterm.app")
+
+    async def loader() -> HostData:
+        return HostData(home=HOME)
+
+    daemon = make_daemon(windows_collector(), sessions_collector(), host_loader=loader)
+    await daemon.start()
+    try:
+        daemon.sink("wm").emit(window_snapshot("wm", [cmux], T0))
+        daemon.sink("agents").emit(
+            session_snapshot(
+                "agents", [session("claude", "x", pid=900, host_pid=400, cwd="/code/app")], T0
+            )
+        )
+        await daemon.settle()
+        refreshed = daemon.resolver.refresh
+        calls: list[int] = []
+
+        async def counting() -> Any:
+            calls.append(1)
+            return await refreshed()
+
+        daemon.resolver.refresh = counting  # type: ignore[method-assign]
+        await daemon.sink("agents").emit_committed(
+            HookEvent(
+                source="agents",
+                entity_id="claude:x",
+                observed_at=T0,
+                payload=HookEventPayload(
+                    session_id="x",
+                    event="Stop",
+                    ids={"CMUX_WORKSPACE_ID": "hw", "CMUX_SURFACE_ID": "hs"},
+                ),
+            )
+        )
+        await daemon.settle()
+        assert calls, "the ids did not trigger a refresh"
+        assert daemon.resolution is not None
+        assert daemon.resolution.sessions["claude:x"].via == "cmux-hook-env"
+    finally:
+        await daemon.stop()
 
 
 async def test_an_ended_session_is_forgotten() -> None:

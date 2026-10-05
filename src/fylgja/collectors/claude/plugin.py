@@ -38,7 +38,9 @@ def _factory(settings: BaseModel, context: CollectorContext) -> Collector:
 plugin = CollectorPlugin(
     name=NAME,
     api_major=COLLECTOR_API_MAJOR,
-    capabilities=frozenset({Capability.SESSIONS}),
+    # SESSIONS: sessions, activity and hook events. PROJECT_STATE: the usage rows (rate limits) the
+    # statusline reader emits; the ingest gate rejects kinds a plugin did not declare.
+    capabilities=frozenset({Capability.SESSIONS, Capability.PROJECT_STATE}),
     config_model=ClaudeSettings,
     factory=_factory,
 )

@@ -22,13 +22,21 @@ A snapshot is emitted when it differs from the last one, and at least every
 crashes the collector: the loop logs the first failure, keeps the last state and retries, and
 :meth:`ClaudeCollector.doctor` reports ``degraded``.
 
+**Hooks and the statusline (WP2.2).** :meth:`ClaudeCollector.run` also runs the inbox drainer
+(:mod:`~fylgja.collectors.claude.inbox`: kqueue watch or a 1 s poll, delete-after-commit) and the
+statusline reader (:mod:`~fylgja.collectors.claude.statusline`: ``statusline/*.json`` by mtime).
+Each loop is guarded, so a failure in one never stops the others.
+
 Nothing is logged or exposed from a row's contents.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,7 +44,9 @@ from fylgja import paths
 from fylgja.collectors.base import CollectorContext
 from fylgja.collectors.claude import parse, transcript
 from fylgja.collectors.claude.adapter import PsFailure, Seams, ps_process_table, ps_start_times
+from fylgja.collectors.claude.inbox import InboxDrainer
 from fylgja.collectors.claude.registry import Continuity, PollResult, RegistryPoller
+from fylgja.collectors.claude.statusline import StatuslineReader
 from fylgja.models import HealthReport, HealthState, ProcessRef, SessionActivity, SessionPayload
 
 __all__ = ["ClaudeCollector", "ClaudeSettings", "PollStats", "ignore_list"]
@@ -62,6 +72,12 @@ class ClaudeSettings(BaseModel):
     heartbeat_seconds: float = Field(default=30.0, gt=0)
     ignore_cwd: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORE_CWD))
     """Rows whose cwd matches are dropped. The summarizer cwd is always added to this list."""
+    inbox_poll_seconds: float = Field(default=1.0, gt=0)
+    """The inbox poll interval. On macOS a kqueue watch wakes the drain sooner; the poll stays as a
+    safety net."""
+    inbox_watch: Literal["auto", "poll"] = "auto"
+    """``auto`` watches with kqueue where it exists; ``poll`` only polls."""
+    statusline_poll_seconds: float = Field(default=1.0, gt=0)
     ps_command: str = "/bin/ps"
     command_timeout_seconds: float = Field(default=5.0, gt=0)
 
@@ -115,6 +131,18 @@ class ClaudeCollector:
         self.stats = PollStats()
         self.emissions = 0
         """Snapshot pairs that reached the sink."""
+        self.inbox = InboxDrainer(
+            context.paths.inbox_dir,
+            context.sink,
+            context.clock,
+            context.logger,
+            poll_interval=settings.inbox_poll_seconds,
+            use_kqueue=False if settings.inbox_watch == "poll" else None,
+        )
+        self.statusline = StatuslineReader(
+            context.paths.data_dir / "statusline", context.sink, context.clock, context.logger
+        )
+        self._loop_failures: dict[str, str] = {}
 
     # -- one poll ---------------------------------------------------------------------------
 
@@ -307,10 +335,47 @@ class ClaudeCollector:
 
     # -- loop -------------------------------------------------------------------------------
 
-    async def run(self) -> None:
+    async def _registry_loop(self) -> None:
         while True:
             await self.poll()
             await self._context.clock.sleep(self._settings.poll_interval_seconds)
+
+    async def _statusline_loop(self) -> None:
+        while True:
+            self.statusline.poll()
+            await self._context.clock.sleep(self._settings.statusline_poll_seconds)
+
+    async def _guarded(self, name: str, loop: Callable[[], Awaitable[None]]) -> None:
+        """Run one loop; an unexpected error is logged and the loop restarts after a pause."""
+        while True:
+            try:
+                await loop()
+            except Exception as exc:
+                kind = type(exc).__name__
+                if self._loop_failures.get(name) != kind:
+                    self._context.logger.error("claude %s loop failed: %s", name, kind)
+                self._loop_failures[name] = kind
+                await self._context.clock.sleep(self._settings.poll_interval_seconds)
+            else:  # pragma: no cover - the loops run until cancelled
+                return
+
+    async def run(self) -> None:
+        """Poll the registry, drain the hook inbox and read the statusline until cancelled."""
+        tasks = [
+            asyncio.ensure_future(self._guarded(name, loop))
+            for name, loop in (
+                ("registry", self._registry_loop),
+                ("inbox", self.inbox.run),
+                ("statusline", self._statusline_loop),
+            )
+        ]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                task.cancel()
+            with contextlib.suppress(Exception):
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     # -- health -----------------------------------------------------------------------------
 
@@ -318,6 +383,10 @@ class ClaudeCollector:
         """The directory is readable and ``ps`` answers. No side effects, no key file touched."""
         now = self._context.clock.now()
         failure = self._registry_failure or self._ps_failure
+        if failure is None:
+            failure = self.inbox.failure
+        if failure is None and self.statusline.failure is not None:
+            failure = ("statusline_unreadable", self.statusline.failure)
         if failure is None and not self._polled:
             try:
                 self._seams.fs.listdir(self._directory)
@@ -342,6 +411,9 @@ class ClaudeCollector:
             f"{stats.rejected} rejected, {stats.ignored} ignored by cwd; "
             f"{stats.non_row_files} other files left unopened"
         )
+        drained = self.inbox.totals
+        if drained.handled:
+            detail += f"; inbox: {drained.committed} drained, {drained.quarantined} quarantined"
         return HealthReport(state=HealthState.OK, detail=detail, checked_at=now)
 
 

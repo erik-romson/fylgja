@@ -34,13 +34,21 @@ from fylgja.core.hosts import (
     HostSession,
     Join,
     adapter_for,
+    cmux_ids_from_env,
     default_adapters,
 )
 from fylgja.core.labels import InferredLabel, LabelInput, WindowFacts, infer_label, project_name
 from fylgja.core.live_view import Change, Collection, LiveView
 from fylgja.core.project_roots import ProjectFact, ProjectLocator
 from fylgja.core.writer import Tx, Writer
-from fylgja.models import ProcessRef, Record, SessionEvent, SessionPayload, SessionSnapshot
+from fylgja.models import (
+    HookEvent,
+    ProcessRef,
+    Record,
+    SessionEvent,
+    SessionPayload,
+    SessionSnapshot,
+)
 from fylgja.store import db, queries
 from fylgja.store.rows import SessionRow, WindowRow
 
@@ -460,6 +468,8 @@ class Resolver:
         self._clock = clock
         self._ancestry: dict[str, tuple[ProcessRef, ...]] = {}
         self._cmux_ids: dict[str, CmuxIds] = {}
+        self.on_ids_changed: Callable[[], None] | None = None
+        """Called when a hook brought cmux ids a session did not have, so a refresh can use them."""
 
     def observe(self, record: Record) -> None:
         """Remember the ancestor chains of the sessions a record lists."""
@@ -471,6 +481,12 @@ class Resolver:
                 self._ancestry = {k: v for k, v in self._ancestry.items() if k in live}
         elif isinstance(record, SessionEvent):
             self._remember(record.payload)
+        elif isinstance(record, HookEvent):
+            ids = cmux_ids_from_env(record.payload.ids)
+            if ids is not None and self._cmux_ids.get(record.entity_id) != ids:
+                self.observe_cmux_ids(record.entity_id, ids)
+                if self.on_ids_changed is not None:
+                    self.on_ids_changed()
 
     def _remember(self, payload: SessionPayload) -> None:
         if payload.ancestry:

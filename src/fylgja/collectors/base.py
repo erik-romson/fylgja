@@ -52,7 +52,9 @@ class Capability(StrEnum):
 CAPABILITY_ENTITY_KINDS: Final[Mapping[Capability, frozenset[EntityKind]]] = MappingProxyType(
     {
         Capability.WINDOWS: frozenset({EntityKind.WINDOW, EntityKind.WORKSPACE, EntityKind.FOCUS}),
-        Capability.SESSIONS: frozenset({EntityKind.SESSION, EntityKind.SESSION_ACTIVITY}),
+        Capability.SESSIONS: frozenset(
+            {EntityKind.SESSION, EntityKind.SESSION_ACTIVITY, EntityKind.HOOK_EVENT}
+        ),
         Capability.TODOS: frozenset({EntityKind.TODO}),
         Capability.CONTEXT: frozenset({EntityKind.CONTEXT_ITEM, EntityKind.PRESENCE}),
         Capability.PROJECT_STATE: frozenset(

@@ -53,6 +53,9 @@ __all__ = [
     "FocusSnapshot",
     "HealthReport",
     "HealthState",
+    "HookEvent",
+    "HookEventPayload",
+    "HookEventSnapshot",
     "PresenceEvent",
     "PresencePayload",
     "PresenceSnapshot",
@@ -102,6 +105,7 @@ class EntityKind(StrEnum):
     PROJECT = "project"
     BUILD = "build"
     USAGE = "usage"
+    HOOK_EVENT = "hook_event"
 
 
 class HealthState(StrEnum):
@@ -185,6 +189,36 @@ class SessionPayload(_Frozen):
     ancestry: tuple[ProcessRef, ...] | None = None
     """The session process and its ancestors, nearest first. The resolver walks it to find the host
     app (WP1.8). Carried on the record and never stored in a column."""
+
+
+class HookEventPayload(_Frozen):
+    """One minimized agent hook event, or one statusline reading (A4, A5; WP2.2).
+
+    Only allowlisted fields exist here: tool input and response bodies, transcript paths and every
+    other payload key never reach a record. The prompt is cut to 300 characters by the normalizer
+    and redacted by the privacy filter. ``ids`` holds the allowlisted terminal ids of the hook's
+    environment (``CMUX_*``, iTerm2 and Terminal ids); nothing secret is ever among them.
+    """
+
+    session_id: str
+    event: str
+    tool_name: str | None = None
+    notification_type: str | None = None
+    reason: str | None = None
+    cwd: str | None = None
+    permission_mode: str | None = None
+    edited_paths: tuple[str, ...] | None = None
+    prompt: str | None = None
+    pid: int | None = None
+    ids: dict[str, str] | None = None
+    envelope_id: str | None = None
+    """The hook envelope's ``id``: the deduplication key of a replayed spool file."""
+    context_pct: float | None = None
+    """Statusline only: the context window's used percentage."""
+    cost_usd: float | None = None
+    """Statusline only: the session's total cost."""
+    pr_number: int | None = None
+    pr_url: str | None = None
 
 
 class Stage(_Frozen):
@@ -422,6 +456,14 @@ class SessionActivitySnapshot(Snapshot[SessionActivity]):
     entity_kind: Literal[EntityKind.SESSION_ACTIVITY] = EntityKind.SESSION_ACTIVITY
 
 
+class HookEvent(Event[HookEventPayload]):
+    entity_kind: Literal[EntityKind.HOOK_EVENT] = EntityKind.HOOK_EVENT
+
+
+class HookEventSnapshot(Snapshot[HookEventPayload]):
+    entity_kind: Literal[EntityKind.HOOK_EVENT] = EntityKind.HOOK_EVENT
+
+
 class TodoEvent(Event[TodoPayload]):
     entity_kind: Literal[EntityKind.TODO] = EntityKind.TODO
 
@@ -485,7 +527,8 @@ EventRecord = Annotated[
     | PresenceEvent
     | ProjectEvent
     | BuildEvent
-    | UsageEvent,
+    | UsageEvent
+    | HookEvent,
     Field(discriminator="entity_kind"),
 ]
 
@@ -500,7 +543,8 @@ SnapshotRecord = Annotated[
     | PresenceSnapshot
     | ProjectSnapshot
     | BuildSnapshot
-    | UsageSnapshot,
+    | UsageSnapshot
+    | HookEventSnapshot,
     Field(discriminator="entity_kind"),
 ]
 

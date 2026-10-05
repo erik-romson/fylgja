@@ -27,6 +27,9 @@ from fylgja.models import (
     FocusSnapshot,
     HealthReport,
     HealthState,
+    HookEvent,
+    HookEventPayload,
+    HookEventSnapshot,
     PresenceEvent,
     PresencePayload,
     PresenceSnapshot,
@@ -97,6 +100,17 @@ CASES: list[tuple[type[Any], type[Any], BaseModel]] = [
         BuildPayload(state="pass", workflows=(BuildWorkflow(workflow="ci", run_id=5),)),
     ),
     (UsageEvent, UsageSnapshot, UsagePayload(provider="claude", used_pct=12.5, resets_at=T0)),
+    (
+        HookEvent,
+        HookEventSnapshot,
+        HookEventPayload(
+            session_id="abc",
+            event="PostToolUse",
+            tool_name="Edit",
+            edited_paths=("/p/a.py",),
+            ids={"CMUX_SURFACE_ID": "s1"},
+        ),
+    ),
 ]
 
 

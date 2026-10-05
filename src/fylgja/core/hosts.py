@@ -67,6 +67,7 @@ __all__ = [
     "load_host_data",
     "load_jetbrains",
     "newest_product_dirs",
+    "cmux_ids_from_env",
     "parse_cmux_store",
     "parse_cmux_version",
     "parse_recent_projects",
@@ -121,6 +122,17 @@ class CmuxIds:
 
     workspace_id: str | None = None
     surface_id: str | None = None
+
+
+def cmux_ids_from_env(ids: Mapping[str, str] | None) -> CmuxIds | None:
+    """The cmux ids among the allowlisted terminal ids of a hook (A3); ``None`` when it has none."""
+    if not ids:
+        return None
+    workspace = ids.get("CMUX_WORKSPACE_ID") or None
+    surface = ids.get("CMUX_SURFACE_ID") or None
+    if workspace is None and surface is None:
+        return None
+    return CmuxIds(workspace_id=workspace, surface_id=surface)
 
 
 @dataclass(frozen=True)

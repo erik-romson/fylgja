@@ -133,3 +133,12 @@ The daemon reads a snapshot again whenever its mtime changes.
   at once without reading stdin. This keeps summarizer sessions out of the inbox.
 - **What it never does:** model work, network or HTTP calls, database access, configuration loading, or reading any
   file other than its own stamp and counter.
+
+## How the daemon drains the inbox (WP2.2)
+
+The Claude collector watches `hook-inbox/claude/` (a kqueue watch on macOS, a 1 s poll otherwise), takes the files
+named `<received_at_ns>-<id>.json` in name order, normalizes each envelope into a minimized `hook_event` record
+(decision 0032), commits it, and only then deletes the file. The record's dedup key derives from the envelope
+`id`, so a file that survives a crash is ingested again as a no-op. A file that is not a valid `fylgja.hook/1`
+envelope for its inbox, names no session or event, or whose event the ingest gate rejects, moves to `quarantine/`,
+where maintenance deletes it after 7 days. The daemon also deletes `.tmp-*` files older than a minute.

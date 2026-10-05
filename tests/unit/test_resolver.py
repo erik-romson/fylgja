@@ -43,6 +43,8 @@ from fylgja.core.resolver import (
 )
 from fylgja.core.writer import Writer
 from fylgja.models import (
+    HookEvent,
+    HookEventPayload,
     ProcessRef,
     ProjectEvent,
     ProjectPayload,
@@ -572,6 +574,36 @@ async def test_hook_time_cmux_ids_reach_the_resolution(writer: Writer, view: Liv
     resolution = await resolver.refresh()
     assert resolution.sessions["claude:s1"].via == "cmux-hook-env"
     assert view.sessions["claude:s1"].host_ref == "hw/hs"
+
+
+async def test_a_hook_event_feeds_its_cmux_ids_to_the_resolver(
+    writer: Writer, view: LiveView
+) -> None:
+    resolver = _resolver(writer, view, FakeFS(), FakeClock(NOW))
+    resolver.observe(await _seed(writer, ("s1", "/code/app", 100)))
+    changed: list[int] = []
+    resolver.on_ids_changed = lambda: changed.append(1)
+
+    def hook_event(session: str, **ids: str) -> HookEvent:
+        return HookEvent(
+            source="claude",
+            entity_id=f"claude:{session}",
+            observed_at=NOW,
+            payload=HookEventPayload(session_id=session, event="Stop", ids=ids or None),
+        )
+
+    resolver.observe(
+        hook_event("s1", CMUX_WORKSPACE_ID="hw", CMUX_SURFACE_ID="hs", TERM_PROGRAM="x")
+    )
+    resolver.observe(hook_event("s1", CMUX_WORKSPACE_ID="hw", CMUX_SURFACE_ID="hs"))  # nothing new
+    resolver.observe(hook_event("s2", TERM_PROGRAM="ghostty"))  # no cmux ids
+    resolver.observe(hook_event("s3"))
+    assert changed == [1]
+    resolution = await resolver.refresh()
+    assert resolution.sessions["claude:s1"].via == "cmux-hook-env"
+    assert view.sessions["claude:s1"].host_ref == "hw/hs"
+    resolver.forget("claude:s1")
+    assert "claude:s1" not in resolver._cmux_ids
 
 
 async def test_observe_keeps_chains_of_live_sessions_only(writer: Writer, view: LiveView) -> None:

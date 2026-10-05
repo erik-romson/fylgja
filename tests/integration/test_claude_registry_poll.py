@@ -349,7 +349,8 @@ async def test_the_loop_polls_every_two_seconds_and_stops_when_cancelled(world: 
     task = asyncio.create_task(world.collector.run())
     try:
         await world.clock.advance(7)
-        assert world.clock.sleeps == [2.0, 2.0, 2.0, 2.0]
+        # The inbox and statusline loops (WP2.2) sleep one second each; the registry loop, two.
+        assert [s for s in world.clock.sleeps if s == 2.0] == [2.0, 2.0, 2.0, 2.0]
         assert len(world.ps.calls) == 4
         world.add(101, "s-101")
         await world.clock.advance(2)
