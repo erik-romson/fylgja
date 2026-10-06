@@ -1,0 +1,42 @@
+[
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "Page title 1 - Site 1 - Google Chrome - person-1 (work)",
+    "expected": {"kind": "browser", "fields": {"page_title": "Page title 1 - Site 1", "profile": "person-1 (work)"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "Page title 2 - Google Chrome - person-1 (customer-1)",
+    "expected": {"kind": "browser", "fields": {"page_title": "Page title 2", "profile": "person-1 (customer-1)"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "Page title 3 - Google Chrome - Person 1",
+    "expected": {"kind": "browser", "fields": {"page_title": "Page title 3", "profile": "Person 1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "Page title 4 - Google Chrome",
+    "expected": {"kind": "browser", "fields": {"page_title": "Page title 4"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "About Google Chrome - Google Chrome - person-1 (work)",
+    "expected": {"kind": "browser", "fields": {"page_title": "About Google Chrome", "profile": "person-1 (work)"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "Google Chrome",
+    "expected": {"kind": "browser", "fields": {}, "unread": null, "confidence": "low"}
+  },
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "Google Chrome - person-1 (work)",
+    "expected": {"kind": "browser", "fields": {"profile": "person-1 (work)"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.google.Chrome",
+    "title": "Some other title without the browser name",
+    "expected": null
+  }
+]

@@ -1,0 +1,15 @@
+[
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "! channel-1 (Channel) - workspace-1 - 2 new items - Slack", "unread": 2},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "channel-1 (Channel) - workspace-1 - 1 new item - Slack", "unread": 1},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "! channel-1 (Channel) - workspace-1 - Slack", "unread": true},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "! Person 1 (DM) - workspace-1 - 12 new items - Slack", "unread": 12},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "channel-1 (Channel) - workspace-1 - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "* channel-1 (Channel) - workspace-1 - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "(3) channel-1 (Channel) - workspace-1 - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "channel-3 (Channel) - workspace-1 - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "release-2-new-items (Channel) - workspace-1 - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "channel-1 (Channel) - 2 new items - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "channel-1 (Channel) - workspace-1 - 0 new items - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "channel-1! (Channel) - workspace-1 - Slack", "unread": null},
+  {"bundle_id": "com.tinyspeck.slackmacgap", "title": "channel-1 (Channel) - workspace-1 - 2 new items", "unread": null}
+]

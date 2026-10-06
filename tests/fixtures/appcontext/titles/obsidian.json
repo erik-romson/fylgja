@@ -1,0 +1,27 @@
+[
+  {
+    "bundle_id": "md.obsidian",
+    "title": "notes - vault-1 - Obsidian 1.7.4",
+    "expected": {"kind": "notes", "fields": {"note": "notes", "vault": "vault-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "md.obsidian",
+    "title": "ticket-123 - customer-1 - vault-1 - Obsidian v1.7.4",
+    "expected": {"kind": "notes", "fields": {"note": "ticket-123 - customer-1", "vault": "vault-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "md.obsidian",
+    "title": "vault-1 - Obsidian 1.7.4",
+    "expected": {"kind": "notes", "fields": {"vault": "vault-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "md.obsidian",
+    "title": "notes - vault-1 - Obsidian",
+    "expected": {"kind": "notes", "fields": {"note": "notes", "vault": "vault-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "md.obsidian",
+    "title": "Obsidian",
+    "expected": null
+  }
+]

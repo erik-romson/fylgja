@@ -1,0 +1,42 @@
+[
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "! channel-1 (Channel) - workspace-1 - 2 new items - Slack",
+    "expected": {"kind": "chat", "fields": {"channel": "channel-1", "channel_type": "channel", "workspace": "workspace-1"}, "unread": 2, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "channel-1 (Channel) - workspace-1 - 1 new item - Slack",
+    "expected": {"kind": "chat", "fields": {"channel": "channel-1", "channel_type": "channel", "workspace": "workspace-1"}, "unread": 1, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "! Person 1 (DM) - workspace-1 - Slack",
+    "expected": {"kind": "chat", "fields": {"channel": "Person 1", "channel_type": "dm", "workspace": "workspace-1"}, "unread": true, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "channel-1 (Channel) - workspace-1 - Slack",
+    "expected": {"kind": "chat", "fields": {"channel": "channel-1", "channel_type": "channel", "workspace": "workspace-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "channel-1 - workspace-1 - Slack",
+    "expected": {"kind": "chat", "fields": {"channel": "channel-1", "workspace": "workspace-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "Threads - workspace-1 - Slack",
+    "expected": {"kind": "chat", "fields": {"channel": "Threads", "workspace": "workspace-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "channel-1 (Channel) - customer-1 - team - 3 new items - Slack",
+    "expected": {"kind": "chat", "fields": {"channel": "channel-1", "channel_type": "channel", "workspace": "customer-1 - team"}, "unread": 3, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.tinyspeck.slackmacgap",
+    "title": "Slack",
+    "expected": null
+  }
+]

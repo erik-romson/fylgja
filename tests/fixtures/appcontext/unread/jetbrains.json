@@ -1,0 +1,7 @@
+[
+  {"bundle_id": "com.jetbrains.intellij", "title": "project-a \u2013 notes-3.md", "unread": null},
+  {"bundle_id": "com.jetbrains.intellij", "title": "* project-a \u2013 notes.md", "unread": null},
+  {"bundle_id": "com.jetbrains.pycharm", "title": "(3) project-b \u2013 handler.py", "unread": null},
+  {"bundle_id": "com.jetbrains.pycharm", "title": "project-b \u2013 handler.py*", "unread": null},
+  {"bundle_id": "com.jetbrains.pycharm", "title": "! project-b \u2013 handler.py", "unread": null}
+]

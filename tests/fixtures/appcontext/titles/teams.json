@@ -1,0 +1,37 @@
+[
+  {
+    "bundle_id": "com.microsoft.teams2",
+    "title": "Chat | Person, First | Microsoft Teams",
+    "expected": {"kind": "chat", "fields": {"section": "Chat", "context": "Person, First", "chat_partner": "Person, First"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.teams2",
+    "title": "Chat | Group chat 1 | Microsoft Teams",
+    "expected": {"kind": "chat", "fields": {"section": "Chat", "context": "Group chat 1", "chat_partner": "Group chat 1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.teams2",
+    "title": "Calendar | Calendar | Microsoft Teams",
+    "expected": {"kind": "chat", "fields": {"section": "Calendar", "context": "Calendar"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.teams2",
+    "title": "Teams | Channel 1 | Team 1 | Microsoft Teams",
+    "expected": {"kind": "chat", "fields": {"section": "Teams", "context": "Channel 1 | Team 1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.teams2",
+    "title": "Activity | Microsoft Teams",
+    "expected": {"kind": "chat", "fields": {"section": "Activity"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.teams2",
+    "title": "Microsoft Teams",
+    "expected": {"kind": "chat", "fields": {}, "unread": null, "confidence": "low"}
+  },
+  {
+    "bundle_id": "com.microsoft.teams2",
+    "title": "Meeting with customer-1",
+    "expected": null
+  }
+]

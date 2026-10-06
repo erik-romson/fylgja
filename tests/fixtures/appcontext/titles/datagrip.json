@@ -1,0 +1,27 @@
+[
+  {
+    "bundle_id": "com.jetbrains.datagrip",
+    "title": "project-a – console-a.schema-1.table-1",
+    "expected": {"kind": "database", "fields": {"project": "project-a", "console": "console-a.schema-1.table-1"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.datagrip",
+    "title": "project-a [~/work/customer-1/sql] – console-a",
+    "expected": {"kind": "database", "fields": {"project": "project-a", "path": "~/work/customer-1/sql", "console": "console-a"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.datagrip",
+    "title": "project-a – a-long-console-name-for-ticket-123…",
+    "expected": {"kind": "database", "fields": {"project": "project-a", "console": "a-long-console-name-for-ticket-123…"}, "unread": null, "confidence": "medium"}
+  },
+  {
+    "bundle_id": "com.jetbrains.datagrip",
+    "title": "project-a",
+    "expected": {"kind": "database", "fields": {"project": "project-a"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.datagrip",
+    "title": "Welcome to DataGrip",
+    "expected": {"kind": "database", "fields": {"screen": "welcome"}, "unread": null, "confidence": "low"}
+  }
+]

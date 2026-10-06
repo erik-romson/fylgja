@@ -1,0 +1,22 @@
+[
+  {
+    "bundle_id": "com.microsoft.Outlook",
+    "title": "Inbox \"person-1@example.com\"",
+    "expected": {"kind": "mail", "fields": {"folder": "Inbox", "account": "person-1@example.com"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.Outlook",
+    "title": "Sent Items \"person-1@example.com\"",
+    "expected": {"kind": "mail", "fields": {"folder": "Sent Items", "account": "person-1@example.com"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.Outlook",
+    "title": "Inbox • person-1@example.com",
+    "expected": {"kind": "mail", "fields": {"folder": "Inbox", "account": "person-1@example.com"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.microsoft.Outlook",
+    "title": "Microsoft Outlook",
+    "expected": null
+  }
+]

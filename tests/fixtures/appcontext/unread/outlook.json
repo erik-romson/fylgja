@@ -1,0 +1,6 @@
+[
+  {"bundle_id": "com.microsoft.Outlook", "title": "Inbox (3) \"person-1@example.com\"", "unread": null},
+  {"bundle_id": "com.microsoft.Outlook", "title": "(3) Inbox \"person-1@example.com\"", "unread": null},
+  {"bundle_id": "com.microsoft.Outlook", "title": "* Inbox \"person-1@example.com\"", "unread": null},
+  {"bundle_id": "com.microsoft.Outlook", "title": "Inbox \u2022 person-1@example.com", "unread": null}
+]

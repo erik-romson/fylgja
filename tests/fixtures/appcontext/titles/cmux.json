@@ -1,0 +1,12 @@
+[
+  {
+    "bundle_id": "com.cmuxterm.app",
+    "title": "workspc",
+    "expected": {"kind": "terminal", "fields": {"workspace": "workspc"}, "unread": null, "confidence": "low"}
+  },
+  {
+    "bundle_id": "com.cmuxterm.app",
+    "title": "  project-a  ",
+    "expected": {"kind": "terminal", "fields": {"workspace": "project-a"}, "unread": null, "confidence": "low"}
+  }
+]

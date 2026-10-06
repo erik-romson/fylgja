@@ -1,0 +1,82 @@
+[
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "project-a – notes.md [module-a]",
+    "expected": {"kind": "ide", "fields": {"project": "project-a", "file": "notes.md", "module": "module-a"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "project-a – notes.md",
+    "expected": {"kind": "ide", "fields": {"project": "project-a", "file": "notes.md"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "project-a [~/work/customer-1/project-a] – notes.md",
+    "expected": {"kind": "ide", "fields": {"project": "project-a", "path": "~/work/customer-1/project-a", "file": "notes.md"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "project-a [~/work/customer-1/project-a] – notes.md [module-a]",
+    "expected": {"kind": "ide", "fields": {"project": "project-a", "path": "~/work/customer-1/project-a", "file": "notes.md", "module": "module-a"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "customer-1 project-a [~/work/customer-1/project-a] – Repository Diff: notes.md",
+    "expected": {"kind": "ide", "fields": {"project": "customer-1 project-a", "path": "~/work/customer-1/project-a", "view": "Repository Diff", "file": "notes.md"}, "unread": null, "confidence": "medium"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "project-a – ~/work/customer-1/notes.md",
+    "expected": {"kind": "ide", "fields": {"project": "project-a", "file_path": "~/work/customer-1/notes.md", "file": "notes.md"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "project-a – a-very-long-file-name-for-a-ticket-123-handler…",
+    "expected": {"kind": "ide", "fields": {"project": "project-a", "file": "a-very-long-file-name-for-a-ticket-123-handler…"}, "unread": null, "confidence": "medium"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "project-a",
+    "expected": {"kind": "ide", "fields": {"project": "project-a"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.intellij",
+    "title": "Welcome to IntelliJ IDEA",
+    "expected": {"kind": "ide", "fields": {"screen": "welcome"}, "unread": null, "confidence": "low"}
+  },
+  {
+    "bundle_id": "com.jetbrains.pycharm",
+    "title": "project-b – handler.py",
+    "expected": {"kind": "ide", "fields": {"project": "project-b", "file": "handler.py"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.pycharm",
+    "title": "project-b ticket-123 – .env.example",
+    "expected": {"kind": "ide", "fields": {"project": "project-b ticket-123", "file": ".env.example"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.pycharm",
+    "title": "project-b [~/work/project-b] – ~/work/project-b/src/handler.py",
+    "expected": {"kind": "ide", "fields": {"project": "project-b", "path": "~/work/project-b", "file_path": "~/work/project-b/src/handler.py", "file": "handler.py"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.pycharm",
+    "title": "project-b – Repository Diff: handler.py…",
+    "expected": {"kind": "ide", "fields": {"project": "project-b", "view": "Repository Diff", "file": "handler.py…"}, "unread": null, "confidence": "medium"}
+  },
+  {
+    "bundle_id": "com.jetbrains.pycharm",
+    "title": "project-b",
+    "expected": {"kind": "ide", "fields": {"project": "project-b"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.WebStorm",
+    "title": "project-c – index.ts",
+    "expected": {"kind": "ide", "fields": {"project": "project-c", "file": "index.ts"}, "unread": null, "confidence": "high"}
+  },
+  {
+    "bundle_id": "com.jetbrains.goland",
+    "title": "project-d – main.go [module-d]",
+    "expected": {"kind": "ide", "fields": {"project": "project-d", "file": "main.go", "module": "module-d"}, "unread": null, "confidence": "high"}
+  }
+]

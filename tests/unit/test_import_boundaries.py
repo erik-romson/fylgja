@@ -47,6 +47,7 @@ MODULES = [
     "fylgja.collectors.norn",
     "fylgja.collectors.project",
     "fylgja.collectors.presence",
+    "fylgja.collectors.appcontext.titles",
     "fylgja.collectors.todo_lists",
     "fylgja.core.todo_import",
     "fylgja.core.system",
