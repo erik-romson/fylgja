@@ -8,9 +8,12 @@ A workspace without a manual label is named by what is in it, by the first rule 
    titles share (``Safari docs``). An app whose titles give no keyword is named alone;
 3. **none**: ``—``.
 
-The same input always gives the same label, so it never flickers. Manual labels, which always win,
-come with the todo and label work (step 34); this module infers, and :func:`effective_label` picks
-the label ``/now`` shows. The inferred label is stored in ``workspaces.inferred_label``.
+The same input always gives the same label, so it never flickers. **Manual labels** (WP4.2) always
+win: :class:`LabelService` stores one in ``workspaces.manual_label`` (with ``manual_label_at``)
+through the writer, and clearing it restores inference. Inference keeps updating
+``workspaces.inferred_label`` underneath a manual label and never touches it.
+:func:`effective_label` picks the label ``/now`` shows (and the workspace one-liner of §4.6
+uses): the manual label, else the inferred one, else ``—``; ``label_source`` says which.
 
 Titles are redacted before they reach this module, and nothing here logs them.
 """
@@ -23,6 +26,13 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from fylgja.collectors.base import Clock
+from fylgja.core.live_view import Change, Collection
+from fylgja.core.writer import Tx, Writer
+from fylgja.privacy import PrivacyFilter
+from fylgja.store import db, queries
+from fylgja.store.rows import WorkspaceRow
+
 __all__ = [
     "EMPTY_LABEL",
     "GENERIC_DIRECTORIES",
@@ -30,8 +40,13 @@ __all__ = [
     "LABEL_MANUAL",
     "LABEL_NONE",
     "MAX_LABEL",
+    "MAX_MANUAL_LABEL",
     "InferredLabel",
+    "LabelError",
     "LabelInput",
+    "LabelService",
+    "LabelValidationError",
+    "WorkspaceNotFound",
     "WindowFacts",
     "effective_label",
     "infer_label",
@@ -41,6 +56,8 @@ __all__ = [
 
 EMPTY_LABEL: Final = "—"
 MAX_LABEL: Final = 40
+MAX_MANUAL_LABEL: Final = 80
+"""The longest manual label (after whitespace is collapsed)."""
 
 LABEL_MANUAL: Final = "manual"
 LABEL_INFERRED: Final = "inferred"
@@ -190,3 +207,61 @@ def infer_label(inputs: LabelInput) -> InferredLabel:
         return InferredLabel(_clip(app), RULE_APP)
     best = min(counts, key=lambda key: (-counts[key], -len(key), key))
     return InferredLabel(_clip(f"{app} {spelling[best]}"), RULE_APP_TITLE)
+
+
+# --- manual labels (WP4.2) ------------------------------------------------------------------------
+
+
+class LabelError(Exception):
+    """Base of what the label service refuses."""
+
+
+class WorkspaceNotFound(LabelError):
+    """No open workspace has that name."""
+
+
+class LabelValidationError(LabelError):
+    """The label is empty or too long (the message never repeats it)."""
+
+
+def _clean_label(text: str, privacy: PrivacyFilter) -> str:
+    cleaned = " ".join(text.split())  # one line: no control characters, no stray whitespace
+    if not cleaned:
+        raise LabelValidationError("the label is empty")
+    if len(cleaned) > MAX_MANUAL_LABEL:
+        raise LabelValidationError(f"the label is longer than {MAX_MANUAL_LABEL} characters")
+    return privacy.redact(cleaned)
+
+
+class LabelService:
+    """Sets and clears the manual label of a workspace; every change runs in the writer."""
+
+    def __init__(
+        self, writer: Writer, *, clock: Clock, privacy: PrivacyFilter | None = None
+    ) -> None:
+        self._writer = writer
+        self._clock = clock
+        self._privacy = PrivacyFilter() if privacy is None else privacy
+
+    async def set_manual(self, workspace: str, label: str) -> WorkspaceRow:
+        """Name ``workspace`` by hand. The label is redacted (A5) and never logged."""
+        cleaned = _clean_label(label, self._privacy)
+        return await self._apply(workspace, cleaned)
+
+    async def clear_manual(self, workspace: str) -> WorkspaceRow:
+        """Remove the manual label; the inferred label shows again. Clearing none is fine."""
+        return await self._apply(workspace, None)
+
+    async def _apply(self, workspace: str, label: str | None) -> WorkspaceRow:
+        stamp = db.to_db_time(self._clock.now())
+
+        def job(tx: Tx) -> WorkspaceRow:
+            current = queries.get_workspace(tx.connection, workspace)
+            row = queries.set_manual_label(tx.connection, name=workspace, label=label, at=stamp)
+            if row is None:
+                raise WorkspaceNotFound(workspace)
+            if current is None or current.manual_label != row.manual_label:
+                tx.changed(Change(Collection.WORKSPACES, workspace, row))
+            return row
+
+        return await self._writer.execute(job)

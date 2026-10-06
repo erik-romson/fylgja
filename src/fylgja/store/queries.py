@@ -67,6 +67,7 @@ __all__ = [
     "put_health",
     "put_usage",
     "put_window",
+    "set_manual_label",
     "soft_delete_todo",
     "unfocus_other_workspaces",
     "update_session_from_activity",
@@ -351,6 +352,31 @@ def set_inferred_label(
     """
     cursor = connection.execute(UPDATE_INFERRED_LABEL, {"name": name, "label": label, "at": at})
     return get_workspace(connection, name) if cursor.rowcount else None
+
+
+UPDATE_MANUAL_LABEL: Final = """
+UPDATE workspaces SET manual_label = :label, manual_label_at = :at
+WHERE name = :name AND closed_at IS NULL
+"""
+
+
+def set_manual_label(
+    connection: sqlite3.Connection, *, name: str, label: str | None, at: str | None
+) -> WorkspaceRow | None:
+    """Set (or, with ``label=None``, clear) the manual label of an open workspace.
+
+    Returns the updated row, or ``None`` when no open workspace has that name. Setting the same
+    label again keeps the original ``manual_label_at``. The inferred label is never touched.
+    """
+    current = get_workspace(connection, name)
+    if current is None or current.closed_at is not None:
+        return None
+    if label is not None and current.manual_label == label:
+        return current
+    connection.execute(
+        UPDATE_MANUAL_LABEL, {"name": name, "label": label, "at": None if label is None else at}
+    )
+    return get_workspace(connection, name)
 
 
 def unfocus_other_workspaces(

@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 import pytest
-from api_support import BASE_URL, PORT, make_daemon, windows_collector
+from api_support import BASE_URL, PORT, T0, make_daemon, windows_collector, workspace_snapshot
 from fastapi import FastAPI, Request
 
 from fylgja.api.app import create_app
@@ -152,6 +152,33 @@ async def test_the_real_todo_routes_are_guarded_before_they_validate(daemon: Dae
     todos = await daemon.todos.list_todos()
     assert [t.text for t in todos] == ["guarded", "intruder"]
     assert todos[0].status == "open"
+
+
+def test_the_label_write_routes_are_enumerated() -> None:
+    """WP4.2: both are checked by ``test_every_mutating_route_is_guarded`` below."""
+    assert ("PUT", "/workspaces/{name}/label") in ROUTES
+    assert ("DELETE", "/workspaces/{name}/label") in ROUTES
+    assert not any(path.startswith("/workspaces") and method == "GET" for method, path in ROUTES)
+    assert body_limit(_filled("/workspaces/{name}/label")) == BODY_LIMIT
+
+
+async def test_the_real_label_routes_are_guarded_before_they_validate(daemon: Daemon) -> None:
+    """No label is set or cleared by a request the guard refuses."""
+    daemon.sink("wm").emit(workspace_snapshot("wm", ["1"], T0))
+    await daemon.settle()
+    await daemon.labels.set_manual("1", "kept")
+    body = b'{"label": "intruder"}'
+    path = "/workspaces/1/label"
+    async with _client(create_app(daemon, secret=SECRET)) as http:
+        assert (await http.put(path, content=body)).status_code == 401
+        assert (await http.request("DELETE", path, content=b"{}")).status_code == 401
+        foreign = _valid(Origin="http://evil.example")
+        assert (await http.put(path, headers=foreign, content=body)).status_code == 403
+        assert (await http.request("DELETE", path, headers=foreign)).status_code == 403
+        assert (await http.get("/workspaces/1")).json()["label"] == "kept"
+        passed = await http.put(path, headers=_valid(), content=body)
+        assert passed.status_code == 200  # past the guard, then set
+        assert passed.json()["label"] == "intruder"
 
 
 def test_the_message_route_is_enumerated_with_the_64_kib_limit() -> None:

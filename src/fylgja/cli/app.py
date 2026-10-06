@@ -4,7 +4,8 @@
 ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from it, prints a
 table or, with ``--json``, the JSON, and exits **3** with a clear message when the daemon is down.
 ``todo add|done|rm|ls`` talk to the daemon as well (writes send the bearer secret; ``add`` without a
-scope uses the focused workspace). ``session message`` posts to the daemon too: it asks first
+scope uses the focused workspace). ``label ws`` sets or clears a manual workspace label.
+``session message`` posts to the daemon too: it asks first
 unless ``--yes`` is given and exits 0 only when the message was submitted.
 ``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``,
 ``secret``) run locally (the A7 exceptions): doctor checks the setup and changes nothing, and the
@@ -53,6 +54,12 @@ todo_app = typer.Typer(
     pretty_exceptions_enable=False,
 )
 app.add_typer(todo_app, name="todo")
+label_app = typer.Typer(
+    help="Name a workspace by hand; a manual label beats the inferred one until cleared.",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
+app.add_typer(label_app, name="label")
 install_app = typer.Typer(
     help="Install Fylgja's configuration into ~/dotfiles and its launchd agent. "
     "Without --apply every command only prints what it would change.",
@@ -97,6 +104,31 @@ def _fetch(path: str) -> Any:
 
 def _show(payload: Any, as_json: bool, text: Callable[[], str]) -> None:
     typer.echo(json.dumps(payload, indent=2, ensure_ascii=False) if as_json else text())
+
+
+@label_app.command("ws")
+def label_ws(
+    name: Annotated[str, typer.Argument(metavar="NAME", help="The workspace name.")],
+    text: Annotated[
+        str | None, typer.Argument(metavar="TEXT", help="The label. Omit it with --clear.")
+    ] = None,
+    clear: Annotated[
+        bool, typer.Option("--clear", help="Remove the manual label; inference shows again.")
+    ] = False,
+    as_json: JsonOption = False,
+) -> None:
+    """Set the manual label of workspace NAME, or clear it with --clear."""
+    if clear == (text is not None):
+        _fail("give a label, or --clear (not both)", EXIT_CONFIG)
+    path = f"/workspaces/{client.quote(name)}/label"
+    workspace = _write("DELETE", path) if clear else _write("PUT", path, {"label": text})
+    if not isinstance(workspace, dict):
+        _fail(f"{path}: the daemon's answer is not a workspace", client.EXIT_API_ERROR)
+    _show(
+        workspace,
+        as_json,
+        lambda: f"{name}: {workspace.get('label', '—')} ({workspace.get('label_source', 'none')})",
+    )
 
 
 @app.command()

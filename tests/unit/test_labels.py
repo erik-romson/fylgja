@@ -3,19 +3,31 @@
 from __future__ import annotations
 
 import itertools
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+from api_support import workspace_snapshot
 
 from fylgja.core.labels import (
     EMPTY_LABEL,
     MAX_LABEL,
+    MAX_MANUAL_LABEL,
     LabelInput,
+    LabelService,
+    LabelValidationError,
     WindowFacts,
+    WorkspaceNotFound,
     effective_label,
     infer_label,
     project_name,
     title_keywords,
 )
+from fylgja.core.live_view import LiveView
+from fylgja.core.writer import Writer
+from fylgja.privacy import PrivacyFilter
+from fylgja.testing.fakes import FakeClock
 
 # --- project_name -------------------------------------------------------------------------
 
@@ -183,3 +195,57 @@ def test_effective_label(
     manual: str | None, inferred: str | None, expected: tuple[str, str]
 ) -> None:
     assert effective_label(manual, inferred) == expected
+
+
+# --- manual labels: what the service refuses (WP4.2) ---------------------------------------
+
+
+_T0 = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+async def labels(isolated_env: Path) -> AsyncIterator[tuple[LabelService, Writer]]:
+    clock = FakeClock(_T0)
+    writer = Writer(isolated_env / "labels.db", clock=clock, on_commit=LiveView().apply)
+    await writer.start()
+    await writer.submit_committed(workspace_snapshot("wm", ["1"], _T0))
+    try:
+        yield (
+            LabelService(writer, clock=clock, privacy=PrivacyFilter(redact_patterns=["sk-x+"])),
+            writer,
+        )
+    finally:
+        await writer.stop()
+
+
+async def test_the_service_refuses_empty_and_long_labels(
+    labels: tuple[LabelService, Writer],
+) -> None:
+    service, _ = labels
+    for bad in ("", "  \n\t ", "a" * (MAX_MANUAL_LABEL + 1)):
+        with pytest.raises(LabelValidationError) as caught:
+            await service.set_manual("1", bad)
+        assert "aaaa" not in str(caught.value)
+    assert (await service.set_manual("1", "a" * MAX_MANUAL_LABEL)).manual_label == "a" * 80
+
+
+async def test_the_service_redacts_and_collapses(labels: tuple[LabelService, Writer]) -> None:
+    service, _ = labels
+    row = await service.set_manual("1", "  go  sk-xxxx\n now ")
+    assert row.manual_label == "go [redacted] now"
+
+
+async def test_the_service_names_only_open_workspaces(
+    labels: tuple[LabelService, Writer],
+) -> None:
+    service, writer = labels
+    with pytest.raises(WorkspaceNotFound):
+        await service.set_manual("missing", "x")
+    with pytest.raises(WorkspaceNotFound):
+        await service.clear_manual("missing")
+    await service.set_manual("1", "kept")
+    await writer.submit_committed(workspace_snapshot("wm", [], _T0))  # the workspace closes
+    with pytest.raises(WorkspaceNotFound):
+        await service.set_manual("1", "again")
+    with pytest.raises(WorkspaceNotFound):
+        await service.clear_manual("1")

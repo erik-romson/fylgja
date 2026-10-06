@@ -58,6 +58,7 @@ from fylgja.config import Config
 from fylgja.core import hosts
 from fylgja.core.hosts import HostData
 from fylgja.core.ingest import IngestGate, PluginSink
+from fylgja.core.labels import LabelService
 from fylgja.core.live_view import Collection, LiveSnapshot, LiveUpdate, LiveView
 from fylgja.core.project_roots import ProjectLocator
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolver
@@ -416,6 +417,10 @@ class Daemon:
             privacy=PrivacyFilter.from_config(config.privacy),
         )
         """Fylgja's own todos (WP4.1); every write goes through the writer."""
+        self.labels = LabelService(
+            self.writer, clock=self.clock, privacy=PrivacyFilter.from_config(config.privacy)
+        )
+        """Manual workspace labels (WP4.2); every write goes through the writer."""
 
         self._resolution: Resolution | None = None
         self._dirty = asyncio.Event()
