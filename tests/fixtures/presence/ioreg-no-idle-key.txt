@@ -1,0 +1,6 @@
++-o IOHIDSystem  <class IOHIDSystem, id 0x100000612, registered, matched, active, busy 0, retain 13>
+    {
+      "IOClass" = "IOHIDSystem"
+      "HIDServiceSupport" = Yes
+    }
+

@@ -44,6 +44,7 @@ MODULES = [
     "fylgja.collectors.opencode",
     "fylgja.collectors.norn",
     "fylgja.collectors.project",
+    "fylgja.collectors.presence",
     "fylgja.collectors.todo_lists",
     "fylgja.core.todo_import",
     "fylgja.core.system",

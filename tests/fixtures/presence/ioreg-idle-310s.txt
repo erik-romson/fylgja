@@ -1,0 +1,9 @@
++-o IOHIDSystem  <class IOHIDSystem, id 0x100000612, registered, matched, active, busy 0, retain 13>
+    {
+      "IOClass" = "IOHIDSystem"
+      "IOProbeScore" = 0
+      "HIDIdleTime" = 310000000000
+      "HIDServiceSupport" = Yes
+      "PrimaryUsage" = 23
+    }
+

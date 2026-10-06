@@ -1,0 +1,5 @@
+    {
+      "HIDIdleTime" = 5000000000
+      "NotHIDIdleTime" = 7
+      "HIDIdleTime2" = 9
+    }

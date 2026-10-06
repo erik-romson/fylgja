@@ -39,6 +39,12 @@ def test_defaults_load_without_a_user_file() -> None:
         "opencode": {"enabled": True},
         "norn": {"enabled": True, "roots": ["~/projects"], "max_depth": 3},
         "project": {"enabled": True, "poll_interval_seconds": 5},
+        "presence": {
+            "enabled": True,
+            "idle_threshold_seconds": 300,
+            "idle_poll_interval_seconds": 15,
+            "poll_interval_seconds": 5,
+        },
     }
 
 

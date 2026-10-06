@@ -110,3 +110,13 @@ enabled = true
 # The repo-root TODO.md of every project the daemon knows (read-only, from its own store), imported
 # as read-only todos of that project and reconciled on every read. See docs/collectors/project.md.
 poll_interval_seconds = 5
+
+[collectors.presence]
+enabled = true
+# Idle (ioreg HIDIdleTime, polled every idle_poll_interval_seconds only while a window is focused),
+# screen lock, and microphone or camera in use (ctypes: CoreGraphics, CoreAudio, CoreMediaIO), polled
+# every poll_interval_seconds (5 to 10). No permission, no helper. A failing signal degrades the
+# collector and is never guessed. See docs/collectors/presence.md.
+idle_threshold_seconds = 300
+idle_poll_interval_seconds = 15
+poll_interval_seconds = 5

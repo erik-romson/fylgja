@@ -1,0 +1,4 @@
++-o IOHIDSystem
+    {
+      "HIDIdleTime" = <not a number>
+    }
