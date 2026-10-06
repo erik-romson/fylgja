@@ -727,6 +727,13 @@ def test_run_doctor_combines_every_check_and_only_reads(fake_home: Layout) -> No
         "port",
         "hook-commands",
         "dotfiles:fylgja:.config/fylgja/config.toml",
+        "hooks:executable",
+        "hooks:async",
+        "claude-version",
+        "inbox:access",
+        "inbox:backlog",
+        "inbox:dropped",
+        "lidskjalv-hooks",
     ]
     assert exit_code(checks) == 0
     assert {path for path, _ in fetch.requests} == {"/health", "/collectors"}

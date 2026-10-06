@@ -10,7 +10,10 @@ allowed), else 1.
 
 The checks, in order: configuration, plugins, the side-effect-free ``doctor()`` of each enabled
 collector, the FDA-path guard, daemon reachability, the daemon's view of the collectors, the port,
-dangling hook commands in ``~/.claude/settings.json`` (R1), and the A22 dotfiles layout.
+dangling hook commands in ``~/.claude/settings.json`` (R1), the A22 dotfiles layout, and the
+hook installation (WP2.4): the executable, async registrations, the installed Claude version, the
+inbox (owner and mode, backlog age, ``dropped.count``), uncommitted dotfiles changes and, only when
+Lidskjalv's entries are present, an informational look at them that never affects health (A21).
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ import re
 import shlex
 import shutil
 import socket
+import stat
+import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -33,12 +38,20 @@ from typing import Any, Final
 from fylgja import paths
 from fylgja.cli import client
 from fylgja.cli.install import (
+    BLOCK_BEGIN,
     DOTFILES_CONF,
     GIT,
+    SETTINGS_ENTRY,
+    STATUSLINE_ENTRY,
     DotfilesTarget,
+    InstallError,
     Layout,
+    detect_claude_version,
+    fylgja_hook_event,
     installed_targets,
+    iter_hooks,
     parse_dotfiles_conf,
+    supported_events,
 )
 from fylgja.collectors.base import CollectorPlugin, RecordSink
 from fylgja.collectors.context import build_context
@@ -56,16 +69,28 @@ __all__ = [
     "check_daemon_collectors",
     "check_dotfiles_layout",
     "check_fda_paths",
+    "check_claude_version",
+    "check_hook_async",
     "check_hook_commands",
+    "check_hook_executable",
+    "check_hooks_committed",
+    "check_inbox",
+    "check_lidskjalv_hooks",
     "check_plugins",
     "check_port",
     "command_targets",
     "exit_code",
+    "fylgja_registrations",
     "render_checks",
+    "read_settings",
     "render_json",
     "run_doctor",
 ]
 
+BACKLOG_WARN_SECONDS: Final = 300.0
+BACKLOG_FAIL_SECONDS: Final = 3600.0
+DROPPED_FAIL: Final = 1000
+LIDSKJALV_SCRIPT: Final = "lidskjalv.sh"
 COLLECTOR_DOCTOR_TIMEOUT: Final = 10.0
 GIT_TIMEOUT: Final = 15.0
 MAX_LISTED: Final = 5
@@ -82,6 +107,9 @@ class Check:
     name: str
     status: Status
     detail: str
+    informational: bool = False
+    """True for a finding about something that is not Fylgja's: it is shown, but it never counts
+    towards the exit code or the summary (A21)."""
 
 
 FetchJson = Callable[..., Any]
@@ -671,6 +699,316 @@ async def check_dotfiles_layout(
 
 
 # --------------------------------------------------------------------------------------------
+# Hook installation (WP2.4, A2, A4, A21, Q10)
+# --------------------------------------------------------------------------------------------
+
+HookRegistration = tuple[str, dict[str, Any]]
+Which = Callable[[str], str | None]
+
+
+def read_settings(layout: Layout | None = None) -> dict[str, Any] | None:
+    """``~/.claude/settings.json`` as an object, or ``None`` when it is missing or unusable.
+
+    ``check_hook_commands`` already reports a file that is unreadable or not JSON.
+    """
+    where = Layout.current() if layout is None else layout
+    try:
+        settings = json.loads((where.home / ".claude" / "settings.json").read_text("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    return settings if isinstance(settings, dict) else None
+
+
+def fylgja_registrations(settings: Mapping[str, Any] | None) -> list[HookRegistration]:
+    """``(event, hook)`` for every ``fylgja hook`` command in ``settings``."""
+    if settings is None:
+        return []
+    return [
+        (event, hook)
+        for event, hook in iter_hooks(settings)
+        if fylgja_hook_event(hook.get("command")) is not None
+    ]
+
+
+def check_hook_executable(
+    registered: bool, layout: Layout | None = None, which: Which = shutil.which
+) -> Check:
+    """``~/.local/bin/fylgja``, which every registered hook command runs.
+
+    Missing is a failure once hooks are registered (the guard keeps Claude quiet, but no event is
+    recorded), or a warning when ``fylgja`` is on PATH somewhere else.
+    """
+    where = Layout.current() if layout is None else layout
+    path = where.home / ".local" / "bin" / "fylgja"
+    shown = where.shown(path)
+    if not registered:
+        return Check("hooks:executable", Status.OK, "no Fylgja hooks registered; nothing runs it")
+    if os.path.exists(path):
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return Check("hooks:executable", Status.OK, f"{shown} is executable")
+        return Check(
+            "hooks:executable", Status.FAIL, f"{shown} exists but is not an executable file"
+        )
+    if os.path.islink(path):
+        return Check(
+            "hooks:executable", Status.FAIL, f"{shown} is a dangling link to {os.readlink(path)}"
+        )
+    elsewhere = which("fylgja")
+    if elsewhere is not None:
+        return Check(
+            "hooks:executable",
+            Status.WARN,
+            f"{shown} is missing, so the hooks do nothing; fylgja is at {elsewhere}: "
+            f"`ln -s {elsewhere} {path}`",
+        )
+    return Check(
+        "hooks:executable",
+        Status.FAIL,
+        f"{shown} is missing, so the registered hooks record nothing; "
+        "run `uv tool install .` from the Fylgja checkout",
+    )
+
+
+def check_hook_async(registrations: Sequence[HookRegistration]) -> Check:
+    """Every Fylgja registration must have ``async: true``, or it blocks Claude Code."""
+    if not registrations:
+        return Check(
+            "hooks:async", Status.OK, "no Fylgja hooks registered (`fylgja install hooks --apply`)"
+        )
+    blocking = sorted({event for event, hook in registrations if hook.get("async") is not True})
+    if blocking:
+        return Check(
+            "hooks:async",
+            Status.FAIL,
+            f"not async, so they block Claude Code: {_listed(blocking)}; "
+            "run `fylgja install hooks --apply`",
+        )
+    events = {event for event, _ in registrations}
+    return Check(
+        "hooks:async",
+        Status.OK,
+        f"{len(registrations)} registrations over {len(events)} events, all async",
+    )
+
+
+async def check_claude_version(
+    registrations: Sequence[HookRegistration], runner: ProcessRunner | None, claude: str = "claude"
+) -> Check:
+    """The installed Claude Code version, and whether it supports every registered event."""
+    if not registrations:
+        return Check("claude-version", Status.OK, "not checked: no Fylgja hooks registered")
+    if runner is None:
+        return Check("claude-version", Status.OK, "not checked: no process runner")
+    try:
+        version = await detect_claude_version(runner, claude)
+    except InstallError as exc:
+        return Check("claude-version", Status.WARN, str(exc))
+    text = ".".join(map(str, version))
+    events = sorted({event for event, _ in registrations})
+    _, unsupported = supported_events(events, version)
+    if unsupported:
+        return Check(
+            "claude-version",
+            Status.WARN,
+            f"Claude Code {text} does not support registered events: {_listed(unsupported)}",
+        )
+    return Check(
+        "claude-version", Status.OK, f"Claude Code {text} supports all {len(events)} events"
+    )
+
+
+def _dir_problem(path: Path, layout: Layout) -> str | None:
+    """Why the hook would refuse ``path`` (a symlink, not a directory, foreign owner, mode)."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return f"{layout.shown(path)}: {exc.strerror or exc}"
+    shown = layout.shown(path)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        return f"{shown} is not a plain directory"
+    if info.st_uid != os.getuid():
+        return f"{shown} is owned by uid {info.st_uid}, not you"
+    mode = stat.S_IMODE(info.st_mode)
+    if mode != 0o700:
+        return f"{shown} has mode {mode:04o}, expected 0700 (`chmod 700 {path}`)"
+    return None
+
+
+def _read_int(path: Path) -> int | None | str:
+    """The decimal in ``path``; ``None`` when absent, the raw text when it is not a number."""
+    try:
+        text = path.read_text("utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError):
+        return "unreadable"
+    return int(text) if text.isdigit() else (text or "empty")
+
+
+def check_inbox(
+    layout: Layout | None = None, source: str = "claude", now: Callable[[], float] = time.time
+) -> list[Check]:
+    """The hook inbox: owner and mode, backlog age and ``dropped.count`` (all read-only)."""
+    where = Layout.current() if layout is None else layout
+    inbox = paths.inbox_dir(source)
+    problems = [
+        problem
+        for problem in (_dir_problem(inbox, where), _dir_problem(paths.statusline_dir(), where))
+        if problem is not None
+    ]
+    if problems:
+        access = Check(
+            "inbox:access",
+            Status.FAIL,
+            f"the hook refuses to write here: {_listed(problems)}",
+        )
+    elif inbox.exists():
+        access = Check("inbox:access", Status.OK, f"{where.shown(inbox)} is yours, mode 0700")
+    else:
+        access = Check("inbox:access", Status.OK, "no inbox yet; the first hook event creates it")
+    return [access, _check_backlog(inbox, where, now()), _check_dropped(inbox, where)]
+
+
+def _read_stamp(inbox: Path) -> bytes:
+    try:
+        return (inbox / ".backlog-stamp").read_bytes()[:16].strip()
+    except OSError:
+        return b""
+
+
+def _check_backlog(inbox: Path, layout: Layout, now: float) -> Check:
+    try:
+        with os.scandir(inbox) as entries:
+            mtimes = [
+                entry.stat(follow_symlinks=False).st_mtime
+                for entry in entries
+                if entry.name.endswith(".json") and not entry.name.startswith(".")
+            ]
+        stamp = _read_stamp(inbox) if mtimes else b""
+    except FileNotFoundError:
+        return Check("inbox:backlog", Status.OK, "no inbox yet")
+    except OSError as exc:
+        return Check("inbox:backlog", Status.WARN, f"cannot read the inbox: {exc.strerror or exc}")
+    if stamp == b"full":
+        return Check(
+            "inbox:backlog",
+            Status.FAIL,
+            f"{len(mtimes)} events wait in {layout.shown(inbox)} and the hook drops new ones; "
+            "is the daemon running (`fylgja serve`)?",
+        )
+    if not mtimes:
+        return Check("inbox:backlog", Status.OK, "empty: the daemon keeps up")
+    age = max(0.0, now - min(mtimes))
+    detail = f"{len(mtimes)} events waiting, the oldest {age:.0f} s old"
+    if age >= BACKLOG_FAIL_SECONDS:
+        return Check(
+            "inbox:backlog", Status.FAIL, f"{detail}; the daemon is not draining the inbox"
+        )
+    if age >= BACKLOG_WARN_SECONDS:
+        return Check("inbox:backlog", Status.WARN, f"{detail}; is the daemon running?")
+    return Check("inbox:backlog", Status.OK, detail)
+
+
+def _check_dropped(inbox: Path, layout: Layout) -> Check:
+    count = _read_int(inbox / "dropped.count")
+    if count is None or count == 0:
+        return Check("inbox:dropped", Status.OK, "no events dropped")
+    if isinstance(count, str):
+        return Check("inbox:dropped", Status.WARN, f"dropped.count is {count}, not a number")
+    detail = (
+        f"{count} events were dropped because the backlog was full; "
+        f"delete {layout.shown(inbox / 'dropped.count')} once the daemon keeps up"
+    )
+    return Check("inbox:dropped", Status.FAIL if count >= DROPPED_FAIL else Status.WARN, detail)
+
+
+async def check_hooks_committed(
+    layout: Layout | None, runner: ProcessRunner | None, git: str = GIT
+) -> Check | None:
+    """Fylgja's edits to ``settings.json`` and ``statusline.sh`` are committed (a warning only).
+
+    ``None`` when Fylgja has put nothing into either file. Read-only: ``git status --porcelain``.
+    """
+    where = Layout.current() if layout is None else layout
+    if runner is None:
+        return None
+    files: list[Path] = []
+    settings = where.dotfiles / SETTINGS_ENTRY.package / SETTINGS_ENTRY.path
+    try:
+        if fylgja_registrations(json.loads(settings.read_text("utf-8"))):
+            files.append(settings)
+    except (OSError, UnicodeDecodeError, ValueError, AttributeError):
+        pass
+    statusline = where.dotfiles / STATUSLINE_ENTRY.package / STATUSLINE_ENTRY.path
+    try:
+        if BLOCK_BEGIN in statusline.read_text("utf-8"):
+            files.append(statusline)
+    except (OSError, UnicodeDecodeError):
+        pass
+    if not files:
+        return None
+    dirty = await _uncommitted(files, where, runner, git)
+    names = ", ".join(f.name for f in files)
+    if dirty:
+        return Check(
+            "dotfiles:hooks-committed",
+            Status.WARN,
+            f"uncommitted changes in {_listed(dirty)}; review and commit them with "
+            f"`git -C ~/dotfiles commit -- {' '.join(dirty)}` (Fylgja never commits)",
+        )
+    return Check("dotfiles:hooks-committed", Status.OK, f"{names} committed in dotfiles")
+
+
+def check_lidskjalv_hooks(
+    settings: Mapping[str, Any] | None, layout: Layout | None = None
+) -> Check | None:
+    """Lidskjalv's entries, when there are any: still as it registered them, target present.
+
+    Informational (A21): it is Lidskjalv's, never Fylgja's health, so the check is neither
+    counted nor able to fail doctor. ``None`` when settings hold no Lidskjalv entry.
+    """
+    where = Layout.current() if layout is None else layout
+    if settings is None:
+        return None
+    entries = [
+        (event, hook)
+        for event, hook in iter_hooks(settings)
+        if LIDSKJALV_SCRIPT in str(hook.get("command", ""))
+    ]
+    if not entries:
+        return None
+    notes: list[str] = []
+    changed = sorted({e for e, hook in entries if not set(hook) <= {"type", "command", "timeout"}})
+    if changed:
+        notes.append(f"changed from the plain registration: {_listed(changed)}")
+    missing: list[str] = []
+    for event, hook in entries:
+        for target in command_targets(str(hook.get("command", "")), where.home):
+            problem = _problem(target, where)
+            if problem is not None and f"{event}: {problem[1]}" not in missing:
+                missing.append(f"{event}: {problem[1]}")
+    if missing:
+        notes.append(f"target problem: {_listed(missing)}")
+    events = len({event for event, _ in entries})
+    if notes:
+        return Check(
+            "lidskjalv-hooks",
+            Status.WARN,
+            f"{len(entries)} entries over {events} events; {'; '.join(notes)} "
+            "(informational: Lidskjalv's, not Fylgja's)",
+            informational=True,
+        )
+    return Check(
+        "lidskjalv-hooks",
+        Status.OK,
+        f"{len(entries)} entries over {events} events, untouched, target exists (informational)",
+        informational=True,
+    )
+
+
+# --------------------------------------------------------------------------------------------
 # Running and rendering
 # --------------------------------------------------------------------------------------------
 
@@ -683,6 +1021,8 @@ async def run_doctor(
     probe: PortProbe = port_in_use,
     source: EntryPointSource | None = None,
     git: str = GIT,
+    now: Callable[[], float] = time.time,
+    which: Which = shutil.which,
 ) -> list[Check]:
     """Run every check. Never raises for a finding; never changes anything."""
     where = Layout.current() if layout is None else layout
@@ -699,25 +1039,42 @@ async def run_doctor(
     checks.append(check_port(config, daemon_up, probe))
     checks.append(check_hook_commands(layout=where))
     checks.extend(await check_dotfiles_layout(where, runner, git))
+    settings = read_settings(where)
+    registrations = fylgja_registrations(settings)
+    checks.append(check_hook_executable(bool(registrations), where, which))
+    checks.append(check_hook_async(registrations))
+    checks.append(await check_claude_version(registrations, runner))
+    checks.extend(check_inbox(where, now=now))
+    committed = await check_hooks_committed(where, runner, git)
+    if committed is not None:
+        checks.append(committed)
+    lidskjalv = check_lidskjalv_hooks(settings, where)
+    if lidskjalv is not None:
+        checks.append(lidskjalv)
     return checks
 
 
 def exit_code(checks: Sequence[Check]) -> int:
-    """0 when nothing failed (warnings are allowed), else 1."""
-    return 1 if any(c.status is Status.FAIL for c in checks) else 0
+    """0 when nothing failed (warnings and informational checks are allowed), else 1."""
+    return 1 if any(c.status is Status.FAIL and not c.informational for c in checks) else 0
 
 
 def _summary(checks: Sequence[Check]) -> dict[str, int]:
-    counts = Counter(c.status.value for c in checks)
+    counts = Counter(c.status.value for c in checks if not c.informational)
     return {status.value: counts.get(status.value, 0) for status in Status}
+
+
+def _check_json(check: Check) -> dict[str, Any]:
+    row: dict[str, Any] = {"name": check.name, "status": check.status.value, "detail": check.detail}
+    if check.informational:
+        row["informational"] = True
+    return row
 
 
 def render_json(checks: Sequence[Check]) -> str:
     return json.dumps(
         {
-            "checks": [
-                {"name": c.name, "status": c.status.value, "detail": c.detail} for c in checks
-            ],
+            "checks": [_check_json(c) for c in checks],
             "summary": _summary(checks),
         },
         indent=2,
@@ -729,7 +1086,9 @@ def render_checks(checks: Sequence[Check], width: int = 100) -> str:
     """A table of the checks and a one-line summary."""
     from fylgja.cli import render
 
-    rows = [[c.status.value.upper(), c.name, c.detail] for c in checks]
+    rows = [
+        ["INFO" if c.informational else c.status.value.upper(), c.name, c.detail] for c in checks
+    ]
     counts = _summary(checks)
     summary = f"{counts['ok']} ok, {counts['warn']} warn, {counts['fail']} fail"
     return render.table(["STATUS", "CHECK", "DETAIL"], rows, width) + "\n" + summary

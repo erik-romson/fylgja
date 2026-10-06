@@ -3,9 +3,10 @@
 ``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions`` and
 ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from it, prints a
 table or, with ``--json``, the JSON, and exits **3** with a clear message when the daemon is down.
-``doctor``, ``install config`` and ``install launchd`` run locally (the A7 exceptions): doctor
-checks the setup and changes nothing, and the installers print a diff and write only with
-``--apply``. ``fylgja --help`` imports no daemon code and starts nothing.
+``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``) run
+locally (the A7 exceptions): doctor checks the setup and changes nothing, and the installers
+print a diff and write only with ``--apply``. ``fylgja --help`` imports no daemon code and
+starts nothing.
 
 Exit codes: 0 success, 1 the daemon answered with an error (or the item does not exist),
 2 a configuration error or bad usage, 3 the daemon is not running.
@@ -178,5 +179,33 @@ def install_launchd(apply: ApplyOption = False) -> None:
 
     code = asyncio.run(
         install.run_install_launchd(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
+    )
+    raise typer.Exit(code)
+
+
+@install_app.command("hooks")
+def install_hooks(apply: ApplyOption = False) -> None:
+    """Register Fylgja's async hooks in ~/.claude/settings.json (the file in ~/dotfiles)."""
+    import asyncio
+
+    from fylgja.cli import install
+    from fylgja.core.system import SubprocessRunner
+
+    code = asyncio.run(
+        install.run_install_hooks(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
+    )
+    raise typer.Exit(code)
+
+
+@install_app.command("statusline")
+def install_statusline(apply: ApplyOption = False) -> None:
+    """Add the Fylgja block to statusline.sh (the file in ~/dotfiles)."""
+    import asyncio
+
+    from fylgja.cli import install
+    from fylgja.core.system import SubprocessRunner
+
+    code = asyncio.run(
+        install.run_install_statusline(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
     )
     raise typer.Exit(code)
