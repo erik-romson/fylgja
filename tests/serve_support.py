@@ -34,7 +34,9 @@ def write_config(port: int, extra: str = "") -> None:
     paths.config_file().write_text(
         f"[api]\nport = {port}\n"
         "[collectors.aerospace]\nenabled = false\n"
-        "[collectors.claude]\nenabled = false\n" + extra,
+        "[collectors.claude]\nenabled = false\n"
+        "[collectors.codex]\nenabled = false\n"
+        "[collectors.opencode]\nenabled = false\n" + extra,
         encoding="utf-8",
     )
 

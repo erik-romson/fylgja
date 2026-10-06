@@ -30,3 +30,4 @@ def test_wheel_ships_py_typed_and_testing_package(isolated_env: Path) -> None:
         names = set(wheel.namelist())
     assert "fylgja/py.typed" in names
     assert "fylgja/testing/__init__.py" in names
+    assert "fylgja/collectors/opencode/fylgja.ts" in names

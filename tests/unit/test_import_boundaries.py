@@ -40,6 +40,7 @@ MODULES = [
     "fylgja.collectors.claude.normalize",
     "fylgja.collectors.claude.statusline",
     "fylgja.collectors.codex",
+    "fylgja.collectors.opencode",
     "fylgja.core.system",
     "fylgja.core.daemon",
     "fylgja.api",

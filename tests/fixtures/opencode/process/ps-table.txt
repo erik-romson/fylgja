@@ -1,0 +1,5 @@
+    1     0 Mon Oct  5 08:00:00 2026 /sbin/launchd
+ 7000     1 Mon Oct  5 08:01:00 2026 /Applications/IntelliJ IDEA.app/Contents/MacOS/idea
+ 7010  7000 Mon Oct  5 08:02:00 2026 /bin/zsh
+51001  7010 Tue Oct  6 09:00:00 2026 opencode
+51002  7010 Tue Oct  6 09:10:00 2026 opencode

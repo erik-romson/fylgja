@@ -1,0 +1,12 @@
+p51001
+fcwd
+n/work/example/api-service
+f0
+n/dev/ttys004
+f3
+n/work/example/opencode-data/opencode.db
+p51002
+fcwd
+n/work/example/web-app
+f0
+n/dev/ttys005

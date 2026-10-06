@@ -1,0 +1,18 @@
+{
+  "schema": "fylgja.hook/1",
+  "id": "7a2b9c1d-3e4f-4a5b-8c6d-0e1f2a3b4c5d",
+  "received_at_ns": 1791231759255399000,
+  "source": "opencode",
+  "event_arg": "session.status",
+  "ppid": 4201,
+  "env": {
+    "CMUX_WORKSPACE_ID": "00000000-0000-4000-8000-0000000000a1",
+    "CMUX_SURFACE_ID": "00000000-0000-4000-8000-0000000000a2",
+    "CMUX_TAB_ID": "00000000-0000-4000-8000-0000000000a3",
+    "CMUX_PANEL_ID": "00000000-0000-4000-8000-0000000000a4",
+    "TERM_PROGRAM": "ghostty"
+  },
+  "payload_text": "{\"session_id\":\"ses_00000000000000000000000001\",\"hook_event_name\":\"session.status\",\"cwd\":\"/work/example/api-service\",\"reason\":\"busy\"}",
+  "truncated": false,
+  "fylgja_version": "0.1.0"
+}

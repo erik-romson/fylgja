@@ -9,5 +9,11 @@ that an envelope built by `fylgja.hook` has the same keys, in the same order and
 checks that the contract page lists exactly these keys and the hook's environment allowlist. External writers
 (the norn and OpenCode plugins) test their output against the same file.
 
+- `opencode-session-status.json`: the envelope the OpenCode plugin (`src/fylgja/collectors/opencode/fylgja.ts`) writes
+  for a `session.status` event. It is generated, not hand-written: `uv run --frozen python
+  scripts/gen_opencode_envelope.py` runs the plugin in `bun` and replaces the id, stamp, pid and terminal ids with
+  placeholders. `tests/unit/test_opencode_envelope_compat.py` checks it against the Python reader and against
+  `fylgja.hook-1.json`.
+
 Changing a key or its type means a new schema version: add a `fylgja.hook-2.json` beside this file and keep this
 one.

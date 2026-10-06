@@ -518,6 +518,53 @@ def test_codex_busy_is_a_working_state_and_idle_hides_the_call() -> None:
     assert session_one_liner(idle) == (EMPTY, "none")
 
 
+# --------------------------------------------------------------------------------------------
+# The OpenCode rules over the sanitized database rows (WP3.2)
+# --------------------------------------------------------------------------------------------
+
+
+def _opencode(tmp_path: Path, number: int, directory: str) -> tuple[str, str]:
+    from opencode_support import poll_activities, session_id
+
+    activities = poll_activities(tmp_path, {51001: directory})
+    return session_one_liner(activities[f"opencode:{session_id(number)}"])
+
+
+@pytest.mark.parametrize(
+    ("number", "directory", "expected"),
+    [
+        # Busy with a running tool part: rule 3, the tool and its first command line.
+        (1, "/work/example/api-service", ("bash uv run pytest tests/unit -x", "tool")),
+        # Idle with a title and no prompt text: the title alone.
+        (2, "/work/example/web-app", ("Fix the login redirect", "title_reply")),
+        # A turn that died three days ago is idle (the stale limit): the title.
+        (6, "/work/example/docs", ("Stale turn", "title_reply")),
+        # An errored incomplete turn is idle too.
+        (8, "/work/example/errored", ("Aborted turn", "title_reply")),
+        # OpenCode's placeholder title is dropped and there is nothing else to say.
+        (7, "/work/example/scratch", (EMPTY, "none")),
+    ],
+)
+def test_opencode_one_liner_goldens(
+    tmp_path: Path, number: int, directory: str, expected: tuple[str, str]
+) -> None:
+    assert _opencode(tmp_path, number, directory) == expected
+
+
+def test_opencode_busy_without_a_tool_shows_the_in_progress_todo() -> None:
+    activity = SessionActivity(
+        state="busy", title="Add pagination", open_task="Write the pagination tests"
+    )
+    assert session_one_liner(activity) == ("Write the pagination tests", "task")
+
+
+def test_opencode_idle_hides_the_task_and_the_tool() -> None:
+    activity = SessionActivity(
+        state="idle", title="Add pagination", open_task="Write the tests", current_tool="bash"
+    )
+    assert session_one_liner(activity) == ("Add pagination", "title_reply")
+
+
 def test_every_fixture_session_gets_a_non_empty_line_in_every_state() -> None:
     paths_ = [LIDSKJALV, *sorted(RATATOSK.glob("*/*.jsonl")), *sorted(CLAUDE_TRANSCRIPTS.glob("*"))]
     for path in paths_:

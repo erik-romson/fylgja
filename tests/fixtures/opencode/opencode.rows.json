@@ -1,0 +1,704 @@
+{
+  "NOW_MS": 1791288000000,
+  "project": [
+    {
+      "id": "prj_0000000001",
+      "worktree": "/work/example/api-service",
+      "vcs": "git",
+      "name": null,
+      "time_created": 1790388000000,
+      "time_updated": 1790388000000,
+      "sandboxes": []
+    }
+  ],
+  "session": [
+    {
+      "id": "ses_0000000001",
+      "project_id": "prj_0000000001",
+      "parent_id": null,
+      "slug": "slug-1",
+      "directory": "/work/example/api-service",
+      "title": "Add pagination to the orders endpoint",
+      "version": "1.18.26",
+      "time_created": 1791284400000,
+      "time_updated": 1791287998000,
+      "time_archived": null,
+      "agent": "build",
+      "model": {
+        "id": "example-model",
+        "providerID": "example",
+        "variant": "high"
+      }
+    },
+    {
+      "id": "ses_0000000002",
+      "project_id": "prj_0000000001",
+      "parent_id": null,
+      "slug": "slug-2",
+      "directory": "/work/example/web-app",
+      "title": "Fix the login redirect",
+      "version": "1.18.26",
+      "time_created": 1791286200000,
+      "time_updated": 1791287400000,
+      "time_archived": null,
+      "agent": "build",
+      "model": {
+        "id": "example-model",
+        "providerID": "example",
+        "variant": "high"
+      }
+    },
+    {
+      "id": "ses_0000000003",
+      "project_id": "prj_0000000001",
+      "parent_id": null,
+      "slug": "slug-3",
+      "directory": "/work/example/api-service",
+      "title": "Older session in the same directory",
+      "version": "1.18.26",
+      "time_created": 1791201600000,
+      "time_updated": 1791208000000,
+      "time_archived": null,
+      "agent": "build",
+      "model": {
+        "id": "example-model",
+        "providerID": "example",
+        "variant": "high"
+      }
+    },
+    {
+      "id": "ses_0000000004",
+      "project_id": "prj_0000000001",
+      "parent_id": null,
+      "slug": "slug-4",
+      "directory": "/work/example/api-service",
+      "title": "Archived session",
+      "version": "1.18.26",
+      "time_created": 1791287700000,
+      "time_updated": 1791287999000,
+      "time_archived": 1791287999000,
+      "agent": "build",
+      "model": {
+        "id": "example-model",
+        "providerID": "example",
+        "variant": "high"
+      }
+    },
+    {
+      "id": "ses_0000000005",
+      "project_id": "prj_0000000001",
+      "parent_id": "ses_0000000001",
+      "slug": "slug-5",
+      "directory": "/work/example/api-service",
+      "title": "Sub-agent session",
+      "version": "1.18.26",
+      "time_created": 1791287800000,
+      "time_updated": 1791287999000,
+      "time_archived": null,
+      "agent": "build",
+      "model": {
+        "id": "example-model",
+        "providerID": "example",
+        "variant": "high"
+      }
+    },
+    {
+      "id": "ses_0000000006",
+      "project_id": "prj_0000000001",
+      "parent_id": null,
+      "slug": "slug-6",
+      "directory": "/work/example/docs",
+      "title": "Stale turn",
+      "version": "1.18.26",
+      "time_created": 1791028800000,
+      "time_updated": 1791028900000,
+      "time_archived": null,
+      "agent": "build",
+      "model": {
+        "id": "example-model",
+        "providerID": "example",
+        "variant": "high"
+      }
+    },
+    {
+      "id": "ses_0000000007",
+      "project_id": "prj_0000000001",
+      "parent_id": null,
+      "slug": "slug-7",
+      "directory": "/work/example/scratch",
+      "title": "New session - 2026-10-06T11:00:00.000Z",
+      "version": "1.18.26",
+      "time_created": 1791284400000,
+      "time_updated": 1791284400000,
+      "time_archived": null,
+      "agent": null,
+      "model": null
+    },
+    {
+      "id": "ses_0000000008",
+      "project_id": "prj_0000000001",
+      "parent_id": null,
+      "slug": "slug-8",
+      "directory": "/work/example/errored",
+      "title": "Aborted turn",
+      "version": "1.18.26",
+      "time_created": 1791287100000,
+      "time_updated": 1791287120000,
+      "time_archived": null,
+      "agent": "build",
+      "model": {
+        "id": "example-model",
+        "providerID": "example",
+        "variant": "high"
+      }
+    }
+  ],
+  "message": [
+    {
+      "id": "msg_0000000101",
+      "session_id": "ses_0000000001",
+      "time_created": 1791284500000,
+      "time_updated": 1791284500000,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1791284500000
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "example",
+          "modelID": "example-model"
+        },
+        "summary": {
+          "title": "CANARY-OPENCODE-TEXT",
+          "diffs": []
+        }
+      }
+    },
+    {
+      "id": "msg_0000000102",
+      "session_id": "ses_0000000001",
+      "time_created": 1791284501000,
+      "time_updated": 1791284600000,
+      "data": {
+        "role": "assistant",
+        "time": {
+          "created": 1791284501000,
+          "completed": 1791284600000
+        },
+        "parentID": "msg_0000000101",
+        "modelID": "example-model",
+        "providerID": "example",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/work/example",
+          "root": "/work/example"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      }
+    },
+    {
+      "id": "msg_0000000103",
+      "session_id": "ses_0000000001",
+      "time_created": 1791287940000,
+      "time_updated": 1791287940000,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1791287940000
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "example",
+          "modelID": "example-model"
+        },
+        "summary": {
+          "title": "CANARY-OPENCODE-TEXT",
+          "diffs": []
+        }
+      }
+    },
+    {
+      "id": "msg_0000000104",
+      "session_id": "ses_0000000001",
+      "time_created": 1791287941000,
+      "time_updated": 1791287941000,
+      "data": {
+        "role": "assistant",
+        "time": {
+          "created": 1791287941000
+        },
+        "parentID": "msg_0000000103",
+        "modelID": "example-model",
+        "providerID": "example",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/work/example",
+          "root": "/work/example"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "msg_0000000201",
+      "session_id": "ses_0000000002",
+      "time_created": 1791286300000,
+      "time_updated": 1791286300000,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1791286300000
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "example",
+          "modelID": "example-model"
+        },
+        "summary": {
+          "title": "CANARY-OPENCODE-TEXT",
+          "diffs": []
+        }
+      }
+    },
+    {
+      "id": "msg_0000000202",
+      "session_id": "ses_0000000002",
+      "time_created": 1791286301000,
+      "time_updated": 1791286350000,
+      "data": {
+        "role": "assistant",
+        "time": {
+          "created": 1791286301000,
+          "completed": 1791286350000
+        },
+        "parentID": "msg_0000000201",
+        "modelID": "example-model",
+        "providerID": "example",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/work/example",
+          "root": "/work/example"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      }
+    },
+    {
+      "id": "msg_0000000301",
+      "session_id": "ses_0000000003",
+      "time_created": 1791202000000,
+      "time_updated": 1791202000000,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1791202000000
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "example",
+          "modelID": "example-model"
+        },
+        "summary": {
+          "title": "CANARY-OPENCODE-TEXT",
+          "diffs": []
+        }
+      }
+    },
+    {
+      "id": "msg_0000000302",
+      "session_id": "ses_0000000003",
+      "time_created": 1791202001000,
+      "time_updated": 1791202100000,
+      "data": {
+        "role": "assistant",
+        "time": {
+          "created": 1791202001000,
+          "completed": 1791202100000
+        },
+        "parentID": "msg_0000000301",
+        "modelID": "example-model",
+        "providerID": "example",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/work/example",
+          "root": "/work/example"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      }
+    },
+    {
+      "id": "msg_0000000501",
+      "session_id": "ses_0000000005",
+      "time_created": 1791287900000,
+      "time_updated": 1791287900000,
+      "data": {
+        "role": "assistant",
+        "time": {
+          "created": 1791287900000
+        },
+        "parentID": "msg_0000000101",
+        "modelID": "example-model",
+        "providerID": "example",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/work/example",
+          "root": "/work/example"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "msg_0000000601",
+      "session_id": "ses_0000000006",
+      "time_created": 1791028800000,
+      "time_updated": 1791028800000,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1791028800000
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "example",
+          "modelID": "example-model"
+        },
+        "summary": {
+          "title": "CANARY-OPENCODE-TEXT",
+          "diffs": []
+        }
+      }
+    },
+    {
+      "id": "msg_0000000602",
+      "session_id": "ses_0000000006",
+      "time_created": 1791028801000,
+      "time_updated": 1791028801000,
+      "data": {
+        "role": "assistant",
+        "time": {
+          "created": 1791028801000
+        },
+        "parentID": "msg_0000000601",
+        "modelID": "example-model",
+        "providerID": "example",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/work/example",
+          "root": "/work/example"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "msg_0000000801",
+      "session_id": "ses_0000000008",
+      "time_created": 1791287100000,
+      "time_updated": 1791287100000,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1791287100000
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "example",
+          "modelID": "example-model"
+        },
+        "summary": {
+          "title": "CANARY-OPENCODE-TEXT",
+          "diffs": []
+        }
+      }
+    },
+    {
+      "id": "msg_0000000802",
+      "session_id": "ses_0000000008",
+      "time_created": 1791287101000,
+      "time_updated": 1791287101000,
+      "data": {
+        "role": "assistant",
+        "time": {
+          "created": 1791287101000
+        },
+        "parentID": "msg_0000000801",
+        "modelID": "example-model",
+        "providerID": "example",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/work/example",
+          "root": "/work/example"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "error": {
+          "name": "MessageAbortedError",
+          "data": {
+            "message": "aborted"
+          }
+        }
+      }
+    }
+  ],
+  "part": [
+    {
+      "id": "prt_0000000001",
+      "message_id": "msg_0000000102",
+      "session_id": "ses_0000000001",
+      "time_created": 1791284502000,
+      "time_updated": 1791284502000,
+      "data": {
+        "type": "text",
+        "text": "CANARY-OPENCODE-TEXT"
+      }
+    },
+    {
+      "id": "prt_0000000002",
+      "message_id": "msg_0000000102",
+      "session_id": "ses_0000000001",
+      "time_created": 1791284550000,
+      "time_updated": 1791284551000,
+      "data": {
+        "type": "tool",
+        "tool": "edit",
+        "callID": "call_0002",
+        "state": {
+          "status": "completed",
+          "input": {
+            "filePath": "/work/example/api-service/src/orders.py",
+            "oldString": "CANARY-OPENCODE-TEXT",
+            "newString": "x"
+          },
+          "time": {
+            "start": 1791284550000
+          }
+        }
+      }
+    },
+    {
+      "id": "prt_0000000003",
+      "message_id": "msg_0000000104",
+      "session_id": "ses_0000000001",
+      "time_created": 1791287942000,
+      "time_updated": 1791287942000,
+      "data": {
+        "type": "step-start"
+      }
+    },
+    {
+      "id": "prt_0000000004",
+      "message_id": "msg_0000000104",
+      "session_id": "ses_0000000001",
+      "time_created": 1791287943000,
+      "time_updated": 1791287943000,
+      "data": {
+        "type": "reasoning",
+        "text": "CANARY-OPENCODE-TEXT"
+      }
+    },
+    {
+      "id": "prt_0000000005",
+      "message_id": "msg_0000000104",
+      "session_id": "ses_0000000001",
+      "time_created": 1791287950000,
+      "time_updated": 1791287951000,
+      "data": {
+        "type": "tool",
+        "tool": "read",
+        "callID": "call_0005",
+        "state": {
+          "status": "completed",
+          "input": {
+            "filePath": "/work/example/api-service/src/models.py"
+          },
+          "time": {
+            "start": 1791287950000
+          }
+        }
+      }
+    },
+    {
+      "id": "prt_0000000006",
+      "message_id": "msg_0000000104",
+      "session_id": "ses_0000000001",
+      "time_created": 1791287995000,
+      "time_updated": 1791287996000,
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "callID": "call_0006",
+        "state": {
+          "status": "running",
+          "input": {
+            "command": "uv run pytest tests/unit -x\nsecond line CANARY-OPENCODE-TEXT",
+            "description": "Run the unit tests"
+          },
+          "time": {
+            "start": 1791287995000
+          }
+        }
+      }
+    },
+    {
+      "id": "prt_0000000007",
+      "message_id": "msg_0000000202",
+      "session_id": "ses_0000000002",
+      "time_created": 1791286340000,
+      "time_updated": 1791286340000,
+      "data": {
+        "type": "text",
+        "text": "CANARY-OPENCODE-TEXT"
+      }
+    },
+    {
+      "id": "prt_0000000008",
+      "message_id": "msg_0000000602",
+      "session_id": "ses_0000000006",
+      "time_created": 1791028850000,
+      "time_updated": 1791028851000,
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "callID": "call_0008",
+        "state": {
+          "status": "running",
+          "input": {
+            "command": "sleep 100000"
+          },
+          "time": {
+            "start": 1791028850000
+          }
+        }
+      }
+    },
+    {
+      "id": "prt_0000000009",
+      "message_id": "msg_0000000501",
+      "session_id": "ses_0000000005",
+      "time_created": 1791287910000,
+      "time_updated": 1791287911000,
+      "data": {
+        "type": "tool",
+        "tool": "grep",
+        "callID": "call_0009",
+        "state": {
+          "status": "running",
+          "input": {
+            "pattern": "subagent"
+          },
+          "time": {
+            "start": 1791287910000
+          }
+        }
+      }
+    }
+  ],
+  "todo": [
+    {
+      "session_id": "ses_0000000001",
+      "content": "Add the page and limit parameters",
+      "status": "completed",
+      "priority": "high",
+      "position": 0,
+      "time_created": 1791285000000,
+      "time_updated": 1791287970000
+    },
+    {
+      "session_id": "ses_0000000001",
+      "content": "Write the pagination tests",
+      "status": "in_progress",
+      "priority": "high",
+      "position": 1,
+      "time_created": 1791285000000,
+      "time_updated": 1791287970000
+    },
+    {
+      "session_id": "ses_0000000001",
+      "content": "Update the API documentation",
+      "status": "pending",
+      "priority": "low",
+      "position": 2,
+      "time_created": 1791285000000,
+      "time_updated": 1791287970000
+    },
+    {
+      "session_id": "ses_0000000003",
+      "content": "A task of the older session",
+      "status": "pending",
+      "priority": "medium",
+      "position": 0,
+      "time_created": 1791285000000,
+      "time_updated": 1791287970000
+    }
+  ]
+}

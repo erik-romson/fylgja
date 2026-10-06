@@ -89,3 +89,9 @@ ignore_cwd = ["CodexBar/ClaudeProbe"]
 enabled = true
 # Running Codex CLI processes, read from `pgrep`/`lsof`, the state database (read-only) and the rollout
 # tail. Optional hooks and `notify` are off by default: see docs/collectors/codex.md.
+
+[collectors.opencode]
+enabled = true
+# Running OpenCode processes (`pgrep`/`lsof`) joined to the sessions in opencode.db, read-only. The
+# optional TypeScript plugin (fylgja.ts, copied by hand) only wakes the poll sooner: see
+# docs/collectors/opencode.md.
