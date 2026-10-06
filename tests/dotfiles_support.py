@@ -98,3 +98,22 @@ def hooks_runner(version_output: str = CLAUDE_VERSION_OUTPUT) -> FakeProcessRunn
     runner.script("claude", "--version", stdout=version_output)
     runner.script(GIT_BIN, "-C", stdout=" claude/.claude/settings.json | 40 +++\n")
     return runner
+
+
+# --------------------------------------------------------------------------------------------
+# Keybinding and skill installers (WP4.4)
+# --------------------------------------------------------------------------------------------
+
+
+def aerospace_source(layout: Layout) -> Path:
+    """``.aerospace.toml`` in the dotfiles tree (``~/.aerospace.toml`` links to it)."""
+    return layout.dotfiles / "aerospace" / ".aerospace.toml"
+
+
+def conf_path(layout: Layout) -> Path:
+    return layout.dotfiles / "dotfiles.conf"
+
+
+def skill_dir(layout: Layout) -> Path:
+    """The skill directory in the dotfiles tree (``~/.claude/skills/fylgja-todo`` links to it)."""
+    return layout.dotfiles / "claude" / ".claude" / "skills" / "fylgja-todo"

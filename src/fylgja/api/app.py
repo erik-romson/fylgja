@@ -7,6 +7,7 @@ shutdown; a daemon the caller already started is left to the caller.
 * Every route is behind :class:`~fylgja.api.security.HostGuard`; no CORS middleware exists. Every
   request with a mutating method is also behind :class:`~fylgja.api.security.MutationGuard`
   (bearer, Origin, JSON content type, body limit), whichever route it addresses.
+* ``GET /`` serves the minimal page with the secret in a ``<meta>`` tag (WP4.4).
 * The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/todos``,
   ``/collectors``, ``/health`` and the ``/events`` change stream) need no authentication. The
   interactive docs and the OpenAPI document are off.
@@ -31,6 +32,7 @@ from fylgja.api.routes import (
     health,
     messages,
     now,
+    page,
     projects,
     sessions,
     todos,
@@ -44,6 +46,7 @@ from fylgja.logsetup import register_secret
 __all__ = ["create_app", "server_config"]
 
 _ROUTERS = (
+    page.router,
     now.router,
     workspaces.router,
     sessions.router,
@@ -92,9 +95,10 @@ def create_app(
     )
     app.state.daemon = services
     app.state.events = events
+    bearer = load_secret() if secret is None else secret
+    app.state.secret = bearer
     for router in _ROUTERS:
         app.include_router(router)
-    bearer = load_secret() if secret is None else secret
     if bearer:
         register_secret(bearer)
     # The last middleware added is the outermost: the Host check runs first, then the mutation

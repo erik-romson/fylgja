@@ -8,9 +8,10 @@ scope uses the focused workspace). ``label ws`` sets or clears a manual workspac
 ``session message`` posts to the daemon too: it asks first
 unless ``--yes`` is given and exits 0 only when the message was submitted.
 ``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``,
-``secret``) run locally (the A7 exceptions): doctor checks the setup and changes nothing, and the
-installers print a diff and write only with ``--apply`` (``secret`` writes at once and prints
-nothing secret). ``fylgja --help`` imports no daemon code and starts nothing.
+``keybinding``, ``skill``, ``secret``) run locally (the A7 exceptions): doctor checks the setup
+and changes nothing, and the installers print a diff and write only with ``--apply`` (``secret``
+writes at once and prints nothing secret). ``fylgja --help`` imports no daemon code and starts
+nothing.
 
 Exit codes: 0 success, 1 the daemon answered with an error (or the item does not exist),
 2 a configuration error or bad usage, 3 the daemon is not running.
@@ -473,6 +474,41 @@ def install_statusline(apply: ApplyOption = False) -> None:
 
     code = asyncio.run(
         install.run_install_statusline(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
+    )
+    raise typer.Exit(code)
+
+
+@install_app.command("keybinding")
+def install_keybinding(
+    apply: ApplyOption = False,
+    key: Annotated[
+        str, typer.Option("--key", help="The AeroSpace key to bind, such as alt-shift-t.")
+    ] = "alt-shift-t",
+) -> None:
+    """Add the quick-todo binding to ~/.aerospace.toml (the file in ~/dotfiles)."""
+    import asyncio
+
+    from fylgja.cli import install
+    from fylgja.core.system import SubprocessRunner
+
+    code = asyncio.run(
+        install.run_install_keybinding(
+            apply=apply, runner=SubprocessRunner(), key=key, echo=typer.echo
+        )
+    )
+    raise typer.Exit(code)
+
+
+@install_app.command("skill")
+def install_skill(apply: ApplyOption = False) -> None:
+    """Install the fylgja-todo Claude skill into ~/dotfiles and link it into ~/.claude/skills."""
+    import asyncio
+
+    from fylgja.cli import install
+    from fylgja.core.system import SubprocessRunner
+
+    code = asyncio.run(
+        install.run_install_skill(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
     )
     raise typer.Exit(code)
 

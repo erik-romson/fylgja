@@ -31,3 +31,5 @@ def test_wheel_ships_py_typed_and_testing_package(isolated_env: Path) -> None:
     assert "fylgja/py.typed" in names
     assert "fylgja/testing/__init__.py" in names
     assert "fylgja/collectors/opencode/fylgja.ts" in names
+    assert "fylgja/api/static/index.html" in names
+    assert "fylgja/integrations/claude/skills/fylgja-todo/SKILL.md" in names

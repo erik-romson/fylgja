@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="fylgja-secret" content="{{fylgja-secret}}">
+<title>Fylgja</title>
+<style>
+  :root { color-scheme: light dark; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0 auto; max-width: 42rem; padding: 1.5rem 1rem; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  form { display: flex; gap: .5rem; margin-bottom: .75rem; }
+  #todo-input { flex: 1; padding: .5rem; font-size: 1rem; }
+  button { font-size: 1rem; padding: .4rem .8rem; }
+  #status { min-height: 1.25rem; color: #b00020; margin: 0 0 .75rem; }
+  #todo-list { list-style: none; margin: 0; padding: 0; }
+  #todo-list li { display: flex; align-items: baseline; gap: .6rem; padding: .35rem 0;
+    border-bottom: 1px solid rgba(128, 128, 128, .25); }
+  #todo-list li.group { display: block; font-weight: 600; border-bottom: 0; padding-top: 1rem; }
+  .text { flex: 1; overflow-wrap: anywhere; }
+  .scope { font-size: .8rem; opacity: .65; }
+  .next .text::before { content: "next: "; opacity: .65; }
+</style>
+</head>
+<body>
+<h1>Fylgja todos</h1>
+<form id="todo-form" autocomplete="off">
+  <input id="todo-input" type="text" maxlength="500" placeholder="What next? (focused workspace)"
+         aria-label="New todo" autofocus>
+  <button id="todo-add" type="submit">Add</button>
+</form>
+<p id="status" role="status"></p>
+<ul id="todo-list"></ul>
+<script>
+"use strict";
+const secret = document.querySelector('meta[name="fylgja-secret"]').content;
+const list = document.getElementById("todo-list");
+const input = document.getElementById("todo-input");
+const statusLine = document.getElementById("status");
+const OPEN = "status=open,next";
+
+function say(message) { statusLine.textContent = message || ""; }
+
+async function call(method, path, body) {
+  const options = { method, headers: {} };
+  if (method !== "GET") {
+    options.headers["Authorization"] = "Bearer " + secret;
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(path, options);
+  let data = null;
+  try { data = await response.json(); } catch (_) { /* no body */ }
+  if (!response.ok) {
+    const detail = data && typeof data.detail === "string" ? data.detail : "HTTP " + response.status;
+    throw new Error(detail);
+  }
+  return data;
+}
+
+function scopeOf(todo) {
+  if (!todo.scope_kind) { return ""; }
+  const ref = String(todo.scope_ref || "");
+  return todo.scope_kind + " " + (ref.length > 40 ? "…" + ref.slice(-38) : ref);
+}
+
+function row(todo) {
+  const li = document.createElement("li");
+  if (todo.status === "next") { li.className = "next"; }
+  const text = document.createElement("span");
+  text.className = "text";
+  text.textContent = todo.text;
+  const scope = document.createElement("span");
+  scope.className = "scope";
+  scope.textContent = scopeOf(todo);
+  const done = document.createElement("button");
+  done.id = "todo-done-" + todo.id;
+  done.type = "button";
+  done.textContent = "Done";
+  if (todo.source && todo.source !== "fylgja") {
+    done.disabled = true;
+    done.title = "Imported from " + todo.source + ": finish it there";
+  } else {
+    done.addEventListener("click", () => finish(todo.id));
+  }
+  li.append(text, scope, done);
+  return li;
+}
+
+function group(title) {
+  const li = document.createElement("li");
+  li.className = "group";
+  li.textContent = title;
+  return li;
+}
+
+function render(todos, workspace) {
+  const here = todos.filter((t) => workspace && t.scope_kind === "workspace" && t.scope_ref === workspace);
+  const rest = todos.filter((t) => !here.includes(t));
+  const items = [];
+  if (workspace) {
+    items.push(group("Focused workspace " + workspace));
+    if (here.length === 0) { items.push(group("Nothing open here")); }
+    items.push(...here.map(row));
+  }
+  items.push(group("All workspaces"));
+  if (rest.length === 0) { items.push(group("Nothing else open")); }
+  items.push(...rest.map(row));
+  list.replaceChildren(...items);
+}
+
+async function refresh() {
+  try {
+    const [now, todos] = await Promise.all([call("GET", "/now"), call("GET", "/todos?" + OPEN)]);
+    const flagged = ((now && now.workspaces) || []).find((w) => w.focused);
+    const workspace = (now && now.focused && now.focused.workspace) || (flagged ? flagged.name : null);
+    render(Array.isArray(todos) ? todos : [], workspace);
+    say("");
+  } catch (error) {
+    say("Cannot load: " + error.message);
+  }
+}
+
+async function finish(id) {
+  try {
+    await call("PATCH", "/todos/" + encodeURIComponent(id), { status: "done" });
+    say("");
+  } catch (error) {
+    say("Not done: " + error.message);
+  }
+  await refresh();
+}
+
+document.getElementById("todo-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = input.value.trim();
+  if (!text) { return; }
+  try {
+    await call("POST", "/todos", { text: text });
+    input.value = "";
+    say("");
+  } catch (error) {
+    say("Not added: " + error.message);
+  }
+  await refresh();
+});
+
+refresh();
+setInterval(() => { if (!document.hidden) { refresh(); } }, 5000);
+</script>
+</body>
+</html>

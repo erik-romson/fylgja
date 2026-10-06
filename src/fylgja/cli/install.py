@@ -1,5 +1,5 @@
-"""Installers: ``config``, ``launchd``, ``hooks``, ``statusline`` and ``secret`` (WP1.10, WP2.4,
-WP3.4, A22, Q10).
+"""Installers: ``config``, ``launchd``, ``hooks``, ``statusline``, ``keybinding``, ``skill`` and
+``secret`` (WP1.10, WP2.4, WP3.4, WP4.4, A22, Q10).
 
 This module is the shared installer machinery that later steps reuse for skill and keybinding.
 It imports no CLI framework and runs locally: the installers are one of the exceptions to
@@ -59,6 +59,9 @@ __all__ = [
     "DotfilesTarget",
     "InstallError",
     "InstallPlan",
+    "KEYBINDING_ENTRY",
+    "KEYBINDING_KEY",
+    "SKILL_ENTRY",
     "Layout",
     "LinkPlan",
     "TextEdit",
@@ -70,6 +73,8 @@ __all__ = [
     "fylgja_hook_event",
     "installed_targets",
     "iter_hooks",
+    "keybinding_block",
+    "keybinding_command",
     "merge_hooks",
     "launchd_plist_path",
     "launchd_plist_text",
@@ -77,17 +82,23 @@ __all__ = [
     "parse_dotfiles_conf",
     "plan_config",
     "plan_hooks",
+    "plan_keybinding",
+    "plan_skill",
     "plan_launchd",
     "plan_link",
     "plan_statusline",
     "new_secret",
+    "render_keybinding",
     "render_plan",
     "render_statusline",
     "run_install_config",
     "run_install_hooks",
+    "run_install_keybinding",
     "run_install_launchd",
     "run_install_secret",
+    "run_install_skill",
     "run_install_statusline",
+    "skill_template",
     "supported_events",
 ]
 
@@ -649,28 +660,36 @@ STATUSLINE_BLOCK: Final = (
 _INPUT_LINE: Final = re.compile(r"^input=\$\(cat\)[ \t]*$\n?", re.MULTILINE)
 
 
+def _block_span(text: str, what: str) -> tuple[int, int] | None:
+    """``(start, stop)`` of the one Fylgja block in ``text`` (``stop`` is after its last line),
+    ``None`` when there is none. Raises :class:`InstallError` for markers that do not pair up."""
+    begins, ends = text.count(BLOCK_BEGIN), text.count(BLOCK_END)
+    if begins != ends or begins > 1:
+        raise InstallError(
+            f"{what} has {begins} `{BLOCK_BEGIN}` and {ends} `{BLOCK_END}` markers. "
+            "Nothing was changed; leave exactly one pair (or none) and run the command again."
+        )
+    if begins == 0:
+        return None
+    start, end = text.index(BLOCK_BEGIN), text.index(BLOCK_END)
+    if end < start or (start != 0 and text[start - 1] != "\n"):
+        raise InstallError(
+            f"the Fylgja block markers in {what} are out of order or not at the start "
+            "of a line. Nothing was changed."
+        )
+    stop = text.find("\n", end)
+    return start, len(text) if stop == -1 else stop + 1
+
+
 def render_statusline(text: str) -> str:
     """``text`` with the Fylgja block present exactly once.
 
     A block that is already there is replaced in place by the current one (so an unchanged block
     gives back ``text``). Otherwise the block goes right after the ``input=$(cat)`` line.
     """
-    begins, ends = text.count(BLOCK_BEGIN), text.count(BLOCK_END)
-    if begins != ends or begins > 1:
-        raise InstallError(
-            f"statusline.sh has {begins} `{BLOCK_BEGIN}` and {ends} `{BLOCK_END}` markers. "
-            "Nothing was changed; leave exactly one pair (or none) and run the command again."
-        )
-    if begins == 1:
-        start, end = text.index(BLOCK_BEGIN), text.index(BLOCK_END)
-        if end < start or (start != 0 and text[start - 1] != "\n"):
-            raise InstallError(
-                "the Fylgja block markers in statusline.sh are out of order or not at the start "
-                "of a line. Nothing was changed."
-            )
-        stop = text.find("\n", end)
-        tail = "" if stop == -1 else text[stop + 1 :]
-        return text[:start] + STATUSLINE_BLOCK + tail
+    span = _block_span(text, "statusline.sh")
+    if span is not None:
+        return text[: span[0]] + STATUSLINE_BLOCK + text[span[1] :]
     match = _INPUT_LINE.search(text)
     if match is None:
         raise InstallError(
@@ -691,6 +710,166 @@ def plan_statusline(layout: Layout) -> InstallPlan:
     label = f"{STATUSLINE_ENTRY.package}/{STATUSLINE_ENTRY.path}"
     plan = InstallPlan("statusline")
     plan.edits.append(TextEdit(source, text, render_statusline(text), label))
+    plan.touched = [e.label for e in plan.edits if e.changed]
+    return plan
+
+
+# --------------------------------------------------------------------------------------------
+# Fast todo entry: the AeroSpace keybinding and the Claude skill (WP4.4, A18, A22)
+# --------------------------------------------------------------------------------------------
+
+KEYBINDING_ENTRY: Final = ConfEntry("aerospace", ".aerospace.toml")
+KEYBINDING_KEY: Final = "alt-shift-t"
+"""The default AeroSpace key (``install keybinding --key`` picks another)."""
+KEYBINDING_TABLE: Final = "mode.main.binding"
+
+_KEY_NAME: Final = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_TOML_HEADER: Final = re.compile(r"""^\[\[?[A-Za-z0-9_.\"' -]+\]\]?[ \t]*(#.*)?$""")
+_BINDING_HEADER: Final = re.compile(rf"^\[{re.escape(KEYBINDING_TABLE)}\][ \t]*(#.*)?$")
+
+
+def keybinding_command() -> str:
+    """The shell command the binding runs through ``exec-and-forget``.
+
+    It asks for the text with ``osascript display dialog`` and passes the answer to
+    ``fylgja todo add`` as one quoted argument after ``--``. A cancelled dialog or an empty answer
+    adds nothing; a failed add posts a notification. The guard is the one the hooks use: without
+    ``~/.local/bin/fylgja`` on this machine the binding does nothing.
+    """
+    dialog = 'text returned of (display dialog "Fylgja todo" default answer "" with title "Fylgja")'
+    notice = 'display notification "todo not added (is the daemon running?)" with title "Fylgja"'
+    return (
+        f"[ -x {HOOK_EXECUTABLE} ] && {{ "
+        f"answer=$(osascript -e '{dialog}' 2>/dev/null) && [ -n \"$answer\" ] && "
+        f'{{ {HOOK_EXECUTABLE} todo add -- "$answer" >/dev/null 2>&1 || '
+        f"osascript -e '{notice}'; }}; "
+        "}; exit 0"
+    )
+
+
+def keybinding_block(key: str = KEYBINDING_KEY) -> str:
+    """The marked block: one binding line in a TOML literal string."""
+    command = f"exec-and-forget {keybinding_command()}"
+    literal = "'" * 3
+    assert literal not in command
+    return (
+        f"{BLOCK_BEGIN}\n"
+        "# Fylgja (WP4.4): ask for a todo and add it to the focused workspace. Does nothing when\n"
+        "# fylgja is not installed on this machine.\n"
+        f"{key} = {literal}{command}{literal}\n"
+        f"{BLOCK_END}\n"
+    )
+
+
+def _toml_table(text: str, shown: str) -> dict[str, Any]:
+    import tomllib
+
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise InstallError(
+            f"{shown} is not valid TOML ({exc}). Nothing was changed; fix the file and run the "
+            "command again."
+        ) from exc
+    table: Any = data
+    for part in KEYBINDING_TABLE.split("."):
+        table = table.get(part, {}) if isinstance(table, dict) else {}
+    return table if isinstance(table, dict) else {}
+
+
+def render_keybinding(
+    text: str, key: str = KEYBINDING_KEY, *, shown: str = ".aerospace.toml"
+) -> str:
+    """``text`` with the Fylgja binding block present exactly once, inside ``[mode.main.binding]``.
+
+    An existing block is replaced in place. Otherwise the block goes at the end of the table.
+    Refuses a key that is already bound outside the block, a file without the table and a result
+    that is not valid TOML.
+    """
+    if _KEY_NAME.match(key) is None:
+        raise InstallError(f"{key!r} is not an AeroSpace key such as alt-shift-t.")
+    block = keybinding_block(key)
+    span = _block_span(text, shown)
+    rest = text if span is None else text[: span[0]] + text[span[1] :]
+    if key in _toml_table(rest, shown):
+        raise InstallError(
+            f"{key} is already bound in {shown}. Nothing was changed; pass another key "
+            "(`fylgja install keybinding --key alt-shift-y`) or free that one."
+        )
+    if span is not None:
+        result = text[: span[0]] + block + text[span[1] :]
+    else:
+        lines = text.splitlines(keepends=True)
+        header = next(
+            (i for i, line in enumerate(lines) if _BINDING_HEADER.match(line.strip())), None
+        )
+        if header is None:
+            raise InstallError(
+                f"{shown} has no [{KEYBINDING_TABLE}] table, so the binding has no place to go. "
+                f"Nothing was changed. Add this inside your bindings by hand:\n{block}"
+            )
+        end = next(
+            (i for i in range(header + 1, len(lines)) if _TOML_HEADER.match(lines[i].rstrip())),
+            len(lines),
+        )
+        while end - 1 > header and not lines[end - 1].strip():
+            end -= 1
+        before = lines[:end]
+        if not before[-1].endswith("\n"):
+            before[-1] += "\n"
+        spacer = [] if end - 1 == header else ["\n"]
+        result = "".join([*before, *spacer, block, *lines[end:]])
+    _toml_table(result, shown)  # the edit must leave a valid file
+    return result
+
+
+def plan_keybinding(layout: Layout, key: str = KEYBINDING_KEY) -> InstallPlan:
+    """Plan ``install keybinding``: the block in ``~/dotfiles/aerospace/.aerospace.toml``."""
+    link = layout.home / KEYBINDING_ENTRY.path
+    source = layout.dotfiles / KEYBINDING_ENTRY.package / KEYBINDING_ENTRY.path
+    _require_dotfiles_link(link, source, layout, ".aerospace.toml")
+    text = _read(source)
+    assert text is not None
+    label = f"{KEYBINDING_ENTRY.package}/{KEYBINDING_ENTRY.path}"
+    plan = InstallPlan("keybinding")
+    plan.edits.append(TextEdit(source, text, render_keybinding(text, key, shown=label), label))
+    plan.touched = [e.label for e in plan.edits if e.changed]
+    plan.notes.append("Reload AeroSpace to pick it up: `aerospace reload-config` (not run here).")
+    return plan
+
+
+SKILL_NAME: Final = "fylgja-todo"
+SKILL_ENTRY: Final = ConfEntry("claude", f".claude/skills/{SKILL_NAME}/")
+SKILL_TEMPLATE: Final = f"integrations/claude/skills/{SKILL_NAME}/SKILL.md"
+
+
+def skill_template() -> str:
+    """The ``fylgja-todo`` skill, shipped as package data."""
+    from importlib import resources
+
+    return resources.files("fylgja").joinpath(SKILL_TEMPLATE).read_text(encoding="utf-8")
+
+
+def plan_skill(layout: Layout) -> InstallPlan:
+    """Plan ``install skill``: ``SKILL.md`` in dotfiles, its ``dotfiles.conf`` line and the link."""
+    conf_path = layout.dotfiles / DOTFILES_CONF
+    conf = _read(conf_path)
+    if conf is None:
+        raise InstallError(
+            f"{layout.shown(conf_path)} not found. Fylgja installs through a dotfiles checkout at "
+            f"{layout.shown(layout.dotfiles)} with a {DOTFILES_CONF} file."
+        )
+    directory = layout.dotfiles / SKILL_ENTRY.package / SKILL_ENTRY.path.rstrip("/")
+    file = directory / "SKILL.md"
+    for path in (directory, file):
+        if path.is_symlink():
+            raise InstallError(f"{layout.shown(path)} is a link; it must be a real path.")
+    link = layout.home / SKILL_ENTRY.path.rstrip("/")
+    plan = InstallPlan("skill")
+    label = f"{SKILL_ENTRY.package}/{SKILL_ENTRY.path}SKILL.md"
+    plan.edits.append(TextEdit(file, _read(file), skill_template(), label))
+    plan.edits.append(TextEdit(conf_path, conf, add_conf_entry(conf, SKILL_ENTRY), DOTFILES_CONF))
+    plan.links.append(plan_link(link, directory, layout))
     plan.touched = [e.label for e in plan.edits if e.changed]
     return plan
 
@@ -988,6 +1167,53 @@ async def run_install_statusline(
     return await _run_dotfiles_install(
         "statusline",
         lambda: plan_statusline(where),
+        apply=apply,
+        runner=runner,
+        layout=where,
+        git=git,
+        now=now,
+        echo=echo,
+    )
+
+
+async def run_install_keybinding(
+    *,
+    apply: bool,
+    runner: ProcessRunner,
+    layout: Layout | None = None,
+    key: str = KEYBINDING_KEY,
+    git: str = GIT,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    echo: Echo,
+) -> int:
+    """``fylgja install keybinding [--apply]``; returns the exit code. It never runs osascript."""
+    where = Layout.current() if layout is None else layout
+    return await _run_dotfiles_install(
+        "keybinding",
+        lambda: plan_keybinding(where, key),
+        apply=apply,
+        runner=runner,
+        layout=where,
+        git=git,
+        now=now,
+        echo=echo,
+    )
+
+
+async def run_install_skill(
+    *,
+    apply: bool,
+    runner: ProcessRunner,
+    layout: Layout | None = None,
+    git: str = GIT,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    echo: Echo,
+) -> int:
+    """``fylgja install skill [--apply]``; returns the exit code."""
+    where = Layout.current() if layout is None else layout
+    return await _run_dotfiles_install(
+        "skill",
+        lambda: plan_skill(where),
         apply=apply,
         runner=runner,
         layout=where,
