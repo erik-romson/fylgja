@@ -29,6 +29,7 @@ from fylgja.store.rows import (
     SessionRow,
     SpanRow,
     StoreRow,
+    SuggestionRow,
     TodoRow,
     UsageRow,
     WindowRow,
@@ -59,6 +60,7 @@ __all__ = [
     "drop_open_span",
     "insert_event",
     "insert_open_span",
+    "insert_suggestions",
     "insert_todo",
     "last_observed_at",
     "latest_focus",
@@ -72,6 +74,7 @@ __all__ = [
     "load_open_usage",
     "load_open_windows",
     "load_spans",
+    "load_suggestions",
     "load_worked_on",
     "load_open_workspaces",
     "load_projects",
@@ -79,6 +82,7 @@ __all__ = [
     "put_activity",
     "put_health",
     "put_usage",
+    "rate_suggestion",
     "put_window",
     "set_activity_readings",
     "set_manual_label",
@@ -1512,3 +1516,45 @@ def checkpoint_truncate(connection: sqlite3.Connection) -> bool:
     """
     busy = connection.execute(CHECKPOINT_TRUNCATE).fetchone()[0]
     return int(busy) == 0
+
+
+# --------------------------------------------------------------------------------------------
+# suggestions_log
+# --------------------------------------------------------------------------------------------
+
+_SUGGESTION_COLUMNS: Final = (
+    "id, list_id, generated_at, rank, kind, target_ref, score, reason, feedback, feedback_at, "
+    "acted_at"
+)
+
+INSERT_SUGGESTION: Final = """
+INSERT OR IGNORE INTO suggestions_log (id, list_id, generated_at, rank, kind, target_ref, score,
+                                       reason)
+VALUES (:id, :list_id, :generated_at, :rank, :kind, :target_ref, :score, :reason)
+"""
+
+SELECT_SUGGESTIONS: Final = (
+    f"SELECT {_SUGGESTION_COLUMNS} FROM suggestions_log WHERE list_id = ? ORDER BY rank, id"
+)
+
+RATE_SUGGESTION: Final = """
+UPDATE suggestions_log SET feedback = :rating, feedback_at = :at WHERE id = :id
+"""
+
+
+def insert_suggestions(connection: sqlite3.Connection, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Log the items of one generated list. A suggestion id already logged is left as it is."""
+    connection.executemany(INSERT_SUGGESTION, rows)
+
+
+def load_suggestions(connection: sqlite3.Connection, list_id: str) -> list[SuggestionRow]:
+    """The logged items of ``list_id``, top item first (empty when the list is unknown)."""
+    found = connection.execute(SELECT_SUGGESTIONS, (list_id,)).fetchall()
+    return [SuggestionRow.from_db(row) for row in found]
+
+
+def rate_suggestion(
+    connection: sqlite3.Connection, *, suggestion_id: str, rating: str, at: str
+) -> None:
+    """Record ``rating`` (``good`` or ``bad``) on one logged item; a second rating replaces it."""
+    connection.execute(RATE_SUGGESTION, {"id": suggestion_id, "rating": rating, "at": at})

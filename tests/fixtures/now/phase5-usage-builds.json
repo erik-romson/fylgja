@@ -299,6 +299,17 @@
       "since": "2025-06-01T10:00:00Z"
     }
   ],
+  "next": [
+    {
+      "suggestion_id": "nl-107d46636009c737.1",
+      "kind": "build_failed",
+      "target_ref": "/work/alpha",
+      "score": 70.0,
+      "reason": "build failed on repo",
+      "rank": 1
+    }
+  ],
+  "next_list_id": "nl-107d46636009c737",
   "collectors": [
     {
       "name": "agents",

@@ -9,7 +9,7 @@ shutdown; a daemon the caller already started is left to the caller.
   (bearer, Origin, JSON content type, body limit), whichever route it addresses.
 * ``GET /`` serves the minimal page with the secret in a ``<meta>`` tag (WP4.4).
 * The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/todos``,
-  ``/collectors``, ``/health``, ``/history`` and the ``/events`` change stream) need no
+  ``/collectors``, ``/health``, ``/history``, ``/next`` and the ``/events`` change stream) need no
   authentication. The interactive docs and the OpenAPI document are off.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
 
@@ -39,6 +39,9 @@ from fylgja.api.routes import (
     todos,
     workspaces,
 )
+from fylgja.api.routes import (
+    next as next_routes,
+)
 from fylgja.api.security import HostGuard, MutationGuard, load_secret
 from fylgja.config import LOOPBACK_HOST, Config, load_config
 from fylgja.core.daemon import Daemon
@@ -57,6 +60,7 @@ _ROUTERS = (
     history.router,
     focus.router,
     messages.router,
+    next_routes.router,
     todos.router,
     sse.router,
 )

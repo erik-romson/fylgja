@@ -98,6 +98,8 @@
     }
   ],
   "waiting": [],
+  "next": [],
+  "next_list_id": "nl-f1339618d85e178c",
   "collectors": [
     {
       "name": "agents",

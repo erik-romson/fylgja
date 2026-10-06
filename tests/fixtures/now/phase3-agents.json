@@ -353,6 +353,17 @@
       "since": "2026-10-05T12:00:00Z"
     }
   ],
+  "next": [
+    {
+      "suggestion_id": "nl-6351cf68ec694d70.1",
+      "kind": "input",
+      "target_ref": "norn:plan_with_review@59c2c9:7",
+      "score": 100.0,
+      "reason": "waiting for input: agent question",
+      "rank": 1
+    }
+  ],
+  "next_list_id": "nl-6351cf68ec694d70",
   "collectors": [
     {
       "name": "claude",

@@ -16,6 +16,7 @@ __all__ = [
     "DEFAULT_WIDTH",
     "render_collectors",
     "render_history",
+    "render_next",
     "render_now",
     "render_sessions",
     "render_todos",
@@ -237,6 +238,35 @@ def render_todos(todos: Sequence[Row], width: int = DEFAULT_WIDTH) -> str:
         for t in todos
     ]
     return table(["ID", "STATUS", "SCOPE", "TODO"], rows, width)
+
+
+def _target(item: Row) -> str:
+    """What an item is about: a todo by the start of its id (as ``todo done`` takes it), a path by
+    its last segment, anything else (a session key, a workspace, a window) as it is."""
+    ref = str(item.get("target_ref") or "")
+    if not ref:
+        return _DASH
+    if item.get("kind") == "todo":
+        return ref[:8]
+    return _name(ref) if ref.startswith("/") else ref
+
+
+def render_next(payload: Row, width: int = DEFAULT_WIDTH) -> str:
+    """The ranked "what next" list: rank, what it is about, and why, in words."""
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return "nothing is waiting for you"
+    rows = [
+        [
+            str(item.get("rank", "?")),
+            str(item.get("kind", "?")),
+            _target(item),
+            str(item.get("reason", "")),
+        ]
+        for item in items
+        if isinstance(item, dict)
+    ]
+    return table(["#", "WHAT", "TARGET", "WHY"], rows, width)
 
 
 def _duration(seconds: object) -> str:

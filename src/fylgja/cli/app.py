@@ -1,9 +1,11 @@
 """The ``fylgja`` command line (Typer).
 
 ``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions``,
-``history`` and ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from
-it, prints a table or, with ``--json``, the JSON, and exits **3** with a clear message when the
-daemon is down.
+``history``, ``next`` and ``collectors list``) are HTTP clients of that daemon (A7): each fetches
+JSON from it, prints a table or, with ``--json``, the JSON, and exits **3** with a clear message
+when the daemon is down.
+``next --feedback good|bad`` rates the top item of the list ``next`` showed last today (the CLI
+remembers its ``list_id`` in the state directory and posts to the daemon).
 ``todo add|done|rm|ls`` talk to the daemon as well (writes send the bearer secret; ``add`` without a
 scope uses the focused workspace). ``label ws`` sets or clears a manual workspace label.
 ``session message`` posts to the daemon too: it asks first
@@ -25,6 +27,8 @@ import re
 import shutil
 import urllib.parse
 from collections.abc import Callable
+from datetime import date
+from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
 import typer
@@ -34,6 +38,7 @@ from fylgja.cli import client, render
 __all__ = ["app"]
 
 EXIT_CONFIG: int = 2
+NEXT_STATE_FILE = "next-last.json"
 
 app = typer.Typer(
     name="fylgja",
@@ -166,6 +171,70 @@ def ws(
         return
     sessions = _fetch("/sessions") if workspace.get("sessions") else []
     typer.echo(render.render_workspace(workspace, sessions, _width()))
+
+
+def _next_file() -> Path:
+    from fylgja import paths
+
+    return paths.state_dir() / NEXT_STATE_FILE
+
+
+def _remember_list(list_id: str) -> None:
+    """Remember the list just shown, for today, so that ``next --feedback`` rates it."""
+    target = _next_file()
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps({"date": date.today().isoformat(), "list_id": list_id})
+        scratch = target.with_name(target.name + ".tmp")
+        scratch.write_text(text + "\n", encoding="utf-8")
+        scratch.replace(target)
+    except OSError as exc:
+        typer.echo(
+            f"fylgja: could not remember this list for --feedback ({exc.strerror})", err=True
+        )
+
+
+def _last_list() -> str:
+    """The ``list_id`` of the most recent list ``fylgja next`` showed today, or leave."""
+    try:
+        stored = json.loads(_next_file().read_text(encoding="utf-8"))
+        list_id = str(stored["list_id"])
+        shown = str(stored["date"])
+    except (OSError, ValueError, KeyError, TypeError):
+        shown = list_id = ""
+    if not list_id or shown != date.today().isoformat():
+        _fail("no list was shown today; run `fylgja next` first", client.EXIT_API_ERROR)
+    return list_id
+
+
+@app.command("next")
+def next_(
+    feedback: Annotated[
+        str | None,
+        typer.Option(
+            "--feedback",
+            metavar="good|bad",
+            help="Rate the top item of the list `fylgja next` last showed today.",
+        ),
+    ] = None,
+    as_json: JsonOption = False,
+) -> None:
+    """What to do next, best first, with the reason for each. `--feedback good|bad` rates the
+    top item of the list shown last."""
+    if feedback is not None:
+        if feedback not in ("good", "bad"):
+            _fail("--feedback takes good or bad", EXIT_CONFIG)
+        answer = _write("POST", "/next/feedback", {"list_id": _last_list(), "rating": feedback})
+        _show(
+            answer,
+            as_json,
+            lambda: f"rated item {answer.get('rank', '?')} of the last list {feedback}",
+        )
+        return
+    payload = _fetch("/next")
+    if isinstance(payload, dict) and payload.get("list_id"):
+        _remember_list(str(payload["list_id"]))
+    _show(payload, as_json, lambda: render.render_next(payload, _width()))
 
 
 @app.command()

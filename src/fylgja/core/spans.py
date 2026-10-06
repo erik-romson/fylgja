@@ -59,6 +59,7 @@ __all__ = [
     "SummarySpan",
     "Target",
     "Total",
+    "focus_seconds_by_workspace",
     "focus_time_by_project",
     "last_focus_by_project",
     "recover_stale",
@@ -508,4 +509,18 @@ def last_focus_by_project(spans: Iterable[Span], now: datetime) -> dict[str, dat
         last = now if span.ended_at is None else span.ended_at
         if span.project_path not in found or last > found[span.project_path]:
             found[span.project_path] = last
+    return found
+
+
+def focus_seconds_by_workspace(
+    spans: Iterable[Span], since: datetime, until: datetime, now: datetime
+) -> dict[str, float]:
+    """Seconds of focus per workspace in ``[since, until)`` (the "most focus today" of the
+    ranking). A span that names no workspace says nothing and is left out."""
+    found: dict[str, float] = {}
+    for span in spans:
+        clipped = _clip(span, since, until, now)
+        if clipped is None or clipped.workspace is None:
+            continue
+        found[clipped.workspace] = found.get(clipped.workspace, 0.0) + clipped.seconds
     return found

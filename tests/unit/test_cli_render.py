@@ -131,3 +131,31 @@ def test_collectors_without_a_distribution_or_with_odd_values() -> None:
     assert "built-in" in lines[1]
     assert "(" not in lines[1]
     assert "external (dist)" in lines[2]
+
+
+def test_next_lists_the_items_best_first_with_short_targets() -> None:
+    text = render.render_next(
+        {
+            "list_id": "nl-1",
+            "items": [
+                {"rank": 1, "kind": "input", "target_ref": "claude:a", "reason": "waiting"},
+                {"rank": 2, "kind": "todo", "target_ref": "0123456789abcdef", "reason": "t"},
+                {"rank": 3, "kind": "build_failed", "target_ref": "/work/repo", "reason": "b"},
+                {"rank": 4, "kind": "unread", "reason": "u"},
+            ],
+        },
+        100,
+    )
+    lines = text.splitlines()
+    assert lines[0].split() == ["#", "WHAT", "TARGET", "WHY"]
+    assert [line.split()[:3] for line in lines[1:]] == [
+        ["1", "input", "claude:a"],
+        ["2", "todo", "01234567"],
+        ["3", "build_failed", "repo"],
+        ["4", "unread", "\u2014"],
+    ]
+
+
+def test_next_with_nothing_says_so() -> None:
+    assert render.render_next({"list_id": "nl-1", "items": []}) == "nothing is waiting for you"
+    assert render.render_next({}) == "nothing is waiting for you"

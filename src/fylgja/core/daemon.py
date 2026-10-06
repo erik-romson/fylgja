@@ -61,6 +61,7 @@ from fylgja.core.hosts import HostData
 from fylgja.core.ingest import IngestGate, PluginSink
 from fylgja.core.labels import LabelService
 from fylgja.core.live_view import Collection, LiveSnapshot, LiveUpdate, LiveView
+from fylgja.core.next_lists import NextLists
 from fylgja.core.project_roots import ProjectLocator
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolver
 from fylgja.core.retention import MaintenanceJob
@@ -68,6 +69,7 @@ from fylgja.core.sessions import SessionStateEngine
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.core.todos import TodoService
 from fylgja.core.usage_view import UsageMemory, UsageMeta
+from fylgja.core.waiting import start_of_day
 from fylgja.core.writer import Writer, WriterClosed, session_key, split_session_key
 from fylgja.messaging.service import MessageService, WriterReceipts
 from fylgja.models import (
@@ -170,6 +172,11 @@ class StateView:
     """When each usage row was last observed and why an attempt failed (§4.7)."""
     touched: Mapping[str, datetime] = field(default_factory=dict)
     """When each project last had focus, by project path (focus spans of the last day; WP6.1)."""
+    focus_today: Mapping[str, float] = field(default_factory=dict)
+    """Seconds of focus today per workspace (as of the latest resolver refresh; WP6.2)."""
+    next_lists: NextLists | None = None
+    """Where the ranked "what next" lists get their ids and are logged (WP6.2). The one stateful
+    part of the view: without it ``/now`` has no ``next[]``."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -398,6 +405,7 @@ class Daemon:
         self.resolver.on_ids_changed = self._mark_dirty
         self.contexts.on_change = self.view.touch
         self._touched: dict[str, datetime] = {}
+        self._focus_today: dict[str, float] = {}
         self.gate = IngestGate(
             _Tap(
                 self.writer,
@@ -447,6 +455,8 @@ class Daemon:
             self.writer, clock=self.clock, privacy=PrivacyFilter.from_config(config.privacy)
         )
         """Manual workspace labels (WP4.2); every write goes through the writer."""
+        self.next_lists = NextLists(self.writer, clock=self.clock)
+        """The ranked "what next" lists: ids, ``suggestions_log`` and feedback (WP6.2)."""
 
         self._resolution: Resolution | None = None
         self._dirty = asyncio.Event()
@@ -628,6 +638,7 @@ class Daemon:
         since = now - timedelta(days=1)
         found = await asyncio.to_thread(self._read_spans, since, now)
         self._set_touched(spans.last_focus_by_project(found, now))
+        self._set_focus_today(spans.focus_seconds_by_workspace(found, start_of_day(now), now, now))
         return spans.focus_time_by_project(found, since, now, now)
 
     def _set_touched(self, touched: dict[str, datetime]) -> None:
@@ -635,6 +646,14 @@ class Daemon:
         waiting-on-me shows, so clients are told."""
         newly = touched.keys() - self._touched.keys()
         self._touched = touched
+        if newly:
+            self.view.touch()
+
+    def _set_focus_today(self, seconds: dict[str, float]) -> None:
+        """Remember the focus seconds of today per workspace; a workspace newly in the list can
+        change the ranking's way back (rule 5), so clients are told."""
+        newly = seconds.keys() - self._focus_today.keys()
+        self._focus_today = seconds
         if newly:
             self.view.touch()
 
@@ -747,6 +766,8 @@ class Daemon:
             contexts=self.contexts.by_window(snapshot.windows.keys()),
             usage=self.usage.meta(),
             touched=self._touched_now(),
+            focus_today=self._focus_today,
+            next_lists=self.next_lists,
         )
 
 

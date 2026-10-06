@@ -321,6 +321,8 @@
     }
   ],
   "waiting": [],
+  "next": [],
+  "next_list_id": "nl-4dd742573c1cb7d2",
   "collectors": [
     {
       "name": "agents",

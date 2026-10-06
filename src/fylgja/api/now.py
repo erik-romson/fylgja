@@ -23,6 +23,11 @@ thread for every request and reads nothing else.
 * **Waiting-on-me** (WP6.1): ``waiting[]`` is :func:`fylgja.core.waiting.waiting_on_me` over the
   shown sessions, the stored projects, the window context items and the projects touched today,
   most urgent first. It is present (possibly empty) while any of those sections is shown.
+* **What next** (WP6.2): ``next[]`` is :func:`fylgja.core.ranking.rank_next` over ``waiting[]``, the
+  open todos, the shown sessions, the focused workspace and the focus of today, published through
+  ``StateView.next_lists`` (which gives it its ``next_list_id`` and logs it). It is present with
+  ``waiting[]``, and absent when the view carries no ``next_lists``. An unchanged situation is the
+  same list with the same ids.
 * **Todos** (WP4.1): the open and next items of the live view fill ``workspaces[].todos``,
   ``sessions[].todos`` and ``projects[].todos`` by scope; ``next`` items come first. An entry
   with no todos has no ``todos`` field.
@@ -48,6 +53,7 @@ from fylgja.api.now_models import (
     Focused,
     Host,
     LabelSource,
+    NextItem,
     Now,
     OneLinerRule,
     Project,
@@ -67,7 +73,9 @@ from fylgja.core.context_items import ContextEntry
 from fylgja.core.daemon import CollectorState, SessionExtras, StateView
 from fylgja.core.freshness import freshness
 from fylgja.core.labels import EMPTY_LABEL, effective_label, project_name
+from fylgja.core.next_lists import Published
 from fylgja.core.one_liner import WorkspaceSession, session_one_liner, workspace_one_liner
+from fylgja.core.ranking import rank_next
 from fylgja.core.resolver import Placement, ProjectPlacement
 from fylgja.core.waiting import waiting_on_me
 from fylgja.models import SessionActivity
@@ -82,7 +90,7 @@ from fylgja.store.rows import (
     WorkspaceRow,
 )
 
-__all__ = ["build_now", "collector_info", "natural_key", "todo_model"]
+__all__ = ["build_now", "collector_info", "natural_key", "next_items", "todo_model"]
 
 logger = logging.getLogger("fylgja.api.now")
 
@@ -511,6 +519,26 @@ def _project(
     )
 
 
+def next_items(published: Published) -> list[NextItem]:
+    """The ``/now`` items of a published list, top item first."""
+    return [
+        NextItem(
+            suggestion_id=item.suggestion_id,
+            kind=item.kind,
+            target_ref=item.target_ref,
+            score=item.score,
+            reason=item.reason,
+            rank=item.rank,
+        )
+        for item in published.items
+    ]
+
+
+def _focused_workspace(workspaces: Sequence[Workspace] | None) -> str | None:
+    """The first focused workspace, in natural order."""
+    return next((w.name for w in workspaces or () if w.focused), None)
+
+
 def collector_info(state: CollectorState) -> CollectorInfo:
     health = state.health
     return CollectorInfo(
@@ -619,7 +647,29 @@ def build_now(state: StateView) -> Now:
         ]
 
     waiting: list[Waiting] | None = None
+    ranked: Published | None = None
     if show_sessions or show_windows or show_projects:
+        entries = waiting_on_me(
+            now=state.generated_at,
+            sessions=session_rows,
+            activity=live.activity,
+            projects=live.projects.values() if show_projects else (),
+            contexts=_available_contexts(state.contexts, available) if show_windows else None,
+            touched=state.touched,
+        )
+        if state.next_lists is not None:
+            ranked = state.next_lists.publish(
+                rank_next(
+                    now=state.generated_at,
+                    waiting=entries,
+                    todos=live.todos.values(),
+                    sessions=session_rows,
+                    activity=live.activity,
+                    focused_workspace=_focused_workspace(workspaces),
+                    focus_seconds=state.focus_today,
+                ),
+                state.generated_at,
+            )
         waiting = [
             Waiting(
                 kind=entry.kind,
@@ -628,14 +678,7 @@ def build_now(state: StateView) -> Now:
                 reason=entry.reason,
                 since=entry.since,
             )
-            for entry in waiting_on_me(
-                now=state.generated_at,
-                sessions=session_rows,
-                activity=live.activity,
-                projects=live.projects.values() if show_projects else (),
-                contexts=_available_contexts(state.contexts, available) if show_windows else None,
-                touched=state.touched,
-            )
+            for entry in entries
         ]
 
     collectors = [collector_info(c) for c in state.collectors]
@@ -653,6 +696,8 @@ def build_now(state: StateView) -> Now:
         sessions=_nested([session for _, _, session in built]) if show_sessions else None,
         projects=projects,
         waiting=waiting,
+        next=None if ranked is None else next_items(ranked),
+        next_list_id=None if ranked is None else ranked.list_id,
         usage=build_usage(live.usage, state.usage, available, state.generated_at),
         collectors=collectors,
         degraded=sorted({c.name for c in state.collectors if c.degraded}),

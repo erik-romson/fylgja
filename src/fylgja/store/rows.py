@@ -25,6 +25,7 @@ __all__ = [
     "SessionRow",
     "SpanRow",
     "StoreRow",
+    "SuggestionRow",
     "TodoRow",
     "UsageRow",
     "WindowRow",
@@ -296,3 +297,22 @@ class ImportedTodoRow(StoreRow):
     deleted_reason: str | None
 
     _times = frozenset({"created_at", "done_at", "updated_at", "deleted_at"})
+
+
+@dataclass(frozen=True)
+class SuggestionRow(StoreRow):
+    """One ``suggestions_log`` row: an item of a generated "what next" list."""
+
+    id: str
+    list_id: str
+    generated_at: datetime
+    rank: int
+    kind: str
+    target_ref: str | None
+    score: float | None
+    reason: str | None
+    feedback: str | None
+    feedback_at: datetime | None
+    acted_at: datetime | None
+
+    _times = frozenset({"generated_at", "feedback_at", "acted_at"})

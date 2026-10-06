@@ -19,6 +19,7 @@ from fylgja.core.spans import (
     SpanEngine,
     SpanTracker,
     Target,
+    focus_seconds_by_workspace,
     focus_time_by_project,
     recover_stale,
     summarize,
@@ -527,3 +528,20 @@ def test_focus_time_by_project_ignores_spans_without_a_project_or_workspace() ->
         at(200),
     )
     assert found == {"/p": {"1": 1200.0, "2": 1800.0}, "/q": {"3": 600.0}}
+
+
+def test_focus_seconds_by_workspace_clips_to_the_window_and_skips_unplaced_spans() -> None:
+    found = focus_seconds_by_workspace(
+        [
+            stored(-30, 10, workspace="1"),  # clipped to the window: 10 minutes
+            stored(10, 40, workspace="2"),
+            stored(40, 50, workspace="1"),
+            stored(50, 60, workspace=None),
+            stored(60, 100, project=None, workspace="2"),  # no project: the workspace counts
+            stored(150, 160, workspace="9"),  # outside the window
+        ],
+        at(0),
+        at(100),
+        at(200),
+    )
+    assert found == {"1": 1200.0, "2": 1800.0 + 2400.0}

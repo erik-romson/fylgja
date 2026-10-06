@@ -33,6 +33,7 @@ from fylgja.api.security import (
     mutating_routes,
 )
 from fylgja.core.daemon import Daemon
+from fylgja.core.ranking import Candidate
 
 SECRET = "k7Qz-test-secret-9fA2xLmN0pRsTuVwXyZ_abcdefghij"
 ORIGINS = [f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"]
@@ -152,6 +153,31 @@ async def test_the_real_todo_routes_are_guarded_before_they_validate(daemon: Dae
     todos = await daemon.todos.list_todos()
     assert [t.text for t in todos] == ["guarded", "intruder"]
     assert todos[0].status == "open"
+
+
+def test_the_next_feedback_route_is_enumerated() -> None:
+    """WP6.2: checked by ``test_every_mutating_route_is_guarded`` below; ``GET /next`` is a read."""
+    assert ("POST", "/next/feedback") in ROUTES
+    assert not any(path.startswith("/next") and method == "GET" for method, path in ROUTES)
+    assert body_limit(_filled("/next/feedback")) == BODY_LIMIT
+
+
+async def test_the_real_feedback_route_is_guarded_before_it_validates(daemon: Daemon) -> None:
+    """No rating is recorded by a request the guard refuses."""
+    published = daemon.next_lists.publish(
+        [Candidate("input", "claude:a", 100.0, "waiting for input")], T0
+    )
+    await daemon.writer.flush()
+    body = f'{{"list_id": "{published.list_id}", "rating": "good"}}'.encode()
+    async with _client(create_app(daemon, secret=SECRET)) as http:
+        assert (await http.post("/next/feedback", content=body)).status_code == 401
+        foreign = _valid(Origin="http://evil.example")
+        assert (await http.post("/next/feedback", headers=foreign, content=body)).status_code == 403
+        assert (await http.get("/next")).status_code == 200
+        assert [r.feedback for r in await daemon.next_lists.logged(published.list_id)] == [None]
+        passed = await http.post("/next/feedback", headers=_valid(), content=body)
+        assert passed.status_code == 200  # past the guard, then recorded
+    assert [r.feedback for r in await daemon.next_lists.logged(published.list_id)] == ["good"]
 
 
 def test_the_label_write_routes_are_enumerated() -> None:
