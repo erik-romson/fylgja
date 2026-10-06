@@ -1,0 +1,378 @@
+{
+  "schema": "fylgja.now/1",
+  "generated_at": "2026-10-05T12:00:00Z",
+  "sessions": [
+    {
+      "key": "claude:00000000-0000-4000-8000-000000004101",
+      "kind": "claude",
+      "native_id": "00000000-0000-4000-8000-000000004101",
+      "name": "a name",
+      "title": "a name",
+      "cwd": "/work/example/claude-app",
+      "project_path": "/work/example/claude-app",
+      "pid": 4101,
+      "state": "working",
+      "state_since": "2026-10-05T12:00:00Z",
+      "current_tool": "Bash",
+      "current_target": "pytest",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "entrypoint": "cli",
+      "model": "claude-opus-4-8",
+      "version": "2.1.289",
+      "lane_key": "4101-1790000000",
+      "process_key": "4101-1790000000",
+      "facts": {
+        "title": "",
+        "prompt": "",
+        "said": "Running the tests now. This may take a while.",
+        "mode": "",
+        "branch": "",
+        "version": "2.1.289",
+        "model": "claude-opus-4-8",
+        "turns": 1,
+        "started": 1791190800,
+        "last_at": 1791190806,
+        "prompts": [
+          "fix the build"
+        ],
+        "tools": {
+          "Bash": 1,
+          "Read": 1
+        },
+        "files": [],
+        "tasks": []
+      },
+      "one_liner": "Bash pytest",
+      "one_liner_from": "tool",
+      "first_seen": "2026-09-21T14:13:40Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    },
+    {
+      "key": "claude:00000000-0000-4000-8000-000000004102",
+      "kind": "claude",
+      "native_id": "00000000-0000-4000-8000-000000004102",
+      "name": "a name",
+      "title": "a name",
+      "cwd": "/work/example/claude-app",
+      "project_path": "/work/example/claude-app",
+      "pid": 4102,
+      "state": "waiting",
+      "state_since": "2026-10-05T12:00:00Z",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "entrypoint": "cli",
+      "version": "2.1.289",
+      "lane_key": "4102-1790000000",
+      "process_key": "4102-1790000000",
+      "one_liner": "Waiting for input",
+      "one_liner_from": "waiting",
+      "first_seen": "2026-09-21T14:13:40Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    },
+    {
+      "key": "claude:00000000-0000-4000-8000-000000004105",
+      "kind": "claude",
+      "native_id": "00000000-0000-4000-8000-000000004105",
+      "name": "a name",
+      "title": "a name",
+      "cwd": "/work/example/claude-app",
+      "project_path": "/work/example/claude-app",
+      "pid": 4105,
+      "state": "idle",
+      "state_since": "2026-10-05T12:00:00Z",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "entrypoint": "cli",
+      "model": "claude-opus-4-8",
+      "branch": "feature/x",
+      "version": "2.1.289",
+      "lane_key": "4105-1790000000",
+      "process_key": "4105-1790000000",
+      "facts": {
+        "title": "",
+        "prompt": "",
+        "said": "Creating tasks.",
+        "mode": "normal",
+        "branch": "feature/x",
+        "version": "2.1.289",
+        "model": "claude-opus-4-8",
+        "turns": 1,
+        "started": 1791187200,
+        "last_at": 1791187211,
+        "prompts": [
+          "plan the migration"
+        ],
+        "tools": {
+          "TaskCreate": 3,
+          "TaskUpdate": 4
+        },
+        "files": [],
+        "tasks": [
+          {
+            "status": "in_progress",
+            "content": "write the schema"
+          },
+          {
+            "status": "pending",
+            "content": "backfill the users table"
+          }
+        ]
+      },
+      "one_liner": "a name: plan the migration",
+      "one_liner_from": "title_prompt",
+      "first_seen": "2026-09-21T14:13:40Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    },
+    {
+      "key": "codex:019d0000-0000-7000-8000-000000000001",
+      "kind": "codex",
+      "native_id": "019d0000-0000-7000-8000-000000000001",
+      "cwd": "/work/example/api-service",
+      "project_path": "/work/example/api-service",
+      "pid": 41001,
+      "state": "idle",
+      "state_since": "2026-10-05T12:00:00Z",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "model": "gpt-5-codex",
+      "branch": "main",
+      "version": "0.154.0",
+      "lane_key": "41001-1791270000",
+      "process_key": "41001-1791270000",
+      "one_liner": "Add pagination to the orders endpoint",
+      "one_liner_from": "title_prompt",
+      "first_seen": "2026-10-05T12:00:00Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    },
+    {
+      "key": "codex:019d0000-0000-7000-8000-000000000002",
+      "kind": "codex",
+      "native_id": "019d0000-0000-7000-8000-000000000002",
+      "title": "Login test failure",
+      "cwd": "/work/example/web-app",
+      "project_path": "/work/example/web-app",
+      "pid": 41002,
+      "state": "busy",
+      "state_since": "2026-10-05T12:00:00Z",
+      "current_tool": "exec_command",
+      "current_target": "pytest tests/test_login.py -x --lf",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "model": "gpt-5-codex",
+      "branch": "feature/login",
+      "version": "0.154.0",
+      "lane_key": "41002-1791270600",
+      "process_key": "41002-1791270600",
+      "one_liner": "exec_command pytest tests/test_login.py -x --lf",
+      "one_liner_from": "tool",
+      "first_seen": "2026-10-05T12:00:00Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    },
+    {
+      "key": "norn:plan_with_review@59c2c9:7",
+      "kind": "norn",
+      "native_id": "plan_with_review@59c2c9:7",
+      "name": "plan_with_review",
+      "title": "plan_with_review",
+      "cwd": "/work/example/example",
+      "project_path": "/work/example/example",
+      "pid": 51234,
+      "state": "waiting_input",
+      "state_since": "2026-10-05T12:00:00Z",
+      "waiting_reason": "agent question",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "children": [
+        {
+          "key": "claude:00000000-0000-4000-8000-00000000a001",
+          "kind": "claude",
+          "native_id": "00000000-0000-4000-8000-00000000a001",
+          "name": "a name",
+          "title": "a name",
+          "cwd": "/work/example/claude-app",
+          "project_path": "/work/example/claude-app",
+          "pid": 4110,
+          "state": "working",
+          "state_since": "2026-10-05T12:00:00Z",
+          "host": {
+            "via": "none",
+            "confidence": "none",
+            "unresolved": "no process chain recorded for the session"
+          },
+          "lane_key": "4110-1790000000",
+          "process_key": "4110-1790000000",
+          "parent_key": "norn:plan_with_review@59c2c9:7",
+          "one_liner": "a name",
+          "one_liner_from": "title_reply",
+          "first_seen": "2026-09-21T14:13:40Z",
+          "last_seen": "2026-10-05T12:00:00Z"
+        }
+      ],
+      "one_liner": "Waiting for input: agent question",
+      "one_liner_from": "waiting",
+      "pipeline": "plan_with_review",
+      "stage": {
+        "name": "draft plan",
+        "index": 2,
+        "total": 5
+      },
+      "first_seen": "2026-10-05T12:00:00Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    },
+    {
+      "key": "opencode:ses_0000000001",
+      "kind": "opencode",
+      "native_id": "ses_0000000001",
+      "title": "Add pagination to the orders endpoint",
+      "cwd": "/work/example/api-service",
+      "project_path": "/work/example/api-service",
+      "pid": 51001,
+      "state": "busy",
+      "state_since": "2026-10-05T12:00:00Z",
+      "current_tool": "bash",
+      "current_target": "uv run pytest tests/unit -x",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "model": "example-model",
+      "version": "1.18.26",
+      "lane_key": "51001-1791270000",
+      "process_key": "51001-1791270000",
+      "facts": {
+        "tasks": [
+          {
+            "status": "completed",
+            "content": "Add the page and limit parameters"
+          },
+          {
+            "status": "in_progress",
+            "content": "Write the pagination tests"
+          },
+          {
+            "status": "pending",
+            "content": "Update the API documentation"
+          }
+        ]
+      },
+      "one_liner": "bash uv run pytest tests/unit -x",
+      "one_liner_from": "tool",
+      "first_seen": "2026-10-05T12:00:00Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    },
+    {
+      "key": "opencode:ses_0000000002",
+      "kind": "opencode",
+      "native_id": "ses_0000000002",
+      "title": "Fix the login redirect",
+      "cwd": "/work/example/web-app",
+      "project_path": "/work/example/web-app",
+      "pid": 51002,
+      "state": "idle",
+      "state_since": "2026-10-05T12:00:00Z",
+      "host": {
+        "via": "none",
+        "confidence": "none",
+        "unresolved": "no process chain recorded for the session"
+      },
+      "model": "example-model",
+      "version": "1.18.26",
+      "lane_key": "51002-1791270600",
+      "process_key": "51002-1791270600",
+      "one_liner": "Fix the login redirect",
+      "one_liner_from": "title_reply",
+      "first_seen": "2026-10-05T12:00:00Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    }
+  ],
+  "projects": [
+    {
+      "path": "/work/example/api-service",
+      "name": "api-service",
+      "sessions": [
+        "codex:019d0000-0000-7000-8000-000000000001",
+        "opencode:ses_0000000001"
+      ],
+      "updated_at": "2026-10-05T12:00:00Z"
+    },
+    {
+      "path": "/work/example/claude-app",
+      "name": "claude-app",
+      "sessions": [
+        "claude:00000000-0000-4000-8000-000000004101",
+        "claude:00000000-0000-4000-8000-000000004102",
+        "claude:00000000-0000-4000-8000-000000004105",
+        "claude:00000000-0000-4000-8000-00000000a001"
+      ],
+      "updated_at": "2026-10-05T12:00:00Z"
+    },
+    {
+      "path": "/work/example/example",
+      "name": "example",
+      "sessions": [
+        "norn:plan_with_review@59c2c9:7"
+      ],
+      "updated_at": "2026-10-05T12:00:00Z"
+    },
+    {
+      "path": "/work/example/web-app",
+      "name": "web-app",
+      "sessions": [
+        "codex:019d0000-0000-7000-8000-000000000002",
+        "opencode:ses_0000000002"
+      ],
+      "updated_at": "2026-10-05T12:00:00Z"
+    }
+  ],
+  "collectors": [
+    {
+      "name": "claude",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    },
+    {
+      "name": "codex",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    },
+    {
+      "name": "norn",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    },
+    {
+      "name": "opencode",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    }
+  ],
+  "degraded": []
+}

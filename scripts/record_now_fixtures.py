@@ -3,12 +3,14 @@
 Dev-only; the tests only read the fixtures. Run it by hand after a deliberate change of the
 read model:
 
-    uv run --frozen python scripts/record_now_fixtures.py
+    uv run --frozen python scripts/record_now_fixtures.py [<file>.json ...]
+
+With file names it rewrites only those; without, all of them.
 
 It builds the app in-process (the real daemon, ingest gate, writer, resolver and API) over
 synthetic collector sources, a fixed clock and a fake filesystem, pushes records through each
 collector's ingest sink, and writes what ``GET /now`` answers. Nothing on the machine is read:
-no AeroSpace, no cmux, no Claude registry. Three scenarios, one file each:
+no AeroSpace, no cmux, no Claude registry. Four scenarios, one file each:
 
 ``states-and-hosts.json``
     Every Phase 1 session state (``idle``, ``busy``, ``waiting``) and every host kind (cmux with
@@ -19,13 +21,20 @@ no AeroSpace, no cmux, no Claude registry. Three scenarios, one file each:
 ``degraded-sessions.json``
     The sessions collector is degraded, so ``sessions[]`` and ``projects[]`` are absent while
     ``workspaces[]`` is still there and ``degraded`` names the collector.
+``phase3-agents.json``
+    The Phase 3 acceptance payload (WP3.6): Claude, Codex, OpenCode and norn sessions, each from
+    its own collector run over its sanitized fixtures (``tests/phase3_support.py``, shared with
+    ``tests/integration/test_phase3_agents.py``), including a norn run waiting for input with a
+    nested ``sdk-py`` session.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -330,15 +339,38 @@ def _write(name: str, payload: dict[str, Any]) -> None:
     print(f"wrote {OUT.relative_to(ROOT) / name}")
 
 
-async def record() -> None:
+async def record(only: tuple[str, ...] = ()) -> None:
+    """Write every fixture, or only the named files (``phase3-agents.json``)."""
     api = _api()
-    _write("states-and-hosts.json", await _states_and_hosts(api))
-    _write("clear-predecessor.json", await _clear_predecessor(api))
-    _write("degraded-sessions.json", await _degraded_sessions(api))
+    import phase3_support
+
+    builders: dict[str, Callable[[], Awaitable[dict[str, Any]]]] = {
+        "states-and-hosts.json": lambda: _states_and_hosts(api),
+        "clear-predecessor.json": lambda: _clear_predecessor(api),
+        "degraded-sessions.json": lambda: _degraded_sessions(api),
+        "phase3-agents.json": phase3_support.build_now,
+    }
+    unknown = [name for name in only if name not in builders]
+    if unknown:
+        raise SystemExit(f"unknown fixture {unknown[0]!r}; known: {', '.join(builders)}")
+    for name, build in builders.items():
+        if not only or name in only:
+            _write(name, await build())
+
+
+def _isolate(root: Path) -> None:
+    """Point the home and the Fylgja directories at ``root``: the daemons built here (and the
+    norn inbox) must never touch the real ones."""
+    os.environ["HOME"] = str(root / "home")
+    os.environ["FYLGJA_CONFIG_DIR"] = str(root / "config")
+    os.environ["FYLGJA_DATA_DIR"] = str(root / "data")
+    os.environ["FYLGJA_STATE_DIR"] = str(root / "state")
 
 
 def main() -> None:
-    asyncio.run(record())
+    with tempfile.TemporaryDirectory(prefix="fylgja-record-") as root:
+        _isolate(Path(root))
+        asyncio.run(record(tuple(sys.argv[1:])))
 
 
 if __name__ == "__main__":
