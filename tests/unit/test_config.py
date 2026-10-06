@@ -45,6 +45,13 @@ def test_defaults_load_without_a_user_file() -> None:
             "idle_poll_interval_seconds": 15,
             "poll_interval_seconds": 5,
         },
+        "appcontext": {
+            "enabled": True,
+            "poll_interval_seconds": 0.5,
+            "chrome_history": False,
+            "history_limit": 10,
+            "history_window_seconds": 3600,
+        },
     }
 
 

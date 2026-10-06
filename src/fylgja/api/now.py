@@ -32,6 +32,7 @@ from pydantic import ValidationError
 
 from fylgja.api.now_models import (
     CollectorInfo,
+    ContextItem,
     Facts,
     Focused,
     Host,
@@ -48,6 +49,7 @@ from fylgja.api.now_models import (
 )
 from fylgja.collectors.base import Capability
 from fylgja.collectors.registry import Origin
+from fylgja.core.context_items import ContextEntry
 from fylgja.core.daemon import CollectorState, SessionExtras, StateView
 from fylgja.core.labels import EMPTY_LABEL, effective_label, project_name
 from fylgja.core.one_liner import WorkspaceSession, session_one_liner, workspace_one_liner
@@ -131,6 +133,46 @@ def _todo_index(rows: Iterable[TodoRow]) -> TodoIndex:
 
 def _todos_of(index: TodoIndex, kind: str, ref: str) -> list[Todo] | None:
     return index.get((kind, ref)) or None
+
+
+ContextIndex = Mapping[str, list[ContextItem]]
+"""Context items by window id (WP5.3)."""
+
+_TITLE_TIER: Final = 1
+"""The tier of the items made from a window title."""
+
+
+def _context_index(
+    contexts: Mapping[str, Sequence[ContextEntry]], available: set[str]
+) -> tuple[ContextIndex, Mapping[str, str]]:
+    """The ``/now`` context items of each window, and the title summary of each window.
+
+    Only the items of available collectors are shown. The summary is the title of the window's
+    title-tier item: the third source of the workspace one-liner (§4.6).
+    """
+    items: dict[str, list[ContextItem]] = {}
+    summaries: dict[str, str] = {}
+    for window_id, entries in contexts.items():
+        shown = [entry for entry in entries if entry.source in available]
+        if not shown:
+            continue
+        items[window_id] = [
+            ContextItem(
+                kind=entry.kind,
+                source=entry.source,
+                title=entry.title,
+                data=dict(entry.data) or None,
+                unread=entry.unread,
+                confidence=entry.confidence,
+                link=entry.link,
+                observed_at=entry.observed_at,
+            )
+            for entry in shown
+        ]
+        summary = next((e.title for e in shown if e.tier == _TITLE_TIER and e.title), None)
+        if summary:
+            summaries[window_id] = summary
+    return items, summaries
 
 
 def _state(value: str | None) -> SessionState | None:
@@ -281,7 +323,10 @@ def _nested(sessions: Sequence[Session]) -> list[Session]:
 
 
 def _focused(
-    focus: FocusRow, windows: Mapping[str, WindowRow], sessions: Sequence[SessionRow]
+    focus: FocusRow,
+    windows: Mapping[str, WindowRow],
+    sessions: Sequence[SessionRow],
+    context: list[ContextItem] | None = None,
 ) -> Focused:
     window = None if focus.window_id is None else windows.get(focus.window_id)
     hosted = [s.session_key for s in sessions if focus.window_id and s.window_id == focus.window_id]
@@ -293,6 +338,7 @@ def _focused(
         title=focus.title if window is None else window.title,
         session_key=hosted[0] if len(hosted) == 1 else None,
         since=focus.observed_at,
+        context=context,
     )
 
 
@@ -304,6 +350,8 @@ def _workspace(
     sessions: Sequence[tuple[SessionRow, ActivityRow | None, Session]],
     focus: FocusRow | None,
     todos: list[Todo] | None = None,
+    contexts: ContextIndex | None = None,
+    summaries: Mapping[str, str] | None = None,
 ) -> Workspace:
     inferred = (None if row is None else row.inferred_label) or inferred_fallback
     if inferred == EMPTY_LABEL:
@@ -321,12 +369,19 @@ def _workspace(
         for stored, activity, built in sessions
     ]
     focused_window = None if focus is None else focus.window_id
+    title_context = (
+        None
+        if summaries is None
+        or focused_window is None
+        or all(w.window_id != focused_window for w in windows)
+        else summaries.get(focused_window)
+    )
     return Workspace(
         name=name,
         label=label,
         label_source=LabelSource(source),
         inferred_label=inferred,
-        one_liner=workspace_one_liner(label, members),
+        one_liner=workspace_one_liner(label, members, title_context=title_context),
         focused=(row is not None and row.focused)
         or (focus is not None and focus.workspace == name),
         monitor=None if row is None else row.monitor,
@@ -337,6 +392,7 @@ def _workspace(
                 bundle_id=w.app_bundle_id,
                 title=w.title,
                 focused=focused_window is not None and w.window_id == focused_window,
+                context=None if contexts is None else contexts.get(w.window_id),
             )
             for w in windows
         ],
@@ -414,6 +470,7 @@ def build_now(state: StateView) -> Now:
     show_projects = show_sessions or Capability.PROJECT_STATE in capabilities
 
     todos = _todo_index(live.todos.values())
+    contexts, summaries = _context_index(state.contexts, available)
     windows = (
         sorted((w for w in live.windows.values() if w.source in available), key=_window_key)
         if show_windows
@@ -458,6 +515,8 @@ def build_now(state: StateView) -> Now:
                 [item for item in built if item[0].workspace == name],
                 focus,
                 _todos_of(todos, "workspace", name),
+                contexts,
+                summaries,
             )
             for name in sorted(names, key=natural_key)
         ]
@@ -484,7 +543,12 @@ def build_now(state: StateView) -> Now:
         generated_at=state.generated_at,
         focused=None
         if focus is None
-        else _focused(focus, {w.window_id: w for w in windows}, session_rows),
+        else _focused(
+            focus,
+            {w.window_id: w for w in windows},
+            session_rows,
+            None if focus.window_id is None else contexts.get(focus.window_id),
+        ),
         workspaces=workspaces,
         sessions=_nested([session for _, _, session in built]) if show_sessions else None,
         projects=projects,

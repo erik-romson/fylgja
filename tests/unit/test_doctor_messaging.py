@@ -671,6 +671,10 @@ def test_run_doctor_ends_with_the_messaging_summary(layout: Layout) -> None:
     checks = asyncio.run(
         run_doctor(layout=layout, fetch=down, probe=lambda port: False, source=lambda: [])
     )
-    assert checks[-1].name == "messaging"
-    assert checks[-1].status is Status.OK
+    assert [c.name for c in checks[-3:]] == [
+        "messaging",
+        "applescript:chrome",
+        "applescript:iterm2",
+    ]
+    assert checks[-3].status is Status.OK
     assert T0  # the registry helpers share claude_support's start time

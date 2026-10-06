@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from transcript_support import CLAUDE_TRANSCRIPTS, FIXTURES
 
 from fylgja import paths
+from fylgja.collectors.appcontext.parse import title_summary
+from fylgja.collectors.appcontext.titles import parse_title
 from fylgja.collectors.base import Capability, CollectorPlugin
 from fylgja.collectors.claude import facts, parse
 from fylgja.core import one_liner
@@ -329,6 +331,33 @@ def test_workspace_line_falls_back_to_title_context_then_the_label() -> None:
     assert one_liner.workspace_one_liner(EMPTY, [_ws("a", "Alone", active=1)]) == "Alone"
     assert one_liner.workspace_one_liner(None, []) == EMPTY
     assert one_liner.workspace_one_liner(EMPTY, []) == EMPTY
+
+
+def test_the_title_context_is_only_the_third_source() -> None:
+    """The context of the focused window (WP5.3) loses to any session that says something."""
+    parsed = parse_title("com.jetbrains.pycharm", "proj – main.py")
+    assert parsed is not None
+    title = title_summary(parsed)
+    assert title == "proj · main.py"
+    assert one_liner.workspace_one_liner("ws", [], title_context=title) == "ws — proj · main.py"
+    assert one_liner.workspace_one_liner(EMPTY, [], title_context=title) == "proj · main.py"
+    waiting = [_ws("a", "Waiting for input", "waiting", since=3)]
+    assert one_liner.workspace_one_liner("ws", waiting, title_context=title) == (
+        "ws — Waiting for input"
+    )
+    active = [_ws("a", "Working", active=2)]
+    assert one_liner.workspace_one_liner("ws", active, title_context=title) == "ws — Working"
+    silent = [_ws("a", EMPTY, "waiting", since=1)]  # a session that says nothing gives no context
+    assert one_liner.workspace_one_liner("ws", silent, title_context=title) == "ws — proj · main.py"
+
+
+def test_the_title_context_is_redacted_and_capped_like_any_context() -> None:
+    long_title = one_liner.workspace_one_liner("ws", [], title_context="x" * 400)
+    assert len(long_title) <= MAX_CHARS
+    redacted = one_liner.workspace_one_liner(
+        "ws", [], title_context="token sk-abcdefghijklmnopqrstuvwx", redact=lambda text: "[r]"
+    )
+    assert redacted == "[r]"
 
 
 def test_workspace_line_is_capped_and_redacted() -> None:

@@ -37,7 +37,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
@@ -56,6 +56,7 @@ from fylgja.collectors.seams import FileSystem, ProcessRunner
 from fylgja.collectors.supervisor import BackoffPolicy, CollectorHealth, RandomSource, Supervisor
 from fylgja.config import Config
 from fylgja.core import hosts, spans
+from fylgja.core.context_items import ContextEntry, ContextMemory
 from fylgja.core.hosts import HostData
 from fylgja.core.ingest import IngestGate, PluginSink
 from fylgja.core.labels import LabelService
@@ -162,6 +163,8 @@ class StateView:
     labels: Mapping[str, str]
     """The inferred label of each workspace from the latest resolution (also for workspaces that
     have no stored row)."""
+    contexts: Mapping[str, tuple[ContextEntry, ...]] = field(default_factory=dict)
+    """The context items of each open window (WP5.3), by window id."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -370,6 +373,7 @@ class Daemon:
         self.view = LiveView()
         self.writer = Writer(database, clock=self.clock, on_commit=self.view.apply)
         self.memory = SessionMemory()
+        self.contexts = ContextMemory()
         self.session_state = SessionStateEngine(self.writer.submit, self._window_of)
         self.resolver = Resolver(
             self.writer,
@@ -389,7 +393,12 @@ class Daemon:
         self.gate = IngestGate(
             _Tap(
                 self.writer,
-                (self.resolver.observe, self.memory.observe, self.spans.observe),
+                (
+                    self.resolver.observe,
+                    self.memory.observe,
+                    self.spans.observe,
+                    self.contexts.observe,
+                ),
                 (self.session_state.apply,),
             ),
             [item.plugin for item in self.registry if item.runnable and item.plugin is not None],
@@ -548,6 +557,8 @@ class Daemon:
 
     def _on_update(self, update: LiveUpdate) -> None:
         for change in update.changes:
+            if change.collection is Collection.WINDOWS and change.row is None:
+                self.contexts.forget_window(change.key)
             if change.collection is Collection.SESSIONS and change.row is None:
                 self.memory.forget(change.key)
                 self.resolver.forget(change.key)
@@ -707,6 +718,7 @@ class Daemon:
             labels={}
             if resolution is None
             else {name: label.text for name, label in resolution.labels.items()},
+            contexts=self.contexts.by_window(snapshot.windows.keys()),
         )
 
 

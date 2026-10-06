@@ -14,9 +14,15 @@ dangling hook commands in ``~/.claude/settings.json`` (R1), the A22 dotfiles lay
 hook installation (WP2.4): the executable, async registrations, the installed Claude version, the
 inbox (owner and mode, backlog age, ``dropped.count``), uncommitted dotfiles changes and, only when
 Lidskjalv's entries are present, an informational look at them that never affects health (A21).
-Last comes local messaging (WP3.6): whether it is on, and per live Claude session its version
+Then local messaging (WP3.6): whether it is on, and per live Claude session its version
 compatibility, socket safety and, in plain words, what it will do with a message ("messages to
 this session will be held for approval"). Doctor never sends a probe message.
+Last come the AppleScript switches of application context (WP5.3, §4.4): each switch that is on
+runs its osascript with a 3 s timeout, and a timeout reports the switch as degraded and disabled
+until doctor is rerun.
+
+Doctor changes nothing except one small file: the AppleScript switch record in the state
+directory (:mod:`fylgja.collectors.appcontext.switches`), written only for a switch that is on.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
@@ -56,6 +63,7 @@ from fylgja.cli.install import (
     parse_dotfiles_conf,
     supported_events,
 )
+from fylgja.collectors.appcontext import switches as applescript
 from fylgja.collectors.base import CollectorPlugin, RecordSink
 from fylgja.collectors.claude import parse as registry_parse
 from fylgja.collectors.claude.adapter import PsFailure, ps_start_times
@@ -88,6 +96,7 @@ __all__ = [
     "check_daemon_collectors",
     "check_dotfiles_layout",
     "check_fda_paths",
+    "check_applescript",
     "check_claude_version",
     "check_hook_async",
     "check_hook_commands",
@@ -1221,6 +1230,98 @@ async def check_messaging(
 
 
 # --------------------------------------------------------------------------------------------
+# AppleScript switches (WP5.3, §4.4)
+# --------------------------------------------------------------------------------------------
+
+_NOT_AUTHORIZED: Final = "-1743"
+"""osascript's error number for an Automation permission that was refused."""
+
+
+def _record_switch(
+    switch: str, *, ok: bool, now: datetime, reason: str | None, state: Path | None
+) -> str:
+    """Write doctor's outcome for ``switch``; the words to add to the check when that fails."""
+    try:
+        applescript.write_record(switch, ok=ok, at=now, reason=reason, path=state)
+    except OSError as exc:
+        return f"; the switch record could not be written ({exc.strerror or 'os error'})"
+    return ""
+
+
+async def _probe_switch(
+    switch: str, runner: ProcessRunner, now: datetime, state: Path | None
+) -> Check:
+    name = f"applescript:{switch}"
+    try:
+        result = await runner.run(
+            applescript.probe_argv(switch), timeout=applescript.APPLESCRIPT_TIMEOUT
+        )
+    except TimeoutError:
+        note = _record_switch(switch, ok=False, now=now, reason="applescript_timeout", state=state)
+        return Check(
+            name,
+            Status.WARN,
+            f"degraded: osascript did not answer within {applescript.APPLESCRIPT_TIMEOUT:g} s, "
+            "so a permission dialog is likely pending. The switch is disabled until doctor is "
+            f"rerun (answer the dialog, then run `fylgja doctor`){note}",
+        )
+    except FileNotFoundError:
+        return Check(name, Status.WARN, f"{applescript.OSASCRIPT} is missing: switch unusable")
+    except OSError as exc:
+        return Check(name, Status.WARN, f"osascript could not run ({exc.strerror or 'os error'})")
+    if result.returncode != 0:
+        refused = _NOT_AUTHORIZED in result.stderr.decode("utf-8", errors="replace")
+        if refused:
+            note = _record_switch(switch, ok=False, now=now, reason="not_authorized", state=state)
+            return Check(
+                name,
+                Status.WARN,
+                "degraded: the Automation permission was refused. The switch is disabled until "
+                f"doctor is rerun after you allow it in System Settings{note}",
+            )
+        return Check(name, Status.WARN, f"osascript exited {result.returncode}: switch unusable")
+    note = _record_switch(switch, ok=True, now=now, reason=None, state=state)
+    return Check(
+        name,
+        Status.OK,
+        f"on, and osascript answered within {applescript.APPLESCRIPT_TIMEOUT:g} s{note}",
+    )
+
+
+async def check_applescript(
+    config: Config,
+    *,
+    runner: ProcessRunner | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    state: Path | None = None,
+) -> list[Check]:
+    """One line per AppleScript switch (``[actions.applescript]``).
+
+    A switch that is off runs nothing. A switch that is on runs its script with a 3 s timeout: a
+    timeout (a permission dialog is likely pending) or a refusal reports it degraded and records it
+    as disabled until doctor is rerun; an answer records it as enabled. The scripts do not launch
+    the app, and they read only the front tab's URL or the current session's path and job.
+    """
+    settings = config.actions.applescript
+    checks: list[Check] = []
+    for switch in applescript.SWITCHES:
+        name = f"applescript:{switch}"
+        if not getattr(settings, switch):
+            checks.append(
+                Check(
+                    name,
+                    Status.OK,
+                    f"off ([actions.applescript] {switch} = false): no osascript is run",
+                )
+            )
+        elif runner is None:
+            checks.append(Check(name, Status.WARN, "on, but not checked (no process runner)"))
+        else:
+            checks.append(await _probe_switch(switch, runner, now(), state))
+    return checks
+
+
+# --------------------------------------------------------------------------------------------
 # Running and rendering
 # --------------------------------------------------------------------------------------------
 
@@ -1236,7 +1337,7 @@ async def run_doctor(
     now: Callable[[], float] = time.time,
     which: Which = shutil.which,
 ) -> list[Check]:
-    """Run every check. Never raises for a finding; never changes anything."""
+    """Run every check. Never raises for a finding; changes only the AppleScript switch record."""
     where = Layout.current() if layout is None else layout
     config_check, config = check_config()
     checks = [config_check]
@@ -1264,6 +1365,7 @@ async def run_doctor(
     if lidskjalv is not None:
         checks.append(lidskjalv)
     checks.extend(await check_messaging(config, layout=where, runner=runner))
+    checks.extend(await check_applescript(config, runner=runner))
     return checks
 
 
