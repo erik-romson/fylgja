@@ -39,7 +39,8 @@ def write_config(port: int, extra: str = "") -> None:
         "[collectors.opencode]\nenabled = false\n"
         "[collectors.norn]\nenabled = false\n"
         "[collectors.project]\nenabled = false\n"
-        "[collectors.presence]\nenabled = false\n" + extra,
+        "[collectors.presence]\nenabled = false\n"
+        "[collectors.appcontext]\nenabled = false\n" + extra,
         encoding="utf-8",
     )
 
