@@ -15,6 +15,8 @@ import urllib.parse
 import urllib.request
 from typing import Any, Final
 
+from fylgja import paths
+
 __all__ = [
     "DEFAULT_PORT",
     "EXIT_API_ERROR",
@@ -24,6 +26,8 @@ __all__ = [
     "DaemonDown",
     "base_url",
     "get_json",
+    "read_secret",
+    "send_json",
 ]
 
 DEFAULT_PORT: Final = 7319
@@ -90,6 +94,59 @@ def get_json(path: str, *, url: str | None = None, timeout: float | None = None)
         raise ApiError(f"{path}: malformed answer from the daemon ({type(exc).__name__})") from exc
     try:
         return json.loads(body)
+    except ValueError as exc:
+        raise ApiError(f"{path}: the daemon's answer is not JSON") from exc
+
+
+def read_secret() -> str:
+    """The API secret that mutating calls send as the bearer; :class:`ApiError` if there is none."""
+    try:
+        secret = paths.api_secret_file().read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        secret = ""
+    if not secret:
+        raise ApiError("no API secret yet: run `fylgja install secret`, then restart the daemon")
+    return secret
+
+
+def send_json(
+    method: str,
+    path: str,
+    body: Any = None,
+    *,
+    url: str | None = None,
+    timeout: float | None = None,
+) -> Any:
+    """``POST``, ``PUT``, ``PATCH`` or ``DELETE`` ``<url><path>`` with a JSON body.
+
+    Sends the bearer secret and ``Content-Type: application/json`` and no ``Origin`` (the CLI is not
+    a browser). Raises :class:`DaemonDown` when nothing answers and :class:`ApiError` otherwise.
+    """
+    root = base_url() if url is None else url
+    request = urllib.request.Request(
+        root + path,
+        data=json.dumps({} if body is None else body).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {read_secret()}",
+        },
+        method=method.upper(),
+    )
+    wait = TIMEOUT if timeout is None else timeout
+    try:
+        with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310 - loopback
+            payload = response.read()
+    except urllib.error.HTTPError as exc:
+        raise ApiError(f"{path}: the daemon answered {exc.code} {exc.reason}", exc.code) from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise DaemonDown(root, _reason(exc)) from exc
+    except http.client.HTTPException as exc:
+        raise ApiError(f"{path}: malformed answer from the daemon ({type(exc).__name__})") from exc
+    if not payload.strip():
+        return None
+    try:
+        return json.loads(payload)
     except ValueError as exc:
         raise ApiError(f"{path}: the daemon's answer is not JSON") from exc
 

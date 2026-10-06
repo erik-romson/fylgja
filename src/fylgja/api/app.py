@@ -4,7 +4,9 @@
 from the configuration. The app's lifespan starts a daemon it finds stopped and stops it again on
 shutdown; a daemon the caller already started is left to the caller.
 
-* Every route is behind :class:`~fylgja.api.security.HostGuard`; no CORS middleware exists.
+* Every route is behind :class:`~fylgja.api.security.HostGuard`; no CORS middleware exists. Every
+  request with a mutating method is also behind :class:`~fylgja.api.security.MutationGuard`
+  (bearer, Origin, JSON content type, body limit), whichever route it addresses.
 * The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/collectors``,
   ``/health`` and the ``/events`` change stream) need no authentication. The interactive docs and
   the OpenAPI document are off.
@@ -24,9 +26,10 @@ from fastapi import FastAPI
 
 from fylgja.api import sse
 from fylgja.api.routes import collectors, health, now, projects, sessions, workspaces
-from fylgja.api.security import HostGuard
+from fylgja.api.security import HostGuard, MutationGuard, load_secret
 from fylgja.config import LOOPBACK_HOST, Config, load_config
 from fylgja.core.daemon import Daemon
+from fylgja.logsetup import register_secret
 
 __all__ = ["create_app", "server_config"]
 
@@ -41,9 +44,16 @@ _ROUTERS = (
 )
 
 
-def create_app(daemon: Daemon | None = None, *, config: Config | None = None) -> FastAPI:
+def create_app(
+    daemon: Daemon | None = None, *, config: Config | None = None, secret: str | None = None
+) -> FastAPI:
     """The API over ``daemon``; without one, a daemon built from ``config`` (default: the user's
-    ``config.toml`` over the packaged defaults)."""
+    ``config.toml`` over the packaged defaults).
+
+    ``secret`` is the bearer secret of the mutating routes; by default it is read once, here, from
+    ``paths.api_secret_file()`` (``fylgja install secret``). Without any secret every mutation is
+    refused with 401.
+    """
     services = daemon if daemon is not None else Daemon(load_config() if config is None else config)
 
     events = sse.EventHub(services.view)
@@ -71,6 +81,14 @@ def create_app(daemon: Daemon | None = None, *, config: Config | None = None) ->
     app.state.events = events
     for router in _ROUTERS:
         app.include_router(router)
+    bearer = load_secret() if secret is None else secret
+    if bearer:
+        register_secret(bearer)
+    # The last middleware added is the outermost: the Host check runs first, then the mutation
+    # guard.
+    app.add_middleware(
+        MutationGuard, secret=bearer, allowed_origins=services.config.api.allowed_origins
+    )
     app.add_middleware(HostGuard, port=services.config.api.port)
     return app
 

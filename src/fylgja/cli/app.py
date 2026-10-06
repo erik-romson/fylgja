@@ -3,10 +3,10 @@
 ``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions`` and
 ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from it, prints a
 table or, with ``--json``, the JSON, and exits **3** with a clear message when the daemon is down.
-``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``) run
-locally (the A7 exceptions): doctor checks the setup and changes nothing, and the installers
-print a diff and write only with ``--apply``. ``fylgja --help`` imports no daemon code and
-starts nothing.
+``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``,
+``secret``) run locally (the A7 exceptions): doctor checks the setup and changes nothing, and the
+installers print a diff and write only with ``--apply`` (``secret`` writes at once and prints
+nothing secret). ``fylgja --help`` imports no daemon code and starts nothing.
 
 Exit codes: 0 success, 1 the daemon answered with an error (or the item does not exist),
 2 a configuration error or bad usage, 3 the daemon is not running.
@@ -209,3 +209,14 @@ def install_statusline(apply: ApplyOption = False) -> None:
         install.run_install_statusline(apply=apply, runner=SubprocessRunner(), echo=typer.echo)
     )
     raise typer.Exit(code)
+
+
+@install_app.command("secret")
+def install_secret(
+    rotate: Annotated[bool, typer.Option("--rotate", help="Replace an existing secret.")] = False,
+    show: Annotated[bool, typer.Option("--show", help="Print the secret.")] = False,
+) -> None:
+    """Create the API secret (~/.config/fylgja/api-secret, mode 0600); never printed by default."""
+    from fylgja.cli import install
+
+    raise typer.Exit(install.run_install_secret(rotate=rotate, show=show, echo=typer.echo))

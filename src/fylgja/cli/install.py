@@ -1,8 +1,9 @@
-"""Installers: ``config``, ``launchd``, ``hooks`` and ``statusline`` (WP1.10, WP2.4, A22, Q10).
+"""Installers: ``config``, ``launchd``, ``hooks``, ``statusline`` and ``secret`` (WP1.10, WP2.4,
+WP3.4, A22, Q10).
 
-This module is the shared installer machinery that later steps reuse for skill, keybinding and
-secret. It imports no CLI framework and runs locally: the installers are one of
-the exceptions to "the CLI is an HTTP client" (A7).
+This module is the shared installer machinery that later steps reuse for skill and keybinding.
+It imports no CLI framework and runs locally: the installers are one of the exceptions to
+"the CLI is an HTTP client" (A7).
 
 The rules, from A22:
 
@@ -32,6 +33,7 @@ import json
 import os
 import plistlib
 import re
+import secrets
 import shlex
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
@@ -78,11 +80,13 @@ __all__ = [
     "plan_launchd",
     "plan_link",
     "plan_statusline",
+    "new_secret",
     "render_plan",
     "render_statusline",
     "run_install_config",
     "run_install_hooks",
     "run_install_launchd",
+    "run_install_secret",
     "run_install_statusline",
     "supported_events",
 ]
@@ -991,3 +995,84 @@ async def run_install_statusline(
         now=now,
         echo=echo,
     )
+
+
+# --------------------------------------------------------------------------------------------
+# install secret (WP3.4)
+# --------------------------------------------------------------------------------------------
+
+SECRET_BYTES: Final = 32
+
+
+def new_secret() -> str:
+    """32 random bytes, url-safe encoded (43 characters)."""
+    return secrets.token_urlsafe(SECRET_BYTES)
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        Path(os.path.realpath(path)).relative_to(os.path.realpath(root))
+    except ValueError:
+        return False
+    return True
+
+
+def _write_secret(path: Path, value: str) -> None:
+    """Replace ``path`` atomically with ``value``; the file never exists with another mode."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(value + "\n")
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def run_install_secret(
+    *, rotate: bool = False, show: bool = False, layout: Layout | None = None, echo: Echo
+) -> int:
+    """``fylgja install secret [--rotate] [--show]``; returns the exit code.
+
+    Creates ``paths.api_secret_file()`` (mode 0600) with a fresh secret. An existing secret is kept
+    unless ``rotate``. The secret is machine-specific: a location inside the dotfiles repository
+    is refused (A22). It is printed only with ``show``; a daemon that is running keeps the old
+    secret until it restarts.
+    """
+    where = Layout.current() if layout is None else layout
+    target = paths.api_secret_file()
+    shown = where.shown(target)
+    if _inside(target, where.dotfiles) or _inside(target.parent, where.dotfiles):
+        echo(
+            f"fylgja: install secret: {shown} is inside {where.shown(where.dotfiles)}. The API "
+            "secret is machine-specific and never goes into dotfiles; point FYLGJA_CONFIG_DIR at "
+            "a directory outside it."
+        )
+        return 1
+    existing = None
+    try:
+        existing = target.read_text(encoding="utf-8").strip() or None
+    except FileNotFoundError:
+        pass
+    except (OSError, UnicodeDecodeError) as exc:
+        echo(f"fylgja: install secret: cannot read {shown} ({type(exc).__name__})")
+        return 1
+    if existing is not None and not rotate:
+        os.chmod(target, 0o600)
+        echo(f"install secret: {shown} already exists and is kept (use --rotate to replace it).")
+        if show:
+            echo(existing)
+        return 0
+    value = new_secret()
+    try:
+        _write_secret(target, value)
+    except OSError as exc:
+        echo(f"fylgja: install secret: cannot write {shown} ({type(exc).__name__})")
+        return 1
+    verb = "replaced" if existing is not None else "created"
+    echo(f"install secret: {verb} {shown} (mode 0600). Restart the daemon to use it.")
+    if show:
+        echo(value)
+    return 0

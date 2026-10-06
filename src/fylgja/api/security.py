@@ -1,4 +1,4 @@
-"""The Host guard of every endpoint (A6; ``PLAN-final-plan.md`` §4.2).
+"""The Host guard of every endpoint and the mutation guard (A6; ``PLAN-final-plan.md`` §4.2).
 
 A loopback bind does not stop DNS rebinding: a page on ``evil.example`` whose name resolves to
 127.0.0.1 can make the browser send requests to the daemon, and window titles hold customer names.
@@ -13,23 +13,62 @@ The browser always sends the attacker's name in ``Host``, so the guard accepts e
 No response ever carries a CORS header: no CORS middleware is installed, and the guard also drops
 any ``Access-Control-*`` header a route might add. It is a plain ASGI middleware, so it adds no
 measurable cost to ``/now``. The rejected ``Host`` value is never logged.
+
+:class:`MutationGuard` runs inside the Host guard and covers **every** HTTP request with a mutating
+method (``POST``, ``PUT``, ``PATCH``, ``DELETE``), whatever the route: a route added later cannot
+skip it, because it keys on the method and not on a router. In this order it requires
+
+1. ``Authorization: Bearer <secret>``, compared in constant time (**401**; a daemon without a
+   secret file refuses every mutation);
+2. an ``Origin`` from ``[api] allowed_origins``, or no ``Origin`` at all (the CLI), which only
+   counts together with the valid bearer of step 1 (**403**);
+3. ``Content-Type: application/json``, which turns away ``text/plain`` form CSRF (**415**);
+4. a body of at most 16 KiB, or 64 KiB for ``/sessions/{key}/message`` (**413**), enforced while the
+   body is read and before any route or JSON parser sees it.
+
+The answers are fixed JSON texts: they say what was missing, never what was sent, and the secret
+and the rejected ``Origin`` are never echoed or logged.
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
-from typing import Final
+import re
+from collections.abc import Collection, Iterable
+from typing import Any, Final
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-__all__ = ["CORS_PREFIX", "HostGuard", "allowed_hosts"]
+from fylgja import paths
+
+__all__ = [
+    "BODY_LIMIT",
+    "CORS_PREFIX",
+    "MESSAGE_BODY_LIMIT",
+    "MUTATING_METHODS",
+    "HostGuard",
+    "MutationGuard",
+    "allowed_hosts",
+    "body_limit",
+    "load_secret",
+    "mutating_routes",
+]
 
 logger = logging.getLogger("fylgja.api.security")
 
 CORS_PREFIX: Final = b"access-control-"
 _GUARDED: Final = frozenset({"http", "websocket"})
 _POLICY_VIOLATION: Final = 1008
+
+MUTATING_METHODS: Final = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+BODY_LIMIT: Final = 16 * 1024
+"""Largest request body of a mutating endpoint, in bytes."""
+MESSAGE_BODY_LIMIT: Final = 64 * 1024
+"""Largest body of ``POST /sessions/{key}/message``."""
+_MESSAGE_PATH: Final = re.compile(r"/sessions/[^/]+/message/?")
+_MEDIA_TYPE: Final = "application/json"
 
 
 def allowed_hosts(port: int) -> frozenset[str]:
@@ -107,4 +146,171 @@ async def _reject(send: Send, status: int) -> None:
             ],
         }
     )
+    await send({"type": "http.response.body", "body": body})
+
+
+# --------------------------------------------------------------------------------------------
+# The mutation guard
+# --------------------------------------------------------------------------------------------
+
+
+def load_secret() -> str | None:
+    """The API secret from ``paths.api_secret_file()``; ``None`` when there is none or it is empty.
+
+    The daemon reads it once at start-up (``fylgja install secret`` creates it). A restart picks up
+    a rotated secret.
+    """
+    try:
+        text = paths.api_secret_file().read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text or None
+
+
+def body_limit(path: str) -> int:
+    """The request body limit of ``path``: 64 KiB for a session message, else 16 KiB."""
+    return MESSAGE_BODY_LIMIT if _MESSAGE_PATH.fullmatch(path) else BODY_LIMIT
+
+
+def mutating_routes(app: Any) -> list[tuple[str, str]]:
+    """``(method, path)`` of every route registered on ``app`` with a mutating method.
+
+    ``tests/integration/test_mutation_guards.py`` runs its guard assertions against each of them, so
+    a mutating route added later is covered without touching the test.
+    """
+    found: list[tuple[str, str]] = []
+    for route in getattr(app, "routes", []):
+        methods = getattr(route, "methods", None) or ()
+        path = getattr(route, "path", None)
+        if path is None:
+            continue
+        found.extend((method, path) for method in sorted(set(methods) & MUTATING_METHODS))
+    return found
+
+
+def _headers(scope: Scope, name: bytes) -> list[bytes]:
+    return [bytes(value) for key, value in scope.get("headers", []) if bytes(key).lower() == name]
+
+
+def _bearer_ok(scope: Scope, secret: str | None) -> bool:
+    values = _headers(scope, b"authorization")
+    if secret is None or len(values) != 1:
+        return False
+    scheme, _, token = values[0].decode("latin-1").strip().partition(" ")
+    presented = token.strip().encode("utf-8", "replace")
+    expected = secret.encode("utf-8")
+    return hmac.compare_digest(presented, expected) and scheme.lower() == "bearer"
+
+
+def _origin_ok(scope: Scope, allowed: Collection[str]) -> bool:
+    values = _headers(scope, b"origin")
+    if not values:
+        return True
+    if len(values) != 1:
+        return False
+    return values[0].decode("latin-1").strip().rstrip("/").lower() in allowed
+
+
+def _json_content_type(scope: Scope) -> bool:
+    values = _headers(scope, b"content-type")
+    if len(values) != 1:
+        return False
+    media = values[0].decode("latin-1").split(";", 1)[0].strip().lower()
+    return media == _MEDIA_TYPE
+
+
+_REJECTIONS: Final = {
+    401: "a valid bearer secret is required",
+    403: "Origin not allowed",
+    413: "request body too large",
+    415: "Content-Type must be application/json",
+}
+
+
+class _TooLarge(Exception):
+    pass
+
+
+class MutationGuard:
+    """ASGI middleware that guards every mutating request (see the module docstring).
+
+    ``secret`` is the bearer secret (``None``: no secret exists, so every mutation is refused with
+    401) and ``allowed_origins`` the ``[api] allowed_origins`` list. It sits inside
+    :class:`HostGuard`, which has already checked ``Host`` and strips CORS headers from the answer.
+    """
+
+    def __init__(self, app: ASGIApp, *, secret: str | None, allowed_origins: Iterable[str]) -> None:
+        self.app = app
+        self._secret = secret or None
+        self._origins = frozenset(o.strip().rstrip("/").lower() for o in allowed_origins)
+
+    def check(self, scope: Scope) -> int:
+        """``0`` when the headers pass, else the HTTP status to reject with."""
+        if not _bearer_ok(scope, self._secret):
+            return 401
+        if not _origin_ok(scope, self._origins):
+            return 403
+        if not _json_content_type(scope):
+            return 415
+        return 0
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or str(scope.get("method", "")).upper() not in MUTATING_METHODS:
+            await self.app(scope, receive, send)
+            return
+        status = self.check(scope)
+        if status:
+            logger.debug("rejected a mutating request (%d)", status)
+            await _reject_with(send, status)
+            return
+        limit = body_limit(str(scope.get("path", "")))
+        declared = _headers(scope, b"content-length")
+        if declared and (not declared[0].isdigit() or int(declared[0]) > limit):
+            await _reject_with(send, 413)
+            return
+        try:
+            body = await _read_body(receive, limit)
+        except _TooLarge:
+            await _reject_with(send, 413)
+            return
+        await self.app(scope, _replay(body, receive), send)
+
+
+async def _read_body(receive: Receive, limit: int) -> list[Message]:
+    """The request messages up to the end of the body; raises when the body passes ``limit``."""
+    messages: list[Message] = []
+    size = 0
+    while True:
+        message = await receive()
+        if message["type"] != "http.request":
+            messages.append(message)  # a disconnect: replayed as it came
+            return messages
+        size += len(message.get("body", b""))
+        if size > limit:
+            raise _TooLarge
+        messages.append(message)
+        if not message.get("more_body", False):
+            return messages
+
+
+def _replay(messages: list[Message], receive: Receive) -> Receive:
+    queue = list(messages)
+
+    async def replay() -> Message:
+        if queue:
+            return queue.pop(0)
+        return await receive()
+
+    return replay
+
+
+async def _reject_with(send: Send, status: int) -> None:
+    body = json.dumps({"detail": _REJECTIONS[status]}).encode("utf-8")
+    headers = [
+        (b"content-type", b"application/json"),
+        (b"content-length", str(len(body)).encode("ascii")),
+    ]
+    if status == 401:
+        headers.append((b"www-authenticate", b"Bearer"))
+    await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": body})
