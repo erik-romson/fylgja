@@ -34,6 +34,7 @@ MODULES = [
     "fylgja.core.project_roots",
     "fylgja.core.resolver",
     "fylgja.core.sessions",
+    "fylgja.core.focus",
     "fylgja.collectors.aerospace",
     "fylgja.collectors.claude",
     "fylgja.collectors.claude.inbox",

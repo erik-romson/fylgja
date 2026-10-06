@@ -36,7 +36,7 @@ import hmac
 import json
 import logging
 import re
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Iterator
 from typing import Any, Final
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -179,13 +179,26 @@ def mutating_routes(app: Any) -> list[tuple[str, str]]:
     a mutating route added later is covered without touching the test.
     """
     found: list[tuple[str, str]] = []
-    for route in getattr(app, "routes", []):
-        methods = getattr(route, "methods", None) or ()
-        path = getattr(route, "path", None)
-        if path is None:
-            continue
+    for path, methods in _route_table(getattr(app, "routes", [])):
         found.extend((method, path) for method in sorted(set(methods) & MUTATING_METHODS))
     return found
+
+
+def _route_table(routes: Any) -> Iterator[tuple[str, Iterable[str]]]:
+    """``(path, methods)`` of every route, looking inside the routers an app has included.
+
+    Recent FastAPI keeps an included router as one entry that holds the real routes; its
+    ``effective_route_contexts`` list them with the full path.
+    """
+    for route in routes:
+        contexts = getattr(route, "effective_route_contexts", None)
+        if contexts is not None:
+            for context in contexts() if callable(contexts) else contexts:
+                yield str(context.path), tuple(context.methods or ())
+            continue
+        path = getattr(route, "path", None)
+        if path is not None:
+            yield str(path), tuple(getattr(route, "methods", None) or ())
 
 
 def _headers(scope: Scope, name: bytes) -> list[bytes]:

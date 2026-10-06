@@ -66,6 +66,7 @@ from fylgja.core.writer import Writer, WriterClosed, session_key, split_session_
 from fylgja.models import (
     HealthReport,
     HealthState,
+    HookEvent,
     Record,
     SessionActivityEvent,
     SessionActivitySnapshot,
@@ -174,6 +175,11 @@ class SessionMemory:
     def __init__(self) -> None:
         self._facts: dict[str, tuple[str, dict[str, Any]]] = {}
         self._payloads: dict[str, tuple[str, str | None, str | None]] = {}
+        self._terminal: dict[str, str] = {}
+
+    def terminal_id(self, key: str, name: str) -> str | None:
+        """The terminal id ``name`` (``ITERM_SESSION_ID``, ...) a hook event of ``key`` carried."""
+        return self._terminal.get(f"{key}\0{name}")
 
     def observe(self, record: Record) -> None:
         if isinstance(record, SessionSnapshot):
@@ -192,6 +198,10 @@ class SessionMemory:
                 self._prune(self._facts, record.source, listed)
         elif isinstance(record, SessionActivityEvent):
             self._activity(record.source, record.entity_id, record.payload.facts)
+        elif isinstance(record, HookEvent) and record.payload.ids:
+            key = self._key(record.entity_id, record.source)
+            for name, value in record.payload.ids.items():
+                self._terminal[f"{key}\0{name}"] = value
 
     @staticmethod
     def _key(entity_id: str, source: str) -> str:
@@ -216,6 +226,8 @@ class SessionMemory:
     def forget(self, key: str) -> None:
         self._facts.pop(key, None)
         self._payloads.pop(key, None)
+        for stale in [k for k in self._terminal if k.startswith(f"{key}\0")]:
+            del self._terminal[stale]
 
     def get(self, key: str) -> SessionExtras | None:
         facts = self._facts.get(key)
@@ -336,6 +348,8 @@ class Daemon:
         self._home = str(Path.home()) if home is None else home
         filesystem: FileSystem = LocalFileSystem() if fs is None else fs
         process_runner: ProcessRunner = SubprocessRunner() if runner is None else runner
+        self.runner: ProcessRunner = process_runner
+        """The process runner of the host adapters and of the focus actions."""
         self._host_loader: HostLoader = (
             hosts.host_loader(process_runner, filesystem, home=self._home)
             if host_loader is None

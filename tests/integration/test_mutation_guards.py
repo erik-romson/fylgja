@@ -4,8 +4,8 @@ Every request with a mutating method needs a bearer secret, an allowed ``Origin`
 CLI), ``Content-Type: application/json`` and a body inside the size limit. Two groups of tests:
 
 * **route enumeration**: every mutating route registered on the real app is parametrized and must
-  show every rejection and accept a valid CLI request. Today the real app has no mutating route,
-  so the parametrization is empty; later steps fill it without touching this file;
+  show every rejection and accept a valid CLI request. The focus routes (WP3.5) are the first;
+  later steps fill the list without touching this file;
 * **guard mechanics**: a test-only app with the same middleware and dummy mutating routes proves
   each rejection now.
 """
@@ -119,6 +119,11 @@ async def daemon() -> AsyncIterator[Daemon]:
         yield instance
     finally:
         await instance.stop()
+
+
+def test_the_focus_routes_are_enumerated() -> None:
+    assert ("POST", "/focus/window/{window_id}") in ROUTES
+    assert ("POST", "/focus/session/{key}") in ROUTES
 
 
 @pytest.mark.parametrize(("method", "path"), ROUTES, ids=[f"{m} {p}" for m, p in ROUTES])
