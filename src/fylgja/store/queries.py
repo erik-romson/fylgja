@@ -27,10 +27,12 @@ from fylgja.store.rows import (
     ImportedTodoRow,
     ProjectRow,
     SessionRow,
+    SpanRow,
     StoreRow,
     TodoRow,
     UsageRow,
     WindowRow,
+    WorkedOnRow,
     WorkspaceRow,
 )
 
@@ -40,6 +42,8 @@ __all__ = [
     "Put",
     "PutStatus",
     "checkpoint_truncate",
+    "close_open_span",
+    "close_stale_spans",
     "close_imported_session_todos",
     "close_missing_activity",
     "close_missing_usage",
@@ -52,8 +56,11 @@ __all__ = [
     "get_session",
     "get_todo",
     "get_workspace",
+    "drop_open_span",
     "insert_event",
+    "insert_open_span",
     "insert_todo",
+    "last_observed_at",
     "latest_focus",
     "list_import_todos",
     "list_todos",
@@ -64,6 +71,8 @@ __all__ = [
     "load_open_activity",
     "load_open_usage",
     "load_open_windows",
+    "load_spans",
+    "load_worked_on",
     "load_open_workspaces",
     "load_projects",
     "optimize",
@@ -1232,6 +1241,164 @@ def close_imported_session_todos(
         )
     ]
     return mark_todos_absent(connection, ids=ids, at=at)
+
+
+# --------------------------------------------------------------------------------------------
+# Focus spans (WP5.2)
+# --------------------------------------------------------------------------------------------
+
+INSERT_OPEN_SPAN: Final = """
+INSERT INTO focus_spans
+    (window_id, workspace, app_bundle_id, title, project_path, session_key, started_at)
+VALUES (:window_id, :workspace, :app_bundle_id, :title, :project_path, :session_key, :started_at)
+"""
+
+CLOSE_OPEN_SPAN: Final = """
+UPDATE focus_spans
+SET ended_at = :ended_at,
+    end_reason = :end_reason,
+    project_path = COALESCE(:project_path, project_path),
+    session_key = COALESCE(:session_key, session_key)
+WHERE ended_at IS NULL AND window_id IS :window_id AND started_at = :started_at
+"""
+
+DROP_OPEN_SPAN: Final = """
+DELETE FROM focus_spans
+WHERE ended_at IS NULL AND window_id IS :window_id AND started_at = :started_at
+"""
+
+SELECT_OPEN_SPANS: Final = "SELECT id, started_at FROM focus_spans WHERE ended_at IS NULL"
+
+CLOSE_SPAN_BY_ID: Final = "UPDATE focus_spans SET ended_at = ?, end_reason = ? WHERE id = ?"
+
+DELETE_SPAN_BY_ID: Final = "DELETE FROM focus_spans WHERE id = ?"
+
+LAST_OBSERVED_AT: Final = "SELECT MAX(observed_at) FROM events"
+
+LOAD_SPANS: Final = """
+SELECT window_id, workspace, app_bundle_id, title, project_path, session_key,
+       started_at, ended_at, end_reason
+FROM focus_spans
+WHERE started_at < :until AND (ended_at IS NULL OR ended_at > :since)
+ORDER BY started_at, id
+"""
+
+LOAD_WORKED_ON: Final = """
+SELECT json_extract(payload, '$.data.project') AS project_path,
+       COUNT(*) AS markers,
+       MAX(observed_at) AS last_at
+FROM events
+WHERE entity_kind = 'context_item' AND record_type = 'event'
+  AND json_extract(payload, '$.context_kind') = 'worked_on'
+  AND json_extract(payload, '$.data.project') IS NOT NULL
+  AND observed_at >= :since AND observed_at < :until
+GROUP BY project_path
+ORDER BY last_at DESC, project_path
+"""
+
+
+def insert_open_span(
+    connection: sqlite3.Connection,
+    *,
+    window_id: str | None,
+    workspace: str | None,
+    app_bundle_id: str | None,
+    title: str | None,
+    project_path: str | None,
+    session_key: str | None,
+    started_at: str,
+) -> None:
+    """Open a span (``ended_at`` stays ``NULL`` until it is closed)."""
+    connection.execute(
+        INSERT_OPEN_SPAN,
+        {
+            "window_id": window_id,
+            "workspace": workspace,
+            "app_bundle_id": app_bundle_id,
+            "title": title,
+            "project_path": project_path,
+            "session_key": session_key,
+            "started_at": started_at,
+        },
+    )
+
+
+def close_open_span(
+    connection: sqlite3.Connection,
+    *,
+    window_id: str | None,
+    started_at: str,
+    ended_at: str,
+    end_reason: str,
+    project_path: str | None,
+    session_key: str | None,
+) -> bool:
+    """Close the open span of ``window_id`` that started at ``started_at``; a ``None``
+    attribution keeps what the span has. Returns whether a row was closed."""
+    cursor = connection.execute(
+        CLOSE_OPEN_SPAN,
+        {
+            "window_id": window_id,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "end_reason": end_reason,
+            "project_path": project_path,
+            "session_key": session_key,
+        },
+    )
+    return cursor.rowcount == 1
+
+
+def drop_open_span(
+    connection: sqlite3.Connection, *, window_id: str | None, started_at: str
+) -> bool:
+    """Delete an open span that turned out to have no length."""
+    cursor = connection.execute(DROP_OPEN_SPAN, {"window_id": window_id, "started_at": started_at})
+    return cursor.rowcount == 1
+
+
+def last_observed_at(connection: sqlite3.Connection) -> str | None:
+    """The newest ``observed_at`` of any stored record, or ``None`` for an empty store."""
+    value = connection.execute(LAST_OBSERVED_AT).fetchone()[0]
+    return None if value is None else str(value)
+
+
+def close_stale_spans(
+    connection: sqlite3.Connection, *, last_observed: str | None, now: str
+) -> int:
+    """Close every span a stopped daemon left open (it crashed or was killed).
+
+    Each is closed at the last time the store observed anything, never earlier than the span's own
+    start and never later than ``now``, with ``end_reason = 'shutdown'``; a span that then has no
+    length is deleted. Returns how many spans were closed.
+    """
+    stale = [(int(row[0]), str(row[1])) for row in connection.execute(SELECT_OPEN_SPANS)]
+    for span_id, started in stale:
+        end = min(last_observed or started, now)
+        end = max(end, started)
+        if end <= started:
+            connection.execute(DELETE_SPAN_BY_ID, (span_id,))
+        else:
+            connection.execute(CLOSE_SPAN_BY_ID, (end, "shutdown", span_id))
+    return len(stale)
+
+
+def load_spans(connection: sqlite3.Connection, *, since: str, until: str) -> list[SpanRow]:
+    """The spans that overlap ``[since, until)``, oldest first, unclipped. An open span has
+    ``ended_at = None``."""
+    return [
+        SpanRow.from_db(row)
+        for row in connection.execute(LOAD_SPANS, {"since": since, "until": until})
+    ]
+
+
+def load_worked_on(connection: sqlite3.Connection, *, since: str, until: str) -> list[WorkedOnRow]:
+    """The projects Claude's prompt history marked as worked on in ``[since, until)``, most
+    recent first."""
+    return [
+        WorkedOnRow.from_db(row)
+        for row in connection.execute(LOAD_WORKED_ON, {"since": since, "until": until})
+    ]
 
 
 # --------------------------------------------------------------------------------------------

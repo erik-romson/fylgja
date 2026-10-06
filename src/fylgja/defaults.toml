@@ -63,6 +63,13 @@ events = [
   "SessionEnd",
 ]
 
+# Focus spans (WP5.2). A span closes when the user goes idle, back-dated to the start of the idle
+# period: the presence collector stamps `idle.start` when its threshold was crossed, so the idle
+# period began this many seconds earlier. Keep it equal to [collectors.presence]
+# idle_threshold_seconds.
+[spans]
+idle_threshold_seconds = 300
+
 # Absolute paths, because launchd's PATH is minimal.
 [paths]
 aerospace = "/opt/homebrew/bin/aerospace"

@@ -656,6 +656,11 @@ class Writer:
         self._put(_Item(job, future, exclusive=not transaction))
         return cast(T, await future)
 
+    def enqueue(self, job: Callable[[Tx], object], *, label: str = "job") -> None:
+        """Queue a write job without waiting for it. A failure is logged under ``label``; the
+        job's transaction changes reach the live view like those of :meth:`execute`."""
+        self._put(_Item(job, None, label=label))
+
     def save_health(self, row: HealthRow) -> None:
         """Queue a ``collector_health`` update."""
         self._put(_Item(lambda tx: _save_health(tx, row), None, label="health"))

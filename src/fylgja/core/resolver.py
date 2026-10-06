@@ -9,8 +9,9 @@
   host app; its adapter (:mod:`fylgja.core.hosts`) picks the window, and the exact cmux workspace
   and surface where it can.
 * **window → workspace:** the AeroSpace workspace of the window.
-* **project → workspace:** the AeroSpace workspace where most of the project's windows are (by
-  window count for now; step 38 switches it to focus time).
+* **project → workspace:** the AeroSpace workspace that holds the most focus time of the project
+  over the last day (``PLAN.md`` §3 rule 4; the focus spans of :mod:`fylgja.core.spans`), and where
+  no span says anything about the project, the workspace where most of its windows are.
 * **workspace → inferred label** (:mod:`fylgja.core.labels`).
 
 Every join carries ``via`` and ``confidence``, and one that failed carries ``unresolved: <reason>``.
@@ -21,6 +22,7 @@ follows); :class:`Resolver` ties the two to the live view and the writer.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -53,6 +55,8 @@ from fylgja.store import db, queries
 from fylgja.store.rows import SessionRow, WindowRow
 
 __all__ = [
+    "FocusTime",
+    "FocusTimeLoader",
     "Placement",
     "ProjectPlacement",
     "Resolution",
@@ -63,9 +67,12 @@ __all__ = [
     "session_input",
 ]
 
+logger = logging.getLogger("fylgja.resolver")
+
 VIA_GIT_ROOT: Final = "git-root"
 VIA_CWD: Final = "cwd"
 VIA_WINDOW_COUNT: Final = "window-count"
+VIA_FOCUS_TIME: Final = "focus-time"
 HIGH: Final = "high"
 MEDIUM: Final = "medium"
 LOW: Final = "low"
@@ -75,6 +82,9 @@ NONE: Final = "none"
 # --------------------------------------------------------------------------------------------
 # Inputs and outputs
 # --------------------------------------------------------------------------------------------
+
+FocusTime = Mapping[str, Mapping[str, float]]
+"""Seconds of focus per project path and workspace over the last day."""
 
 
 @dataclass(frozen=True)
@@ -292,12 +302,34 @@ def _project_placement(
     )
 
 
-def _project_workspaces(placements: Iterable[Placement]) -> dict[str, ProjectPlacement]:
-    """Project → workspace: the workspace with the most of the project's windows.
+def _ranked_by_focus(seconds: Mapping[str, float], weight: Counter[str]) -> tuple[str, str] | None:
+    """The workspace with the most focus time and the confidence of that pick; ``None`` when no
+    workspace has any. Equal time is broken by window count, then by name; a tie that survives
+    both is ``low``."""
+    ranked = sorted(
+        ((ws, secs) for ws, secs in seconds.items() if secs > 0),
+        key=lambda item: (-item[1], -weight.get(item[0], 0), item[0]),
+    )
+    if not ranked:
+        return None
+    if len(ranked) == 1:
+        return ranked[0][0], HIGH
+    first, second = ranked[0], ranked[1]
+    tie = first[1] == second[1] and weight.get(first[0], 0) == weight.get(second[0], 0)
+    return first[0], LOW if tie else MEDIUM
+
+
+def _project_workspaces(
+    placements: Iterable[Placement], focus_time: FocusTime | None = None
+) -> dict[str, ProjectPlacement]:
+    """Project → workspace: the workspace with the most of the project's focus time over the last
+    day (``via`` is ``focus-time``) and, for a project no span covers, the workspace with the most
+    of its windows (``window-count``).
 
     A session whose window is known counts that window once however many sessions share it. A
     session placed only at workspace level counts as one window of that workspace. A tie goes to
-    the workspace that sorts first, at ``low`` confidence.
+    the workspace that sorts first, at ``low`` confidence. Focus time decides even when the project
+    has no live window in that workspace; windows only break a tie in time.
     """
     by_project: dict[str, list[Placement]] = {}
     for placement in placements:
@@ -317,6 +349,12 @@ def _project_workspaces(placements: Iterable[Placement]) -> dict[str, ProjectPla
         weight = Counter({ws: len(ids) for ws, ids in windows.items()}) + loose
         windows_total = sum(len(ids) for ids in windows.values()) + sum(loose.values())
 
+        focused = _ranked_by_focus((focus_time or {}).get(path, {}), weight)
+        if focused is not None:
+            projects[path] = _project_placement(
+                path, members, windows_total, (focused[0], VIA_FOCUS_TIME, focused[1])
+            )
+            continue
         if not weight:
             projects[path] = _project_placement(
                 path,
@@ -366,11 +404,14 @@ def resolve(
     *,
     adapters: Sequence[HostAdapter],
     facts: Mapping[str, ProjectFact] | None = None,
+    focus_time: FocusTime | None = None,
 ) -> Resolution:
     """Place every session and project and label every workspace. Pure and deterministic.
 
     ``facts`` maps a cwd to what the filesystem says about it (see
     :class:`~fylgja.core.project_roots.ProjectLocator`); a cwd without an entry is its own project.
+    ``focus_time`` is the seconds of focus per project and workspace over the last day; a project
+    it names is placed by it, any other by its window count.
     """
     window_list = list(windows)
     owners = _owners(window_list)
@@ -381,7 +422,7 @@ def resolve(
     }
     return Resolution(
         sessions=placements,
-        projects=_project_workspaces(placements.values()),
+        projects=_project_workspaces(placements.values(), focus_time),
         labels=_labels(placements.values(), window_list, workspaces),
     )
 
@@ -442,6 +483,7 @@ def apply_resolution(tx: Tx, resolution: Resolution, *, at: str) -> int:
 # --------------------------------------------------------------------------------------------
 
 HostLoader = Callable[[], Awaitable[HostData]]
+FocusTimeLoader = Callable[[], Awaitable[FocusTime]]
 
 
 class Resolver:
@@ -460,12 +502,14 @@ class Resolver:
         hosts: HostLoader,
         locator: ProjectLocator,
         clock: Clock,
+        focus_time: FocusTimeLoader | None = None,
     ) -> None:
         self._writer = writer
         self._view = view
         self._hosts = hosts
         self._locator = locator
         self._clock = clock
+        self._focus_time = focus_time
         self._ancestry: dict[str, tuple[ProcessRef, ...]] = {}
         self._cmux_ids: dict[str, CmuxIds] = {}
         self.on_ids_changed: Callable[[], None] | None = None
@@ -500,6 +544,16 @@ class Resolver:
         self._ancestry.pop(session_key, None)
         self._cmux_ids.pop(session_key, None)
 
+    @staticmethod
+    async def _load_focus_time(loader: FocusTimeLoader) -> FocusTime:
+        """Focus time over the last day; a store that cannot be read says nothing, and the join
+        falls back to the window count."""
+        try:
+            return await loader()
+        except Exception:
+            logger.warning("focus time could not be read; placing projects by window count")
+            return {}
+
     async def refresh(self) -> Resolution:
         """Resolve from the live view and write what changed. Returns the resolution."""
         snapshot = self._view.snapshot()
@@ -511,12 +565,16 @@ class Resolver:
             item.cwd: self._locator.locate(item.cwd) for item in inputs if item.cwd is not None
         }
         data = await self._hosts()
+        focus_time = (
+            {} if self._focus_time is None else await self._load_focus_time(self._focus_time)
+        )
         resolution = resolve(
             inputs,
             snapshot.windows.values(),
             snapshot.workspaces.keys(),
             adapters=default_adapters(data),
             facts=facts,
+            focus_time=focus_time,
         )
         at = db.to_db_time(self._clock.now())
         await self._writer.execute(lambda tx: apply_resolution(tx, resolution, at=at))

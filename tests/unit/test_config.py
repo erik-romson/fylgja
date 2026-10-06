@@ -108,6 +108,21 @@ def test_invalid_value_names_key() -> None:
     assert str(target) in str(info.value)
 
 
+def test_the_span_idle_threshold_matches_the_presence_default_and_is_validated() -> None:
+    config = load_config()
+    assert config.spans.idle_threshold_seconds == 300
+    assert (
+        config.spans.idle_threshold_seconds
+        == config.collectors["presence"]["idle_threshold_seconds"]
+    )
+    _write("[spans]\nidle_threshold_seconds = 120\n")
+    assert load_config().spans.idle_threshold_seconds == 120
+    _write("[spans]\nidle_threshold_seconds = 0\n")
+    with pytest.raises(ConfigError) as info:
+        load_config()
+    assert info.value.key == "spans.idle_threshold_seconds"
+
+
 def test_invalid_regex_names_list_index() -> None:
     _write('[privacy]\nredact_patterns = ["ok", "("]\n')
     with pytest.raises(ConfigError) as info:

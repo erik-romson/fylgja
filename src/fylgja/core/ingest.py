@@ -9,7 +9,10 @@ Every record a collector emits passes, in order:
 2. ``source`` must equal the plugin's name (``source``);
 3. ``entity_kind`` must be allowed by the plugin's declared capabilities (``entity_kind``);
 4. ``observed_at`` must lie in [now − 30 d, now + 5 min], both ends included (``timestamp``);
-5. the **privacy filter** (:mod:`fylgja.privacy`) drops ignored apps and titles and redacts text;
+5. the **privacy filter** (:mod:`fylgja.privacy`) drops ignored apps and titles and redacts text.
+   A dropped *focus* event still tells the focus-span engine that focus left the previous window, at
+   what time and nothing else (``on_private_focus``), so time in an ignored app is never counted for
+   the window before it;
 6. **dedup** happens in the writer: ``events.dedup_key`` is unique and a duplicate changes
    nothing.
 
@@ -31,7 +34,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter, deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -43,7 +46,7 @@ from fylgja.collectors.base import Clock, CollectorPlugin
 from fylgja.collectors.context import SystemClock
 from fylgja.collectors.supervisor import CollectorHealth
 from fylgja.core.writer import WriterClosed
-from fylgja.models import RECORD_ADAPTER, EntityKind, HealthState, Record
+from fylgja.models import RECORD_ADAPTER, EntityKind, FocusEvent, HealthState, Record
 from fylgja.privacy import PrivacyFilter
 from fylgja.store.rows import HealthRow
 
@@ -140,8 +143,10 @@ class IngestGate:
         max_skew: timedelta = MAX_SKEW,
         rejection_limit: int = REJECTION_LIMIT,
         rejection_window: float = REJECTION_WINDOW,
+        on_private_focus: Callable[[datetime], None] | None = None,
     ) -> None:
         self._writer = writer
+        self._on_private_focus = on_private_focus
         self._privacy = PrivacyFilter() if privacy is None else privacy
         self._clock: Clock = SystemClock() if clock is None else clock
         self._max_age = max_age
@@ -200,10 +205,20 @@ class IngestGate:
         stats = self._stats[name]
         if filtered is None:
             stats.dropped += 1
+            hook = self._on_private_focus
+            if hook is not None and isinstance(valid, FocusEvent):
+                self._tell_private_focus(hook, valid.observed_at)
         else:
             stats.accepted += 1
         self._evaluate(name)
         return filtered
+
+    @staticmethod
+    def _tell_private_focus(hook: Callable[[datetime], None], at: datetime) -> None:
+        try:
+            hook(at)
+        except Exception:
+            logger.exception("private focus hook failed")
 
     def emit(self, name: str, record: object) -> None:
         """Gate and queue ``record`` without waiting. Never raises for a bad record."""

@@ -384,6 +384,145 @@ def test_project_to_workspace_through_resolve() -> None:
     assert resolution.projects["/p"].workspace == "ws2"
 
 
+# --- project to workspace, by focus time (WP5.2, PLAN.md section 3 rule 4) -----------------------
+
+
+def _two_workspaces() -> list[Placement]:
+    """/p has two windows in ws1 and one in ws2: by window count it is ws1."""
+    return [
+        _placement("a", "/p", "1", "ws1"),
+        _placement("b", "/p", "2", "ws1"),
+        _placement("c", "/p", "3", "ws2"),
+    ]
+
+
+def test_focus_time_beats_the_window_count() -> None:
+    placed = _project_workspaces(_two_workspaces(), {"/p": {"ws1": 120.0, "ws2": 3000.0}})
+    project = placed["/p"]
+    assert (project.workspace, project.via, project.confidence) == ("ws2", "focus-time", "medium")
+    assert (project.sessions, project.windows) == (3, 3)  # the counts are still reported
+
+
+def test_a_project_no_span_covers_is_still_placed_by_its_window_count() -> None:
+    placed = _project_workspaces(
+        [*_two_workspaces(), _placement("d", "/q", "4", "ws3")],
+        {"/p": {"ws2": 60.0}},  # nothing about /q
+    )
+    assert (placed["/p"].workspace, placed["/p"].via) == ("ws2", "focus-time")
+    assert (placed["/q"].workspace, placed["/q"].via) == ("ws3", "window-count")
+    empty = _project_workspaces(_two_workspaces(), {})
+    assert (empty["/p"].workspace, empty["/p"].via) == ("ws1", "window-count")
+    assert _project_workspaces(_two_workspaces(), None)["/p"].via == "window-count"
+
+
+def test_a_workspace_with_no_seconds_of_focus_says_nothing() -> None:
+    placed = _project_workspaces(_two_workspaces(), {"/p": {"ws2": 0.0}})
+    assert (placed["/p"].workspace, placed["/p"].via) == ("ws1", "window-count")
+
+
+def test_focus_time_places_a_project_in_the_one_workspace_it_was_seen_in_with_high_confidence() -> (
+    None
+):
+    placed = _project_workspaces(_two_workspaces(), {"/p": {"ws2": 30.0}})
+    assert (placed["/p"].workspace, placed["/p"].confidence) == ("ws2", "high")
+
+
+def test_focus_time_decides_even_where_the_project_has_no_window_now() -> None:
+    placed = _project_workspaces(
+        [_placement("a", "/p", "1", "ws1")], {"/p": {"ws9": 900.0, "ws1": 30.0}}
+    )
+    assert placed["/p"].workspace == "ws9"
+
+
+def test_equal_focus_time_goes_to_the_workspace_with_more_windows_then_to_the_first_name() -> None:
+    by_windows = _project_workspaces(_two_workspaces(), {"/p": {"ws1": 600.0, "ws2": 600.0}})
+    assert (by_windows["/p"].workspace, by_windows["/p"].confidence) == ("ws1", "medium")
+    tie = _project_workspaces(
+        [_placement("a", "/p", "1", "ws2"), _placement("b", "/p", "2", "ws1")],
+        {"/p": {"ws2": 600.0, "ws1": 600.0}},
+    )
+    assert (tie["/p"].workspace, tie["/p"].confidence) == ("ws1", "low")
+
+
+def test_the_project_of_an_unplaced_session_goes_where_it_was_focused() -> None:
+    placed = _project_workspaces([_placement("a", "/p", None, None)], {"/p": {"ws4": 10.0}})
+    assert (placed["/p"].workspace, placed["/p"].via) == ("ws4", "focus-time")
+
+
+def test_resolve_takes_the_focus_time_of_the_last_day() -> None:
+    windows = [
+        window("1", "ws1", SAFARI, 10),
+        window("2", "ws1", SAFARI, 11),
+        window("3", "ws2", SAFARI, 12),
+    ]
+    sessions = [
+        session_input("claude:a", cwd="/p", pid=100, host_pid=10),
+        session_input("claude:b", cwd="/p", pid=101, host_pid=11),
+        session_input("claude:c", cwd="/p", pid=102, host_pid=12),
+    ]
+    by_count = _resolve(sessions, windows)
+    assert by_count.projects["/p"].workspace == "ws1"
+    by_time = resolve(
+        sessions,
+        windows,
+        [],
+        adapters=_adapters(),
+        focus_time={"/p": {"ws2": 7200.0, "ws1": 600.0}},
+    )
+    assert (by_time.projects["/p"].workspace, by_time.projects["/p"].via) == ("ws2", "focus-time")
+
+
+async def test_refresh_places_projects_by_the_focus_time_loader(
+    writer: Writer, view: LiveView
+) -> None:
+    asked: list[bool] = []
+
+    async def load_hosts() -> HostData:
+        return HostData(home=HOME)
+
+    async def focus_time() -> dict[str, dict[str, float]]:
+        asked.append(True)
+        return {"/code/app": {"7": 500.0}}
+
+    resolver = Resolver(
+        writer,
+        view,
+        hosts=load_hosts,
+        locator=ProjectLocator(FakeFS()),
+        clock=FakeClock(NOW),
+        focus_time=focus_time,
+    )
+    resolver.observe(await _seed(writer, ("s1", "/code/app", 100)))
+    resolution = await resolver.refresh()
+    assert asked == [True]
+    assert (resolution.projects["/code/app"].workspace, resolution.projects["/code/app"].via) == (
+        "7",
+        "focus-time",
+    )
+
+
+async def test_refresh_falls_back_to_the_window_count_when_focus_time_cannot_be_read(
+    writer: Writer, view: LiveView
+) -> None:
+    async def load_hosts() -> HostData:
+        return HostData(home=HOME)
+
+    async def broken() -> dict[str, dict[str, float]]:
+        raise RuntimeError("the store is unreadable")
+
+    resolver = Resolver(
+        writer,
+        view,
+        hosts=load_hosts,
+        locator=ProjectLocator(FakeFS()),
+        clock=FakeClock(NOW),
+        focus_time=broken,
+    )
+    resolver.observe(await _seed(writer, ("s1", "/code/app", 100)))
+    resolution = await resolver.refresh()
+    assert resolution.projects["/code/app"].via == "window-count"
+
+
 # --- labels through the resolver ------------------------------------------------------------------
 
 

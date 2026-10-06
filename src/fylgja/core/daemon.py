@@ -38,7 +38,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -55,7 +55,7 @@ from fylgja.collectors.registry import (
 from fylgja.collectors.seams import FileSystem, ProcessRunner
 from fylgja.collectors.supervisor import BackoffPolicy, CollectorHealth, RandomSource, Supervisor
 from fylgja.config import Config
-from fylgja.core import hosts
+from fylgja.core import hosts, spans
 from fylgja.core.hosts import HostData
 from fylgja.core.ingest import IngestGate, PluginSink
 from fylgja.core.labels import LabelService
@@ -80,7 +80,7 @@ from fylgja.models import (
     SessionSnapshot,
 )
 from fylgja.privacy import PrivacyFilter
-from fylgja.store import db
+from fylgja.store import db, queries
 from fylgja.store.rows import HealthRow
 
 __all__ = [
@@ -377,17 +377,25 @@ class Daemon:
             hosts=self._load_hosts,
             locator=ProjectLocator(filesystem),
             clock=self.clock,
+            focus_time=self.focus_time,
         )
+        self.spans = spans.SpanEngine(
+            self.writer.enqueue,
+            self._attribute,
+            idle_threshold_seconds=config.spans.idle_threshold_seconds,
+        )
+        """Focus spans (WP5.2): derived from focus, idle and lock events, written by the writer."""
         self.resolver.on_ids_changed = self._mark_dirty
         self.gate = IngestGate(
             _Tap(
                 self.writer,
-                (self.resolver.observe, self.memory.observe),
+                (self.resolver.observe, self.memory.observe, self.spans.observe),
                 (self.session_state.apply,),
             ),
             [item.plugin for item in self.registry if item.runnable and item.plugin is not None],
             privacy=PrivacyFilter.from_config(config.privacy),
             clock=self.clock,
+            on_private_focus=self.spans.private_focus,
         )
         self.supervisor = Supervisor(
             [item for item in self.registry if not item.rejected],
@@ -459,6 +467,8 @@ class Daemon:
         try:
             await self.writer.start()
             self.lifecycle.append("start:writer")
+            now = self.clock.now()
+            await self.writer.execute(lambda tx: spans.recover_stale(tx, now))
             self._rebuild_view()
             self.session_state.seed(
                 (row.session_key, row.source, row.state, row.state_since, row.waiting_reason)
@@ -507,6 +517,7 @@ class Daemon:
                 self._unsubscribe = None
             self.lifecycle.append("stop:state_engine")
         if "start:writer" in self.lifecycle:
+            self.spans.stop(self.clock.now())  # the open span ends with the daemon
             await self.writer.stop()
             self.lifecycle.append("stop:writer")
 
@@ -576,6 +587,52 @@ class Daemon:
         """The resolver's window of a live session (what a focus change is matched against)."""
         row = self.view.sessions.get(key)
         return None if row is None else row.window_id
+
+    def _attribute(self, window_id: str) -> tuple[str | None, str | None]:
+        """The project and session of a focused window, from the resolver's placements: the live
+        session in that window that was active most recently. ``(None, None)`` for a window no
+        session is placed in."""
+        here = [
+            row
+            for row in self.view.sessions.values()
+            if row.window_id == window_id and row.ended_at is None
+        ]
+        if not here:
+            return None, None
+        newest = max(here, key=lambda row: (row.state_since or row.first_seen, row.session_key))
+        return newest.project_path, newest.session_key
+
+    async def focus_time(self) -> Mapping[str, Mapping[str, float]]:
+        """Seconds of focus per project and workspace over the last day (the resolver's input)."""
+        now = self.clock.now()
+        since = now - timedelta(days=1)
+        found = await asyncio.to_thread(self._read_spans, since, now)
+        return spans.focus_time_by_project(found, since, now, now)
+
+    def _read_spans(self, since: datetime, until: datetime) -> list[spans.Span]:
+        connection = db.connect_reader(self.writer.database)
+        try:
+            return queries.load_spans(
+                connection, since=db.to_db_time(since), until=db.to_db_time(until)
+            )
+        finally:
+            connection.close()
+
+    def _read_history(self, since: datetime, until: datetime) -> spans.History:
+        connection = db.connect_reader(self.writer.database)
+        try:
+            start, stop = db.to_db_time(since), db.to_db_time(until)
+            found = queries.load_spans(connection, since=start, until=stop)
+            worked_on = queries.load_worked_on(connection, since=start, until=stop)
+        finally:
+            connection.close()
+        summary = spans.summarize(found, since, until, self.clock.now())
+        return spans.History(summary, tuple(worked_on))
+
+    async def history(self, since: datetime, until: datetime) -> spans.History:
+        """Focus spans and totals over ``[since, until)`` and the projects the prompt history
+        marked as worked on (``GET /history``). Reads the store; open spans run to now."""
+        return await asyncio.to_thread(self._read_history, since, until)
 
     async def _load_hosts(self) -> HostData:
         """Host data for a refresh; nothing is read while no session needs placing."""

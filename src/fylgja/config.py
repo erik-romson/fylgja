@@ -120,6 +120,13 @@ class SummariesConfig(_Section):
     max_concurrent: int = Field(gt=0)
 
 
+class SpansConfig(_Section):
+    idle_threshold_seconds: float = Field(gt=0)
+    """The idle threshold of the presence signal. An ``idle.start`` event is stamped when the
+    threshold was crossed, so the idle period began this many seconds earlier and a focus span
+    ends there. Keep it equal to the presence collector's ``idle_threshold_seconds``."""
+
+
 _HOOK_EVENT = re.compile(r"[A-Z][A-Za-z]*")
 
 
@@ -152,6 +159,7 @@ class Config(_Section):
     summaries: SummariesConfig
     hooks: HooksConfig
     paths: PathsConfig
+    spans: SpansConfig = SpansConfig(idle_threshold_seconds=300.0)
     collectors: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("collectors")

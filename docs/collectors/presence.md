@@ -15,8 +15,9 @@ nothing that needs a permission, and (A17) is a collector of its own, apart from
 | `camera` | `ctypes`: CoreMediaIO `kCMIODevicePropertyDeviceIsRunningSomewhere` on every video device | the same |
 | `focus` | the daemon's store, read-only (`mode=ro`, `query_only`): does the latest focus event name a window? | with the idle poll; gates it |
 
-"A focus span is open" means the live view has a focused window. Until the span store of step 38 exists, that is the
-latest focus event with a `window_id`. With no focused window the collector reads no idle time and starts no process.
+"A focus span is open" means the live view has a focused window: the latest focus event with a `window_id`. (The span
+store of step 38 does not replace this gate: after the span engine closes a span at idle, the idle poll must go on to
+see the first input.) With no focused window the collector reads no idle time and starts no process.
 
 Only device state is read: never audio, video, window contents or titles. Logs name signals and short failure codes only.
 
@@ -33,8 +34,9 @@ The record schema has no field for an event name on a presence payload, so the n
 
 - **Idle threshold:** `idle_threshold_seconds` (300). A reading at or above it is idle; below it is active.
 - **Back-dated stamps:** `idle.start` carries the moment the threshold was crossed, so the idle period began
-  `threshold` seconds before its `observed_at`; `idle.end` carries the moment of the first input. Step 38 closes a
-  focus span at `idle.start.observed_at - threshold`.
+  `threshold` seconds before its `observed_at`; `idle.end` carries the moment of the first input. The focus-span engine
+  (`core/spans.py`, decision 0042) closes a span at `idle.start.observed_at - threshold`, using `[spans]
+  idle_threshold_seconds` (keep it equal to this collector's threshold), and starts one again at `idle.end`.
 - **Baselines:** the first lock reading is a baseline: an unlocked screen emits nothing, a locked one emits
   `lock.start`. A call already running at start emits `call.start`.
 - **Call:** the microphone or the camera running. There is no debounce; dictation also runs the microphone.

@@ -1,0 +1,167 @@
+{
+  "description": "A synthetic workday: focus changes, an idle period back-dated by the threshold, a screen lock, a window-less focus, a zero-length span, a crash that left a span open and a clean shutdown.",
+  "idle_threshold_seconds": 300,
+  "now": "2026-10-05T16:00:00Z",
+  "window": {
+    "since": "2026-10-05T08:00:00Z",
+    "until": "2026-10-05T16:00:00Z"
+  },
+  "attribution": {
+    "w1": {
+      "project_path": "/code/project-one",
+      "session_key": "claude:aaaa"
+    },
+    "w2": {
+      "project_path": "/code/project-two",
+      "session_key": "claude:bbbb"
+    }
+  },
+  "ops": [
+    {
+      "at": "2026-10-05T08:00:00Z",
+      "op": "focus",
+      "window_id": "w1",
+      "workspace": "ws1",
+      "app_bundle_id": "com.jetbrains.pycharm",
+      "title": "project one - editor"
+    },
+    {
+      "at": "2026-10-05T08:45:00Z",
+      "op": "focus",
+      "window_id": "w3",
+      "workspace": "ws2",
+      "app_bundle_id": "com.apple.Safari",
+      "title": "docs page"
+    },
+    {
+      "at": "2026-10-05T08:50:00Z",
+      "op": "focus",
+      "window_id": "w1",
+      "workspace": "ws1",
+      "app_bundle_id": "com.jetbrains.pycharm",
+      "title": "project one - editor"
+    },
+    {
+      "at": "2026-10-05T09:40:00Z",
+      "op": "idle.start"
+    },
+    {
+      "at": "2026-10-05T09:55:00Z",
+      "op": "idle.end"
+    },
+    {
+      "at": "2026-10-05T10:20:00Z",
+      "op": "focus",
+      "window_id": "w2",
+      "workspace": "ws3",
+      "app_bundle_id": "com.cmuxterm.app",
+      "title": "project two - terminal"
+    },
+    {
+      "at": "2026-10-05T11:00:00Z",
+      "op": "lock.start"
+    },
+    {
+      "at": "2026-10-05T11:30:00Z",
+      "op": "lock.end"
+    },
+    {
+      "at": "2026-10-05T11:35:00Z",
+      "op": "focus",
+      "window_id": "w3",
+      "workspace": "ws2",
+      "app_bundle_id": "com.apple.Safari",
+      "title": "docs page"
+    },
+    {
+      "at": "2026-10-05T11:40:00Z",
+      "op": "focus",
+      "window_id": null,
+      "workspace": "ws4"
+    },
+    {
+      "at": "2026-10-05T11:41:00Z",
+      "op": "focus",
+      "window_id": "w1",
+      "workspace": "ws1",
+      "app_bundle_id": "com.jetbrains.pycharm",
+      "title": "project one - editor"
+    },
+    {
+      "at": "2026-10-05T11:41:00Z",
+      "op": "focus",
+      "window_id": "w2",
+      "workspace": "ws3",
+      "app_bundle_id": "com.cmuxterm.app",
+      "title": "project two - terminal"
+    },
+    {
+      "at": "2026-10-05T12:10:00Z",
+      "op": "focus",
+      "window_id": "w1",
+      "workspace": "ws1",
+      "app_bundle_id": "com.jetbrains.pycharm",
+      "title": "project one - editor"
+    },
+    {
+      "at": "2026-10-05T12:25:00Z",
+      "op": "focus",
+      "window_id": "w3",
+      "workspace": "ws2",
+      "app_bundle_id": "com.apple.Safari",
+      "title": "docs page"
+    },
+    {
+      "at": "2026-10-05T12:35:00Z",
+      "op": "heartbeat"
+    },
+    {
+      "at": "2026-10-05T12:45:00Z",
+      "op": "crash"
+    },
+    {
+      "at": "2026-10-05T12:50:00Z",
+      "op": "focus",
+      "window_id": "w1",
+      "workspace": "ws1",
+      "app_bundle_id": "com.jetbrains.pycharm",
+      "title": "project one - editor"
+    },
+    {
+      "at": "2026-10-05T13:30:00Z",
+      "op": "shutdown"
+    },
+    {
+      "at": "2026-10-05T13:35:00Z",
+      "op": "focus",
+      "window_id": "w2",
+      "workspace": "ws3",
+      "app_bundle_id": "com.cmuxterm.app",
+      "title": "project two - terminal"
+    },
+    {
+      "at": "2026-10-05T14:30:00Z",
+      "op": "idle.start"
+    },
+    {
+      "at": "2026-10-05T14:50:00Z",
+      "op": "lock.start"
+    },
+    {
+      "at": "2026-10-05T15:00:00Z",
+      "op": "idle.end"
+    },
+    {
+      "at": "2026-10-05T15:10:00Z",
+      "op": "lock.end"
+    },
+    {
+      "at": "2026-10-05T15:40:00Z",
+      "op": "focus",
+      "window_id": "w1",
+      "workspace": "ws1",
+      "app_bundle_id": "com.jetbrains.pycharm",
+      "title": "project one - editor"
+    }
+  ]
+}

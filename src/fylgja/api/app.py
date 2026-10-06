@@ -9,8 +9,8 @@ shutdown; a daemon the caller already started is left to the caller.
   (bearer, Origin, JSON content type, body limit), whichever route it addresses.
 * ``GET /`` serves the minimal page with the secret in a ``<meta>`` tag (WP4.4).
 * The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/todos``,
-  ``/collectors``, ``/health`` and the ``/events`` change stream) need no authentication. The
-  interactive docs and the OpenAPI document are off.
+  ``/collectors``, ``/health``, ``/history`` and the ``/events`` change stream) need no
+  authentication. The interactive docs and the OpenAPI document are off.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
 
 :func:`server_config` is the Uvicorn configuration ``fylgja serve`` runs with: it binds
@@ -30,6 +30,7 @@ from fylgja.api.routes import (
     collectors,
     focus,
     health,
+    history,
     messages,
     now,
     page,
@@ -53,6 +54,7 @@ _ROUTERS = (
     projects.router,
     collectors.router,
     health.router,
+    history.router,
     focus.router,
     messages.router,
     todos.router,

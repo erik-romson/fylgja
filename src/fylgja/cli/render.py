@@ -9,11 +9,13 @@ first, and a cell that does not fit ends in ``…``.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any, Final
 
 __all__ = [
     "DEFAULT_WIDTH",
     "render_collectors",
+    "render_history",
     "render_now",
     "render_sessions",
     "render_todos",
@@ -235,3 +237,89 @@ def render_todos(todos: Sequence[Row], width: int = DEFAULT_WIDTH) -> str:
         for t in todos
     ]
     return table(["ID", "STATUS", "SCOPE", "TODO"], rows, width)
+
+
+def _duration(seconds: object) -> str:
+    """``1h05m``, ``12m`` or ``40s`` (a minute is rounded to the nearest)."""
+    total = float(seconds) if isinstance(seconds, int | float) else 0.0
+    if total < 60:
+        return f"{round(total)}s"
+    minutes = round(total / 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"
+
+
+def _local(value: object, form: str) -> str:
+    try:
+        return datetime.fromisoformat(str(value)).astimezone().strftime(form)
+    except ValueError:
+        return _DASH
+
+
+def _totals(title: str, rows: Sequence[Row], key: str, total: float, width: int) -> str:
+    table_rows = [
+        [
+            str(row.get(key) or _DASH),
+            _duration(row.get("seconds")),
+            f"{100 * float(row.get('seconds') or 0) / total:.0f}%" if total else _DASH,
+        ]
+        for row in rows
+    ]
+    return table([title, "TIME", "SHARE"], table_rows, width)
+
+
+def render_history(history: Row, width: int = DEFAULT_WIDTH, *, spans: bool = True) -> str:
+    """The ``/history`` answer: the window, the totals per workspace, project and app, what
+    Claude's prompt history marked as worked on, and (with ``spans``) the ordered spans.
+
+    Times are the machine's local time.
+    """
+    total = float(history.get("total_seconds") or 0)
+    head = (
+        f"{_local(history.get('since'), '%Y-%m-%d %H:%M')} to "
+        f"{_local(history.get('until'), '%Y-%m-%d %H:%M')}: {_duration(total)} of focus"
+    )
+    if not history.get("spans") and total == 0:
+        return head + "\nno focus spans in this window"
+    parts = [head]
+    workspaces = history.get("workspaces") or []
+    projects = [
+        {**p, "label": p.get("name") or p.get("project_path")}
+        for p in history.get("projects") or []
+    ]
+    apps = history.get("apps") or []
+    parts += ["", _totals("WORKSPACE", workspaces, "workspace", total, width)]
+    parts += ["", _totals("PROJECT", projects, "label", total, width)]
+    parts += ["", _totals("APP", apps, "app_bundle_id", total, width)]
+    worked = history.get("worked_on") or []
+    if worked:
+        rows = [
+            [
+                str(w.get("name") or _DASH),
+                str(w.get("markers", 0)),
+                _local(w.get("last_at"), "%H:%M"),
+            ]
+            for w in worked
+        ]
+        parts += [
+            "",
+            "worked on (Claude prompts):",
+            table(["PROJECT", "PROMPTS", "LAST"], rows, width),
+        ]
+    if spans and history.get("spans"):
+        rows = [
+            [
+                f"{_local(s.get('start'), '%H:%M:%S')}-{_local(s.get('end'), '%H:%M:%S')}"
+                + ("+" if s.get("open") else ""),
+                _duration(s.get("seconds")),
+                str(s.get("workspace") or _DASH),
+                _name(s.get("project_path")),
+                str(s.get("end_reason") or ("now" if s.get("open") else _DASH)),
+                str(s.get("title") or s.get("app_bundle_id") or _DASH),
+            ]
+            for s in history["spans"]
+        ]
+        parts += ["", table(["WHEN", "TIME", "WS", "PROJECT", "END", "WINDOW"], rows, width)]
+    if history.get("spans_truncated"):
+        parts += ["", "the span list is cut short; the totals cover every span"]
+    return "\n".join(parts)

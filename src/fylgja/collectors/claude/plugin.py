@@ -32,6 +32,7 @@ def _factory(settings: BaseModel, context: CollectorContext) -> Collector:
         seams=adapter.default_seams(),
         projects_dir=adapter.default_projects_dir() if projects_dir is None else projects_dir,
         ignore_cwd=ignore_list(settings),
+        history_file=settings.history_file,
     )
 
 
@@ -39,9 +40,12 @@ plugin = CollectorPlugin(
     name=NAME,
     api_major=COLLECTOR_API_MAJOR,
     # SESSIONS: sessions, activity and hook events. PROJECT_STATE: the usage rows (rate limits) the
-    # statusline reader emits. TODOS: each live session's task list (WP4.3). The ingest gate rejects
-    # kinds a plugin did not declare.
-    capabilities=frozenset({Capability.SESSIONS, Capability.PROJECT_STATE, Capability.TODOS}),
+    # statusline reader emits. TODOS: each live session's task list (WP4.3). CONTEXT: the "worked
+    # on" markers of the prompt history (WP5.2). The ingest gate rejects kinds a plugin did not
+    # declare.
+    capabilities=frozenset(
+        {Capability.SESSIONS, Capability.PROJECT_STATE, Capability.TODOS, Capability.CONTEXT}
+    ),
     config_model=ClaudeSettings,
     factory=_factory,
 )

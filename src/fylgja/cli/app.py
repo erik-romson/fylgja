@@ -1,8 +1,9 @@
 """The ``fylgja`` command line (Typer).
 
-``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions`` and
-``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from it, prints a
-table or, with ``--json``, the JSON, and exits **3** with a clear message when the daemon is down.
+``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions``,
+``history`` and ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from
+it, prints a table or, with ``--json``, the JSON, and exits **3** with a clear message when the
+daemon is down.
 ``todo add|done|rm|ls`` talk to the daemon as well (writes send the bearer secret; ``add`` without a
 scope uses the focused workspace). ``label ws`` sets or clears a manual workspace label.
 ``session message`` posts to the daemon too: it asks first
@@ -172,6 +173,35 @@ def sessions(as_json: JsonOption = False) -> None:
     """Every live agent session with its state and one-liner."""
     payload = _fetch("/sessions")
     _show(payload, as_json, lambda: render.render_sessions(payload, _width()))
+
+
+@app.command()
+def history(
+    since: Annotated[
+        str,
+        typer.Option(
+            "--since", metavar="WHEN", help="today, yesterday, 2h, 3d or an ISO 8601 date or time."
+        ),
+    ] = "today",
+    until: Annotated[
+        str | None, typer.Option("--until", metavar="WHEN", help="The end; default now.")
+    ] = None,
+    spans: Annotated[
+        bool, typer.Option("--spans/--no-spans", help="List every focus span, or the totals only.")
+    ] = True,
+    as_json: JsonOption = False,
+) -> None:
+    """Where your attention went: focus time per workspace, project and app, and the spans."""
+    from fylgja.cli.when import parse_when
+
+    try:
+        query = {"since": parse_when(since).isoformat()}
+        if until is not None:
+            query["until"] = parse_when(until).isoformat()
+    except ValueError as exc:
+        _fail(str(exc), EXIT_CONFIG)
+    payload = _fetch("/history?" + urllib.parse.urlencode(query))
+    _show(payload, as_json, lambda: render.render_history(payload, _width(), spans=spans))
 
 
 @collectors_app.command("list")

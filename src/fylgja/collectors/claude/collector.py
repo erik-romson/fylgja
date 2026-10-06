@@ -52,6 +52,7 @@ from fylgja.collectors.base import CollectorContext
 from fylgja.collectors.claude import parse, transcript
 from fylgja.collectors.claude.adapter import PsFailure, Seams, ps_process_table, ps_start_times
 from fylgja.collectors.claude.facts import TaskItem
+from fylgja.collectors.claude.history import HistoryReader
 from fylgja.collectors.claude.inbox import InboxDrainer
 from fylgja.collectors.claude.registry import Continuity, PollResult, RegistryPoller
 from fylgja.collectors.claude.statusline import StatuslineReader
@@ -86,6 +87,16 @@ class ClaudeSettings(BaseModel):
     inbox_watch: Literal["auto", "poll"] = "auto"
     """``auto`` watches with kqueue where it exists; ``poll`` only polls."""
     statusline_poll_seconds: float = Field(default=1.0, gt=0)
+    history_file: Path | None = None
+    """Claude's prompt history; default ``~/.claude/history.jsonl``. Only the project and the time
+    of each prompt are read (WP5.2)."""
+    history_enabled: bool = True
+    """Emit a ``worked_on`` marker per project from the prompt history."""
+    history_poll_seconds: float = Field(default=5.0, gt=0)
+    history_backfill_hours: float = Field(default=24.0, gt=0)
+    """Prompts older than this are not turned into markers when the file is first read."""
+    history_coalesce_seconds: float = Field(default=60.0, ge=0)
+    """At most one marker per project in this many seconds."""
     ps_command: str = "/bin/ps"
     command_timeout_seconds: float = Field(default=5.0, gt=0)
 
@@ -115,6 +126,7 @@ class ClaudeCollector:
         seams: Seams,
         ignore_cwd: tuple[str, ...],
         projects_dir: Path | None = None,
+        history_file: Path | None = None,
     ) -> None:
         self._settings = settings
         self._context = context
@@ -156,6 +168,16 @@ class ClaudeCollector:
         )
         self.statusline = StatuslineReader(
             context.paths.data_dir / "statusline", context.sink, context.clock, context.logger
+        )
+        self.history = HistoryReader(
+            history_file if history_file is not None else registry_dir.parent / "history.jsonl",
+            seams.fs,
+            context.sink,
+            context.clock,
+            context.logger,
+            ignore_cwd=ignore_cwd,
+            backfill_seconds=settings.history_backfill_hours * 3600,
+            coalesce_seconds=settings.history_coalesce_seconds,
         )
         self._loop_failures: dict[str, str] = {}
 
@@ -384,6 +406,12 @@ class ClaudeCollector:
             self.statusline.poll()
             await self._context.clock.sleep(self._settings.statusline_poll_seconds)
 
+    async def _history_loop(self) -> None:
+        while True:
+            if self._settings.history_enabled:
+                self.history.poll()
+            await self._context.clock.sleep(self._settings.history_poll_seconds)
+
     async def _guarded(self, name: str, loop: Callable[[], Awaitable[None]]) -> None:
         """Run one loop; an unexpected error is logged and the loop restarts after a pause."""
         while True:
@@ -399,13 +427,15 @@ class ClaudeCollector:
                 return
 
     async def run(self) -> None:
-        """Poll the registry, drain the hook inbox and read the statusline until cancelled."""
+        """Poll the registry, drain the hook inbox, read the statusline and the prompt history until
+        cancelled."""
         tasks = [
             asyncio.ensure_future(self._guarded(name, loop))
             for name, loop in (
                 ("registry", self._registry_loop),
                 ("inbox", self.inbox.run),
                 ("statusline", self._statusline_loop),
+                ("history", self._history_loop),
             )
         ]
         try:

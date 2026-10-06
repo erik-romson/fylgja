@@ -23,10 +23,12 @@ __all__ = [
     "ImportedTodoRow",
     "ProjectRow",
     "SessionRow",
+    "SpanRow",
     "StoreRow",
     "TodoRow",
     "UsageRow",
     "WindowRow",
+    "WorkedOnRow",
     "WorkspaceRow",
 ]
 
@@ -202,6 +204,37 @@ class FocusRow(StoreRow):
     observed_at: datetime
 
     _times = frozenset({"observed_at"})
+
+
+@dataclass(frozen=True)
+class SpanRow(StoreRow):
+    """One ``focus_spans`` row (``started_at``/``ended_at`` are §4.1's ``start``/``end``).
+
+    ``ended_at`` is ``None`` while the span is open.
+    """
+
+    window_id: str | None
+    workspace: str | None
+    app_bundle_id: str | None
+    title: str | None
+    project_path: str | None
+    session_key: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    end_reason: str | None
+
+    _times = frozenset({"started_at", "ended_at"})
+
+
+@dataclass(frozen=True)
+class WorkedOnRow(StoreRow):
+    """The "worked on" markers of one project in a window (the secondary signal, WP5.2)."""
+
+    project_path: str
+    markers: int
+    last_at: datetime
+
+    _times = frozenset({"last_at"})
 
 
 @dataclass(frozen=True)
