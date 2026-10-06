@@ -32,7 +32,15 @@ written back through the single writer after every job. A request
   ``fresh`` too: that session is never regenerated, whatever else changed (its state, say);
 * with a changed digest starts a job, but at most once per ``ttl_seconds`` per key: inside the TTL
   (counted from the last attempt) the cached row is answered as ``stale`` (or ``failed`` when the
-  last attempt failed).
+  last attempt failed);
+* for a **past day** (``settled`` inputs, WP8.2) is judged by the digest alone: unchanged, it is
+  ``fresh`` for good, and changed (a late import) it is regenerated at once, with no TTL. Only a
+  failed attempt waits out the TTL.
+
+**The day scope** (WP8.2): ``ref`` is a local date ``YYYY-MM-DD`` (:func:`parse_day`); its inputs
+(:mod:`fylgja.api.summary_inputs`) are the day's ``/history`` totals and ordered spans, the
+sessions active that day with their one-liners and the todos created or finished that day, and
+the output is one paragraph (``kind = text``).
 
 ``generated_at`` is the instant a summary describes: when its job took its inputs. A failed attempt
 keeps the previous text and records its ``error_kind``. Model output is redacted with the privacy
@@ -55,7 +63,7 @@ import re
 import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
@@ -91,6 +99,9 @@ __all__ = [
     "claude_command",
     "input_digest",
     "normalize",
+    "day_bounds",
+    "day_prompt",
+    "parse_day",
     "parse_story",
     "parse_text",
     "session_prompt",
@@ -187,6 +198,9 @@ class SummaryInputs:
     activity_at: datetime | None = None
     """When the scope last changed at its source (a session: its transcript's last line). A
     cached summary as of this instant or later is never regenerated."""
+    settled: bool = False
+    """The scope can no longer change by itself (a day that is over): a cached summary is judged
+    by its digest alone and a changed digest is regenerated without waiting out the TTL."""
 
     @classmethod
     def create(
@@ -196,8 +210,9 @@ class SummaryInputs:
         data: Mapping[str, Any],
         *,
         activity_at: datetime | None = None,
+        settled: bool = False,
     ) -> SummaryInputs:
-        return cls(scope, ref, cast(dict[str, Any], normalize(data)), activity_at)
+        return cls(scope, ref, cast(dict[str, Any], normalize(data)), activity_at, settled)
 
     @property
     def key(self) -> Key:
@@ -311,6 +326,101 @@ def workspace_prompt(data: Mapping[str, Any]) -> str:
     return "\n".join(parts)
 
 
+_DAY_REF: Final = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def parse_day(ref: str) -> date:
+    """The local date of a ``YYYY-MM-DD`` ref. Raises :class:`ValueError` for anything else."""
+    if _DAY_REF.fullmatch(ref) is None:
+        raise ValueError("a day is written YYYY-MM-DD")
+    try:
+        return date.fromisoformat(ref)
+    except ValueError:
+        raise ValueError("a day is written YYYY-MM-DD") from None
+
+
+def day_bounds(day: date) -> tuple[datetime, datetime]:
+    """The instants a local day starts and ends (UTC); the day is 23 or 25 hours long when the
+    clocks change."""
+    start = datetime(day.year, day.month, day.day).astimezone()  # noqa: DTZ001 - local midnight
+    following = day + timedelta(days=1)
+    stop = datetime(following.year, following.month, following.day).astimezone()  # noqa: DTZ001
+    return start.astimezone(UTC), stop.astimezone(UTC)
+
+
+_DAY_REPLY: Final = """Reply with one short paragraph of three to five sentences and nothing
+else: tell the story of the day in the order it happened, what the attention went to
+and what got done. Past tense. Be concrete: name the projects and the work rather
+than saying "the code", and say so plainly when the day was quiet. No preamble, no
+markdown, no bullet points, no quotes."""
+
+
+def _minutes(seconds: Any) -> str:
+    total = int(float(seconds)) // 60
+    return f"{total // 60} h {total % 60:02d} min" if total >= 60 else f"{total} min"
+
+
+def _totals(title: str, rows: Any, key: str) -> list[str]:
+    found = [r for r in rows or () if isinstance(r, Mapping)]
+    if not found:
+        return []
+    return [
+        f"{title}:",
+        *(f"  - {r.get(key) or '(unknown)'}: {_minutes(r.get('seconds', 0))}" for r in found),
+    ]
+
+
+def _span_line(span: Mapping[str, Any]) -> str:
+    where = ", ".join(str(span[k]) for k in ("workspace", "app", "project_name") if span.get(k))
+    title = f" — {span['title']}" if span.get("title") else ""
+    length = f" ({span['minutes']} min)" if span.get("minutes") else ""
+    return (
+        f"  - {span.get('start', '?')}–{span.get('end', '?')}{length} {where or '(unknown)'}{title}"
+    )
+
+
+def day_prompt(data: Mapping[str, Any]) -> str:
+    """The prompt for one paragraph that tells the story of a day, over its normalized inputs
+    (see :mod:`fylgja.api.summary_inputs`)."""
+    parts = [
+        "Someone works across several workspaces of a tiling window manager and runs agent\n"
+        "sessions beside it. Below is what was recorded of one day: where the attention went,\n"
+        "which agent sessions were active and which todos were added or finished. Write the\n"
+        f"story of {data.get('date', 'the day')}.",
+        "",
+    ]
+    if "total_seconds" in data:
+        parts.append(f"Time at the screen: {_minutes(data['total_seconds'])}")
+    parts += _totals("Per workspace", data.get("workspaces"), "workspace")
+    parts += _totals("Per project", data.get("projects"), "project_name")
+    parts += _totals("Per app", data.get("apps"), "app")
+    if data.get("worked_on"):
+        parts.append(_line("Projects Claude was prompted in", data["worked_on"]))
+    spans = [s for s in data.get("spans", []) if isinstance(s, Mapping)]
+    if spans:
+        parts.append("What had the focus, in order:")
+        parts.extend(_span_line(s) for s in spans)
+        if data.get("spans_omitted"):
+            parts.append(f"  (and {data['spans_omitted']} more)")
+    sessions = [s for s in data.get("sessions", []) if isinstance(s, Mapping)]
+    if sessions:
+        parts.append("Agent sessions active that day:")
+        for item in sessions:
+            head = ", ".join(str(item[k]) for k in ("agent", "project_name") if k in item)
+            parts.append(f"  - {head}: {item.get('one_liner') or item.get('title') or '—'}")
+    for title, name in (("Todos added", "todos_added"), ("Todos finished", "todos_done")):
+        todos = [t for t in data.get(name, []) if isinstance(t, Mapping)]
+        if todos:
+            parts.append(f"{title}:")
+            parts.extend(f"  - {t.get('text', '')}" for t in todos)
+    parts += ["", _DAY_REPLY]
+    return "\n".join(parts)
+
+
+def _day_prompt(inputs: SummaryInputs, previous: CachedSummary | None) -> str:
+    return day_prompt(inputs.data)
+
+
 def _session_prompt(inputs: SummaryInputs, previous: CachedSummary | None) -> str:
     if previous is None:
         return session_prompt(inputs.data)
@@ -324,8 +434,9 @@ def _workspace_prompt(inputs: SummaryInputs, previous: CachedSummary | None) -> 
 _PROMPTS: Final[Mapping[str, Callable[[SummaryInputs, CachedSummary | None], str]]] = {
     "session": _session_prompt,
     "workspace": _workspace_prompt,
+    "day": _day_prompt,
 }
-"""The scopes the service can summarize, and their prompts (``day`` arrives with WP8.2)."""
+"""The scopes the service can summarize, and their prompts."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -704,9 +815,10 @@ class SummaryService:
         if key in self._jobs:  # join the job that is queued or running
             return _answer(inputs.scope, inputs.ref, SummaryState.PENDING, cached)
         state = _state_of(cached, inputs)
-        if state is SummaryState.FRESH or (
-            state in (SummaryState.STALE, SummaryState.FAILED) and self._inside_ttl(key, cached)
-        ):
+        held = (
+            (SummaryState.FAILED,) if inputs.settled else (SummaryState.STALE, SummaryState.FAILED)
+        )
+        if state is SummaryState.FRESH or (state in held and self._inside_ttl(key, cached)):
             return _answer(inputs.scope, inputs.ref, state, cached)
         self._start(inputs, cached)
         return _answer(inputs.scope, inputs.ref, SummaryState.PENDING, cached)

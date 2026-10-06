@@ -511,11 +511,11 @@ async def test_a_workspace_paragraph_from_its_label_sessions_context_and_todos()
         assert [(r["kind"], r["text"]) for r in stored(daemon)] == [("text", PARAGRAPH)]
 
 
-async def test_the_day_scope_is_not_generated_yet() -> None:
+async def test_a_scope_without_a_prompt_cannot_be_requested() -> None:
     async with story_world() as daemon:
-        day = SummaryInputs.create("day", "2026-10-05", {"spans": 3})
-        with pytest.raises(ValueError, match="day"):
-            daemon.summaries.request(day)
+        unknown = SummaryInputs.create("project", "x", {"spans": 3})  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="project"):
+            daemon.summaries.request(unknown)
         assert daemon.summaries.answer("day", "2026-10-05", None) is None
 
 

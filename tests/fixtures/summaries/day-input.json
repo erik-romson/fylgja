@@ -1,0 +1,201 @@
+{
+  "apps": [
+    {
+      "app": "com.jetbrains.pycharm",
+      "seconds": 40200
+    },
+    {
+      "app": "com.cmuxterm.app",
+      "seconds": 9240
+    },
+    {
+      "app": "com.apple.Safari",
+      "seconds": 1200
+    }
+  ],
+  "date": "2026-10-05",
+  "projects": [
+    {
+      "project_name": "project-one",
+      "seconds": 40200
+    },
+    {
+      "project_name": "project-two",
+      "seconds": 9240
+    },
+    {
+      "seconds": 1200
+    }
+  ],
+  "sessions": [
+    {
+      "agent": "claude",
+      "one_liner": "Editing the parser",
+      "project_name": "project-one"
+    },
+    {
+      "agent": "claude",
+      "one_liner": "Waiting for your answer",
+      "project_name": "project-two"
+    },
+    {
+      "agent": "codex"
+    }
+  ],
+  "spans": [
+    {
+      "app": "com.jetbrains.pycharm",
+      "end": "08:45",
+      "minutes": 45,
+      "project_name": "project-one",
+      "start": "08:00",
+      "title": "project one - editor",
+      "workspace": "ws1"
+    },
+    {
+      "app": "com.apple.Safari",
+      "end": "08:50",
+      "minutes": 5,
+      "start": "08:45",
+      "title": "docs page",
+      "workspace": "ws2"
+    },
+    {
+      "app": "com.jetbrains.pycharm",
+      "end": "09:35",
+      "minutes": 45,
+      "project_name": "project-one",
+      "start": "08:50",
+      "title": "project one - editor",
+      "workspace": "ws1"
+    },
+    {
+      "app": "com.jetbrains.pycharm",
+      "end": "10:20",
+      "minutes": 25,
+      "project_name": "project-one",
+      "start": "09:55",
+      "title": "project one - editor",
+      "workspace": "ws1"
+    },
+    {
+      "app": "com.cmuxterm.app",
+      "end": "11:00",
+      "minutes": 40,
+      "project_name": "project-two",
+      "start": "10:20",
+      "title": "project two - terminal",
+      "workspace": "ws3"
+    },
+    {
+      "app": "com.cmuxterm.app",
+      "end": "11:35",
+      "minutes": 5,
+      "project_name": "project-two",
+      "start": "11:30",
+      "title": "project two - terminal",
+      "workspace": "ws3"
+    },
+    {
+      "app": "com.apple.Safari",
+      "end": "11:40",
+      "minutes": 5,
+      "start": "11:35",
+      "title": "docs page",
+      "workspace": "ws2"
+    },
+    {
+      "app": "com.cmuxterm.app",
+      "end": "12:10",
+      "minutes": 29,
+      "project_name": "project-two",
+      "start": "11:41",
+      "title": "project two - terminal",
+      "workspace": "ws3"
+    },
+    {
+      "app": "com.jetbrains.pycharm",
+      "end": "12:25",
+      "minutes": 15,
+      "project_name": "project-one",
+      "start": "12:10",
+      "title": "project one - editor",
+      "workspace": "ws1"
+    },
+    {
+      "app": "com.apple.Safari",
+      "end": "12:35",
+      "minutes": 10,
+      "start": "12:25",
+      "title": "docs page",
+      "workspace": "ws2"
+    },
+    {
+      "app": "com.jetbrains.pycharm",
+      "end": "13:30",
+      "minutes": 40,
+      "project_name": "project-one",
+      "start": "12:50",
+      "title": "project one - editor",
+      "workspace": "ws1"
+    },
+    {
+      "app": "com.cmuxterm.app",
+      "end": "14:25",
+      "minutes": 50,
+      "project_name": "project-two",
+      "start": "13:35",
+      "title": "project two - terminal",
+      "workspace": "ws3"
+    },
+    {
+      "app": "com.cmuxterm.app",
+      "end": "15:40",
+      "minutes": 30,
+      "project_name": "project-two",
+      "start": "15:10",
+      "title": "project two - terminal",
+      "workspace": "ws3"
+    },
+    {
+      "app": "com.jetbrains.pycharm",
+      "end": "00:00",
+      "minutes": 500,
+      "project_name": "project-one",
+      "start": "15:40",
+      "title": "project one - editor",
+      "workspace": "ws1"
+    }
+  ],
+  "todos_added": [
+    {
+      "text": "write the parser tests"
+    },
+    {
+      "text": "plan tomorrow"
+    }
+  ],
+  "todos_done": [
+    {
+      "text": "write the parser tests"
+    },
+    {
+      "text": "review the release notes"
+    }
+  ],
+  "total_seconds": 50640,
+  "workspaces": [
+    {
+      "seconds": 40200,
+      "workspace": "ws1"
+    },
+    {
+      "seconds": 9240,
+      "workspace": "ws3"
+    },
+    {
+      "seconds": 1200,
+      "workspace": "ws2"
+    }
+  ]
+}

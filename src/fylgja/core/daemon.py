@@ -88,7 +88,7 @@ from fylgja.models import (
 )
 from fylgja.privacy import PrivacyFilter
 from fylgja.store import db, queries
-from fylgja.store.rows import HealthRow
+from fylgja.store.rows import DaySessionRow, HealthRow, TodoRow
 
 __all__ = [
     "AVAILABLE_STATES",
@@ -700,6 +700,26 @@ class Daemon:
         """Focus spans and totals over ``[since, until)`` and the projects the prompt history
         marked as worked on (``GET /history``). Reads the store; open spans run to now."""
         return await asyncio.to_thread(self._read_history, since, until)
+
+    def _read_day(
+        self, since: datetime, until: datetime
+    ) -> tuple[list[DaySessionRow], list[TodoRow]]:
+        connection = db.connect_reader(self.writer.database)
+        try:
+            start, stop = db.to_db_time(since), db.to_db_time(until)
+            return (
+                queries.load_day_sessions(connection, since=start, until=stop),
+                queries.load_day_todos(connection, since=start, until=stop),
+            )
+        finally:
+            connection.close()
+
+    async def day_activity(
+        self, since: datetime, until: datetime
+    ) -> tuple[list[DaySessionRow], list[TodoRow]]:
+        """The sessions active in ``[since, until)`` with their one-liners, and the todos created
+        or finished in it (the inputs of the daily narrative, WP8.2). Reads the store."""
+        return await asyncio.to_thread(self._read_day, since, until)
 
     async def _load_hosts(self) -> HostData:
         """Host data for a refresh; nothing is read while no session needs placing."""

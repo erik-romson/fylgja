@@ -22,6 +22,7 @@ from typing import Any, Final
 
 from fylgja.store.rows import (
     ActivityRow,
+    DaySessionRow,
     FocusRow,
     HealthRow,
     ImportedTodoRow,
@@ -68,6 +69,8 @@ __all__ = [
     "list_import_todos",
     "list_todos",
     "load_active_todos",
+    "load_day_sessions",
+    "load_day_todos",
     "mark_todos_absent",
     "load_health",
     "load_live_sessions",
@@ -1463,6 +1466,44 @@ def load_worked_on(connection: sqlite3.Connection, *, since: str, until: str) ->
     return [
         WorkedOnRow.from_db(row)
         for row in connection.execute(LOAD_WORKED_ON, {"since": since, "until": until})
+    ]
+
+
+LOAD_DAY_SESSIONS: Final = """
+SELECT s.session_key, s.kind, s.project_path, s.workspace, s.title, s.first_seen,
+       (SELECT n.one_liner FROM session_snapshots n
+         WHERE n.session_key = s.session_key AND n.valid_from < :until AND n.one_liner IS NOT NULL
+         ORDER BY n.valid_from DESC LIMIT 1) AS one_liner
+FROM sessions s
+WHERE (s.first_seen >= :since AND s.first_seen < :until)
+   OR EXISTS (SELECT 1 FROM session_snapshots a
+               WHERE a.session_key = s.session_key
+                 AND a.valid_from >= :since AND a.valid_from < :until)
+ORDER BY s.first_seen, s.session_key
+"""
+
+LOAD_DAY_TODOS: Final = (
+    f"SELECT {_TODO_COLUMNS} FROM todos WHERE deleted_at IS NULL "
+    "AND ((created_at >= :since AND created_at < :until) "
+    "OR (done_at IS NOT NULL AND done_at >= :since AND done_at < :until)) "
+    "ORDER BY created_at, rowid"
+)
+
+
+def load_day_sessions(
+    connection: sqlite3.Connection, *, since: str, until: str
+) -> list[DaySessionRow]:
+    """The sessions first seen in ``[since, until)`` or with a change of activity in it, oldest
+    first, each with its latest one-liner before ``until``."""
+    found = connection.execute(LOAD_DAY_SESSIONS, {"since": since, "until": until})
+    return [DaySessionRow.from_db(row) for row in found]
+
+
+def load_day_todos(connection: sqlite3.Connection, *, since: str, until: str) -> list[TodoRow]:
+    """The todos (not deleted) created or finished in ``[since, until)``, oldest first."""
+    return [
+        TodoRow.from_db(row)
+        for row in connection.execute(LOAD_DAY_TODOS, {"since": since, "until": until})
     ]
 
 

@@ -2,8 +2,9 @@
 ``PLAN-final-plan.md`` §4.2 "Summary responses").
 
 ``scope`` is ``session`` (``ref`` is the session key), ``workspace`` (``ref`` is the workspace
-name) or ``day`` (``ref`` is ``YYYY-MM-DD``; its inputs arrive with WP8.2, so until then only a
-cached day summary can be read). Any other scope is **404**. Both methods answer the same model,
+name) or ``day`` (``ref`` is a local date ``YYYY-MM-DD``, WP8.2; a ref that is not one is **422**,
+and a day that has not begun or has nothing recorded is **404**). Any other scope is **404**.
+Both methods answer the same model,
 :class:`SummaryResponse`: ``{scope, ref, state, arc?, now?, text?, generated_at?, input_digest?,
 error_kind?}``, with ``state`` one of ``fresh``, ``stale``, ``pending``, ``missing``, ``failed`` and
 ``disabled``.
@@ -15,7 +16,8 @@ error_kind?}``, with ``state`` one of ``fresh``, ``stale``, ``pending``, ``missi
   summary: **200** with the cached result when it is fresh, or when it is stale or failed and the
   TTL holds the next attempt back; **202** with ``pending`` when a job was queued for it or is
   already running (the requests share that job); **409** with ``disabled`` while summaries are off;
-  **404** when ``/now`` does not show the scope (or the scope cannot be summarized yet).
+  **404** when ``/now`` does not show the scope (a day: nothing was recorded that day); **422**
+  for a day that is not ``YYYY-MM-DD``.
 
 A finished job publishes ``summary.ready`` (``{scope, ref, state}``) on ``/events``; the app wires
 that in :func:`fylgja.api.app.create_app`.
@@ -31,8 +33,15 @@ from pydantic import AwareDatetime
 
 from fylgja.api.deps import current_now, daemon_of, json_response
 from fylgja.api.now_models import NowModel, SummaryState, dump_json
-from fylgja.api.summary_inputs import find_inputs
-from fylgja.core.summaries import SCOPES, ScopeKind, SummariesDisabled, SummaryAnswer
+from fylgja.api.summary_inputs import find_day_inputs, find_inputs
+from fylgja.core.summaries import (
+    SCOPES,
+    ScopeKind,
+    SummariesDisabled,
+    SummaryAnswer,
+    SummaryInputs,
+    parse_day,
+)
 
 __all__ = ["SummaryResponse", "response_of", "router"]
 
@@ -42,7 +51,7 @@ _UNKNOWN_SCOPE: Final = "unknown summary scope (session, workspace or day)"
 _NOT_SHOWN: Final = {
     "session": "no live session has that key",
     "workspace": "no workspace has that name",
-    "day": "day summaries are not available yet",
+    "day": "nothing was recorded on that day",
 }
 
 
@@ -86,11 +95,22 @@ def _scope(value: str) -> ScopeKind:
     raise HTTPException(status_code=404, detail=_UNKNOWN_SCOPE)
 
 
+async def _inputs(request: Request, kind: ScopeKind, ref: str) -> SummaryInputs | None:
+    """The current inputs of the scope; a day that is not ``YYYY-MM-DD`` is **422**."""
+    if kind != "day":
+        return find_inputs(current_now(request), kind, ref)
+    try:
+        day = parse_day(ref)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return await find_day_inputs(daemon_of(request), day)
+
+
 @router.get("/summaries/{scope}/{ref}")
 async def get_summary(request: Request, scope: str, ref: str) -> Response:
     kind = _scope(scope)
     service = daemon_of(request).summaries
-    inputs = find_inputs(current_now(request), kind, ref) if service.enabled else None
+    inputs = await _inputs(request, kind, ref) if service.enabled else None
     answer = service.answer(kind, ref, inputs)
     if answer is None:
         raise HTTPException(status_code=404, detail=_NOT_SHOWN[kind])
@@ -104,7 +124,7 @@ async def post_summary(request: Request, scope: str, ref: str) -> Response:
     disabled = SummaryResponse(scope=kind, ref=ref, state=SummaryState.DISABLED)
     if not service.enabled:
         return json_response(dump_json(disabled), status_code=409)
-    inputs = find_inputs(current_now(request), kind, ref)
+    inputs = await _inputs(request, kind, ref)
     if inputs is None:
         raise HTTPException(status_code=404, detail=_NOT_SHOWN[kind])
     try:

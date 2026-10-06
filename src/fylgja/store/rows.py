@@ -18,6 +18,7 @@ from fylgja.store.db import from_db_time
 
 __all__ = [
     "ActivityRow",
+    "DaySessionRow",
     "FocusRow",
     "HealthRow",
     "ImportedTodoRow",
@@ -226,6 +227,22 @@ class SpanRow(StoreRow):
     end_reason: str | None
 
     _times = frozenset({"started_at", "ended_at"})
+
+
+@dataclass(frozen=True)
+class DaySessionRow(StoreRow):
+    """A session that was active in a window, with its one-liner as of the window's end (the
+    daily narrative, WP8.2)."""
+
+    session_key: str
+    kind: str
+    project_path: str | None
+    workspace: str | None
+    title: str | None
+    one_liner: str | None
+    first_seen: datetime
+
+    _times = frozenset({"first_seen"})
 
 
 @dataclass(frozen=True)

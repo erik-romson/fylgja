@@ -254,6 +254,17 @@ def sessions(as_json: JsonOption = False) -> None:
     _show(payload, as_json, lambda: render.render_sessions(payload, _width()))
 
 
+STORY_WAIT: float = 60.0
+"""Seconds ``fylgja story`` waits for ``summary.ready`` by default."""
+STORY_DISABLED = (
+    "summaries are disabled: set [summaries] enabled = true in config.toml and restart the daemon"
+)
+WaitOption = Annotated[
+    float,
+    typer.Option("--wait", min=0, metavar="SECONDS", help="How long to wait for the summary."),
+]
+
+
 @app.command()
 def history(
     since: Annotated[
@@ -268,11 +279,32 @@ def history(
     spans: Annotated[
         bool, typer.Option("--spans/--no-spans", help="List every focus span, or the totals only.")
     ] = True,
+    story: Annotated[
+        bool,
+        typer.Option(
+            "--story",
+            help="Tell the story of one day in a paragraph (needs [summaries] enabled = true).",
+        ),
+    ] = False,
+    day: Annotated[
+        str | None,
+        typer.Option("--date", metavar="YYYY-MM-DD", help="With --story: the day; default today."),
+    ] = None,
+    wait: WaitOption = STORY_WAIT,
     as_json: JsonOption = False,
 ) -> None:
-    """Where your attention went: focus time per workspace, project and app, and the spans."""
+    """Where your attention went: focus time per workspace, project and app, and the spans.
+
+    With --story it tells the story of one day (--date, default today) as one paragraph written
+    by a local model. A past day's story is made once and only rewritten when its inputs change.
+    """
     from fylgja.cli.when import parse_when
 
+    if day is not None and not story:
+        _fail("--date goes with --story", EXIT_CONFIG)
+    if story:
+        _history_story(day, wait, as_json)
+        return
     try:
         query = {"since": parse_when(since).isoformat()}
         if until is not None:
@@ -368,16 +400,6 @@ def session_message(
 
 # --- stories ----------------------------------------------------------------------------------
 
-STORY_WAIT: float = 60.0
-"""Seconds ``fylgja story`` waits for ``summary.ready`` by default."""
-STORY_DISABLED = (
-    "summaries are disabled: set [summaries] enabled = true in config.toml and restart the daemon"
-)
-WaitOption = Annotated[
-    float,
-    typer.Option("--wait", min=0, metavar="SECONDS", help="How long to wait for the summary."),
-]
-
 
 def _ready_for(scope: str, ref: str) -> Callable[[str, Any], bool]:
     def match(name: str, data: Any) -> bool:
@@ -439,6 +461,18 @@ def _story(scope: str, ref: str, wait: float, as_json: bool) -> None:
     _show(answer, as_json, lambda: render.render_story(answer, _width()))
     if state == "failed":
         raise typer.Exit(client.EXIT_API_ERROR)
+
+
+def _history_story(day: str | None, wait: float, as_json: bool) -> None:
+    """``fylgja history --story``: the day's paragraph (today unless ``--date`` says another)."""
+    ref = date.today().isoformat() if day is None else day
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", ref) is None:
+            raise ValueError
+        date.fromisoformat(ref)
+    except ValueError:
+        _fail(f"--date {ref!r} is not a day: write it YYYY-MM-DD", EXIT_CONFIG)
+    _story("day", ref, wait, as_json)
 
 
 @story_app.command("session")

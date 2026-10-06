@@ -55,7 +55,7 @@ fylgja history [--since WHEN] [--until WHEN] [--spans/--no-spans] [--json]
 `WHEN` is `today` (the default for `--since`), `yesterday`, a count (`90m`, `2h`, `3d`, `1w`) or an ISO 8601 date or
 time. The command prints the window, three totals tables (workspace, project, app), the worked-on projects and, unless
 `--no-spans`, the ordered spans in local time. `--json` prints the answer above. It exits 3 when the daemon is down and
-2 for a time it cannot read. `--story` arrives with the summaries (step 47).
+2 for a time it cannot read. `--story [--date YYYY-MM-DD]` prints the story of one day instead (the daily narrative, see `docs/api/summaries.md`).
 
 ## How spans are made
 

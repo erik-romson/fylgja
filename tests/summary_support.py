@@ -38,6 +38,7 @@ from fylgja.core.daemon import Daemon
 from fylgja.core.summaries import RunOutput
 from fylgja.models import SessionActivity
 from fylgja.store import db
+from fylgja.testing.fakes import FakeClock
 
 SECRET = "k7Qz-test-secret-9fA2xLmN0pRsTuVwXyZ_abcdefghij"
 FOCUSED = "3"
@@ -172,15 +173,18 @@ async def story_world(
     max_concurrent: int = 3,
     others: int = 0,
     user_config: Mapping[str, Any] | None = None,
+    clock: FakeClock | None = None,
 ) -> AsyncIterator[Daemon]:
     """A started daemon with the picture described in the module docstring; ``others`` more
-    Claude sessions run in the same window."""
+    Claude sessions run in the same window. ``clock`` (default: starting at ``T0``) lets a test
+    start the daemon on a later day, with the picture recorded at ``T0``."""
     config = summaries_config(enabled=enabled, ttl=ttl, max_concurrent=max_concurrent)
     config.update(user_config or {})
     daemon = make_daemon(
         windows_collector(),
         sessions_collector(),
         user_config=config,
+        clock=clock,
         summary_runner=FakeRunner() if runner is None else runner,
     )
     await daemon.start()

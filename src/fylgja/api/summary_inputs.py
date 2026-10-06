@@ -13,18 +13,24 @@ prompt text arrive redacted) and its digest changes exactly when the picture it 
 * **A workspace** (:func:`workspace_inputs`): its name, effective label and one-liner, its
   projects, each session's agent, state and one-liner, the top context items of its windows (the
   focused window first, at most five) and its open todos (at most eight).
+* **A day** (:func:`day_inputs`, :func:`find_day_inputs`; WP8.2): the date, the ``/history`` totals
+  per workspace, project and app, the ordered focus spans (at most 150, local times, titles as
+  stored: redacted), the sessions active that day with their one-liners (at most 20) and the
+  todos created or finished that day (at most 20 each). A day with nothing recorded has no inputs.
+  A day before today is ``settled``: its summary is judged by the digest alone.
 * **``/now``** (:func:`with_session_story`, :func:`with_workspace_story`): an entry gets a
   ``story`` only while summaries are enabled and a summary with text is cached for it; its state
   is judged against the entry's current inputs.
 
-Pure functions; nothing here reads the store or calls a model.
+Pure functions, but :func:`find_day_inputs`, which reads the day from the daemon's store; nothing
+here calls a model.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import UTC, datetime
-from typing import Any, Final
+from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING, Any, Final
 
 from fylgja.api.now_models import (
     Facts,
@@ -35,9 +41,23 @@ from fylgja.api.now_models import (
     Workspace,
     WorkspaceStory,
 )
-from fylgja.core.summaries import ScopeKind, SummaryAnswer, SummaryInputs, SummaryService
+from fylgja.core.labels import project_name
+from fylgja.core.spans import History
+from fylgja.core.summaries import (
+    ScopeKind,
+    SummaryAnswer,
+    SummaryInputs,
+    SummaryService,
+    day_bounds,
+)
+from fylgja.store.rows import DaySessionRow, TodoRow
+
+if TYPE_CHECKING:
+    from fylgja.core.daemon import Daemon
 
 __all__ = [
+    "day_inputs",
+    "find_day_inputs",
     "find_inputs",
     "find_session",
     "session_inputs",
@@ -51,6 +71,9 @@ TOP_FILES: Final = 10
 TOP_TASKS: Final = 4
 TOP_CONTEXT: Final = 5
 TOP_TODOS: Final = 8
+DAY_SPANS: Final = 150
+DAY_SESSIONS: Final = 20
+DAY_TODOS: Final = 20
 
 
 def _facts_data(facts: Facts) -> dict[str, Any]:
@@ -139,6 +162,81 @@ def workspace_inputs(workspace: Workspace, sessions: Mapping[str, Session]) -> S
     return SummaryInputs.create("workspace", workspace.name, data)
 
 
+def _local(value: datetime) -> str:
+    return value.astimezone().strftime("%H:%M")
+
+
+def day_inputs(
+    day: date,
+    history: History,
+    sessions: Sequence[DaySessionRow],
+    todos: Sequence[TodoRow],
+    *,
+    settled: bool,
+) -> SummaryInputs | None:
+    """The inputs of the narrative of ``day``; ``None`` when nothing was recorded that day."""
+    since, until = day_bounds(day)
+    summary = history.summary
+    spans = [
+        {
+            "start": _local(span.started_at),
+            "end": _local(span.ended_at),
+            "workspace": span.workspace,
+            "app": span.app_bundle_id,
+            "project_name": None if span.project_path is None else project_name(span.project_path),
+            "title": span.title,
+            "minutes": round(span.seconds / 60),
+        }
+        for span in summary.spans[:DAY_SPANS]
+    ]
+    added = [t for t in todos if since <= t.created_at < until]
+    done = [t for t in todos if t.done_at is not None and since <= t.done_at < until]
+    data: dict[str, Any] = {
+        "date": day.isoformat(),
+        "total_seconds": round(summary.total_seconds),
+        "workspaces": [
+            {"workspace": t.key, "seconds": round(t.seconds)} for t in summary.workspaces
+        ],
+        "projects": [
+            {
+                "project_name": None if t.key is None else project_name(t.key) or t.key,
+                "seconds": round(t.seconds),
+            }
+            for t in summary.projects
+        ],
+        "apps": [{"app": t.key, "seconds": round(t.seconds)} for t in summary.apps],
+        "worked_on": [project_name(r.project_path) or r.project_path for r in history.worked_on],
+        "spans": spans,
+        "spans_omitted": max(len(summary.spans) - DAY_SPANS, 0) or None,
+        "sessions": [
+            {
+                "agent": s.kind,
+                "project_name": None if s.project_path is None else project_name(s.project_path),
+                "title": s.title,
+                "one_liner": s.one_liner,
+            }
+            for s in sessions[:DAY_SESSIONS]
+        ],
+        "todos_added": [{"text": t.text} for t in added[:DAY_TODOS]],
+        "todos_done": [{"text": t.text} for t in done[:DAY_TODOS]],
+    }
+    if not (summary.spans or sessions or todos):
+        return None
+    return SummaryInputs.create("day", day.isoformat(), data, settled=settled)
+
+
+async def find_day_inputs(daemon: Daemon, day: date) -> SummaryInputs | None:
+    """The current inputs of ``day`` from the daemon's store. ``None`` for a day that has not
+    begun and for one with nothing recorded."""
+    today = daemon.clock.now().astimezone().date()
+    if day > today:
+        return None
+    since, until = day_bounds(day)
+    history = await daemon.history(since, until)
+    sessions, todos = await daemon.day_activity(since, until)
+    return day_inputs(day, history, sessions, todos, settled=day < today)
+
+
 def _walk(sessions: Iterable[Session]) -> Iterable[Session]:
     for session in sessions:
         yield session
@@ -152,7 +250,7 @@ def find_session(sessions: Sequence[Session] | None, key: str) -> Session | None
 
 def find_inputs(now: Now, scope: ScopeKind, ref: str) -> SummaryInputs | None:
     """The current inputs of ``(scope, ref)`` in ``now``; ``None`` when ``/now`` does not show it
-    (and for ``day``, which WP8.2 adds)."""
+    (and for ``day``, which is not a part of ``/now``: see :func:`find_day_inputs`)."""
     if scope == "session":
         session = find_session(now.sessions, ref)
         return None if session is None else session_inputs(session)

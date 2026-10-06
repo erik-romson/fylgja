@@ -137,7 +137,7 @@ async def test_get_of_an_unknown_scope_or_ref_is_404(world: Daemon) -> None:
             "/summaries/project/x",
             "/summaries/session/claude:nobody",
             "/summaries/workspace/99",
-            "/summaries/day/2026-10-05",
+            "/summaries/day/2026-09-01",
         ):
             response = await api.get(path)
             assert response.status_code == 404, path
@@ -233,7 +233,7 @@ async def test_post_while_disabled_is_409_with_disabled(runner: FakeRunner) -> N
     assert runner.calls == []
 
 
-async def test_post_of_an_unknown_scope_ref_or_the_day_is_404(
+async def test_post_of_an_unknown_scope_ref_or_an_empty_day_is_404(
     world: Daemon, runner: FakeRunner
 ) -> None:
     async with http(world) as api:
@@ -241,7 +241,7 @@ async def test_post_of_an_unknown_scope_ref_or_the_day_is_404(
             ("/summaries/project/x", "unknown summary scope (session, workspace or day)"),
             ("/summaries/session/claude:nobody", "no live session has that key"),
             ("/summaries/workspace/99", "no workspace has that name"),
-            ("/summaries/day/2026-10-05", "day summaries are not available yet"),
+            ("/summaries/day/2026-09-01", "nothing was recorded on that day"),
         ):
             response = await post(api, path)
             assert response.status_code == 404, path
