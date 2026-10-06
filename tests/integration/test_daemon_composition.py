@@ -63,6 +63,10 @@ STOP = ["stop:supervisor", "stop:state_engine", "stop:writer"]
 
 PLANNED_BUILT_INS = ("aerospace", "claude", "codex", "opencode", "norn", "presence", "appcontext")
 """Every built-in collector of §3.1 except ``project``, which is an ordinary word."""
+ORDINARY_WORDS = frozenset({"project"})
+"""Built-in names that are also nouns of the core (projects are a core concept): the daemon may say
+the word, so only the AST check below (no identifier, constant or import of exactly that name)
+applies to them."""
 
 
 async def _get(daemon: Daemon, path: str) -> Any:
@@ -570,7 +574,8 @@ def test_no_collector_names_in_core_daemon() -> None:
     names = _collector_names()
     assert {"aerospace", "claude"} <= names  # the installed built-ins are in the list
     lowered = source.lower()
-    assert [name for name in names if name.lower() in lowered and len(name) > 4] == []
+    named = [n for n in names - ORDINARY_WORDS if n.lower() in lowered and len(n) > 4]
+    assert named == []
     tree = ast.parse(source)
     words: set[str] = set()
     for node in ast.walk(tree):

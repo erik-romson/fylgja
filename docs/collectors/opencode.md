@@ -1,7 +1,7 @@
 # OpenCode collector
 
-The built-in `opencode` collector (`src/fylgja/collectors/opencode/`, capability `sessions`) lists the running
-OpenCode sessions. It is enabled by default (`[collectors.opencode]` in `defaults.toml`) and reads only; it installs
+The built-in `opencode` collector (`src/fylgja/collectors/opencode/`, capabilities `sessions` and `todos`) lists the
+running OpenCode sessions. It is enabled by default (`[collectors.opencode]` in `defaults.toml`) and reads only; it installs
 nothing. An optional TypeScript plugin makes it faster.
 
 ## What it reads
@@ -25,8 +25,9 @@ text is never read: the queries return roles, times, tool names and six short to
 - **Activity (§4.6).** The session title (OpenCode's `New session - <timestamp>` placeholder is dropped), the tool of
   the open turn's newest `pending` or `running` tool part with a short target (first command line, file name,
   pattern, URL, task description) and the first `in_progress` todo as the open task.
-- **Own task list.** The `todo` table, as `facts.tasks` (`{status, content}`, at most 20, in position order). Step 35
-  turns it into imported todos.
+- **Own task list.** The `todo` table, as `facts.tasks` (`{status, content}`, at most 20, in position order), and as
+  read-only todos of the session (capability `todos`, source `opencode-todo`, one complete list per session keyed by
+  `position`; a session no longer listed empties its list). See decision 0041.
 
 ## Settings (`[collectors.opencode]`)
 

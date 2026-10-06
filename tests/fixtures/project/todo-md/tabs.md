@@ -1,0 +1,2 @@
+- [ ] A tab-indented task
+	- [ ] Under it, with a tab

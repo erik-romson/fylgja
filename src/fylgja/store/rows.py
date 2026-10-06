@@ -20,6 +20,7 @@ __all__ = [
     "ActivityRow",
     "FocusRow",
     "HealthRow",
+    "ImportedTodoRow",
     "ProjectRow",
     "SessionRow",
     "StoreRow",
@@ -241,3 +242,24 @@ class TodoRow(StoreRow):
     updated_at: datetime
 
     _times = frozenset({"created_at", "done_at", "updated_at"})
+
+
+@dataclass(frozen=True)
+class ImportedTodoRow(StoreRow):
+    """One ``todos`` row of an import list, deleted or not (WP4.3 reconciliation)."""
+
+    id: str
+    scope_kind: str | None
+    scope_ref: str | None
+    text: str
+    status: str
+    created_at: datetime
+    done_at: datetime | None
+    source: str
+    source_ref: str
+    link: str | None
+    updated_at: datetime
+    deleted_at: datetime | None
+    deleted_reason: str | None
+
+    _times = frozenset({"created_at", "done_at", "updated_at", "deleted_at"})

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
-from fylgja.collectors.claude.facts import FactsAccumulator, PendingTool, decode_line
+from fylgja.collectors.claude.facts import FactsAccumulator, PendingTool, TaskItem, decode_line
 from fylgja.collectors.seams import FileSystem, RangeReader
 
 __all__ = [
@@ -223,6 +223,10 @@ class SessionTranscript:
 
     def facts(self) -> dict[str, Any]:
         return self._facts.facts()
+
+    def task_list(self) -> tuple[TaskItem, ...]:
+        """The session's whole task list, each task with its key (WP4.3)."""
+        return self._facts.task_list()
 
     def pending_tool(self) -> PendingTool | None:
         return self._facts.pending_tool()

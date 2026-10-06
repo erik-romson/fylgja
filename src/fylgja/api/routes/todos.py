@@ -13,6 +13,8 @@ The read needs no authentication. The three writes are mutating routes, so the m
 * ``PATCH /todos/{id}``: ``{"text"?: "...", "status"?: "open"|"next"|"done"}``, at least one.
   Marking a done todo done again changes nothing. Answers **200** with the todo.
 * ``DELETE /todos/{id}``: soft delete, **204**. An unknown or deleted id is **404**.
+* An imported todo (WP4.3: a ``TODO.md`` line, an agent's task) is read-only: ``PATCH`` and
+  ``DELETE`` on it are **409**, and the answer names its source.
 
 A body that is not an object with exactly these fields is **422**; the answer never repeats the
 text.
@@ -32,6 +34,7 @@ from fylgja.api.now_models import Todo, dump_json
 from fylgja.core.todos import (
     NoFocusedWorkspace,
     TodoNotFound,
+    TodoReadOnly,
     TodoService,
     TodoValidationError,
 )
@@ -134,6 +137,8 @@ async def patch_todo(request: Request, todo_id: str) -> Response:
         row = await _service(request).update(todo_id, text=body.text, status=body.status)
     except TodoNotFound:
         raise not_found("todo") from None
+    except TodoReadOnly as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
     except TodoValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
     return json_response(dump_json(todo_model(row)))
@@ -145,4 +150,6 @@ async def delete_todo(request: Request, todo_id: str) -> Response:
         await _service(request).delete(todo_id)
     except TodoNotFound:
         raise not_found("todo") from None
+    except TodoReadOnly as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
     return Response(status_code=204, headers={"cache-control": "no-store"})

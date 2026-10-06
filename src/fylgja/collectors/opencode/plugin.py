@@ -35,7 +35,8 @@ def _factory(settings: BaseModel, context: CollectorContext) -> Collector:
 plugin = CollectorPlugin(
     name=NAME,
     api_major=COLLECTOR_API_MAJOR,
-    capabilities=frozenset({Capability.SESSIONS}),
+    # SESSIONS: sessions, activity and hook events. TODOS: each session's todo table (WP4.3).
+    capabilities=frozenset({Capability.SESSIONS, Capability.TODOS}),
     config_model=OpenCodeSettings,
     factory=_factory,
 )

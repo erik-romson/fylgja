@@ -38,6 +38,7 @@ def test_defaults_load_without_a_user_file() -> None:
         "codex": {"enabled": True},
         "opencode": {"enabled": True},
         "norn": {"enabled": True, "roots": ["~/projects"], "max_depth": 3},
+        "project": {"enabled": True, "poll_interval_seconds": 5},
     }
 
 

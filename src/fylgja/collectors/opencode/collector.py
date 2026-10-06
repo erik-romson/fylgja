@@ -20,6 +20,12 @@ ended is closed in the store. The session key is ``opencode:<session id>``.
 A process whose directory has no session row (a fresh TUI that has not stored anything yet) is not
 listed: there is no session id to key on.
 
+**Task lists (WP4.3).** The ``todo`` rows of each listed session are also emitted as one complete
+TODOS snapshot (:func:`~fylgja.collectors.opencode.parse.todo_snapshot`) whenever they differ from
+the list last emitted for that session, scoped to the session. When a session is no longer listed
+(its process ended), its list is gone with it: a complete, empty snapshot is emitted for it once.
+A poll that fails emits no list at all, so no stored task is touched by a failed read.
+
 **The optional TypeScript plugin.** ``fylgja.ts`` (package data; copied by hand to
 ``~/.config/opencode/plugins/``) writes ``fylgja.hook/1`` envelopes for ``session.status``,
 ``permission.asked`` and ``todo.updated`` into ``hook-inbox/opencode/``. This collector drains that
@@ -74,6 +80,7 @@ INBOX_SOURCE: Final = "opencode"
 
 _Listed = tuple[str, SessionPayload, SessionActivity]
 _Failure = tuple[str, str]
+_Lists = dict[str, tuple[parse.TodoRow, ...]]
 
 
 class OpenCodeSettings(BaseModel):
@@ -144,10 +151,14 @@ class OpenCodeCollector:
         self._polled = False
         self._last_emitted: list[_Listed] | None = None
         self._last_emit_at = 0.0
+        self._task_lists: _Lists = {}
+        """The todo list last emitted for each session key."""
         self._wake = asyncio.Event()
         self.stats = PollStats()
         self.emissions = 0
         """Snapshot pairs that reached the sink."""
+        self.task_emissions = 0
+        """Todo-list snapshots that reached the sink."""
         self.inbox = InboxDrainer(
             context.paths.inbox_dir,
             _WakeSink(context.sink, self._wake),
@@ -183,7 +194,9 @@ class OpenCodeCollector:
             self._polled = True
             self._procs.clear()
             self.stats.sessions = self.stats.without_session = 0
-            return self._emit([])
+            emitted = self._emit([])
+            self._emit_task_lists({})
+            return emitted
 
         await self._refresh_processes(live)
         procs = [
@@ -192,7 +205,7 @@ class OpenCodeCollector:
             if (cwd := files[pid].cwd) is not None
         ]
         try:
-            listed = self._read_sessions(procs)
+            listed, lists = self._read_sessions(procs)
         except OpenCodeDbError as error:
             self._set_db_problem((error.kind, error.detail))
             return False
@@ -200,7 +213,9 @@ class OpenCodeCollector:
         self.stats.sessions = len(listed)
         self.stats.without_session = len(live) - len(listed)
         self._polled = True
-        return self._emit(listed)
+        emitted = self._emit(listed)
+        self._emit_task_lists(lists)
+        return emitted
 
     def _db_missing(self) -> _Failure | None:
         try:
@@ -211,13 +226,14 @@ class OpenCodeCollector:
             return None
         return ("db_missing", "the OpenCode database does not exist")
 
-    def _read_sessions(self, procs: list[parse.ProcInfo]) -> list[_Listed]:
-        """The listed sessions of ``procs``. Raises :class:`OpenCodeDbError`."""
+    def _read_sessions(self, procs: list[parse.ProcInfo]) -> tuple[list[_Listed], _Lists]:
+        """The listed sessions of ``procs`` and their todo lists. Raises OpenCodeDbError."""
         if (missing := self._db_missing()) is not None:
             raise OpenCodeDbError(*missing)
         now_ms = int(self._context.clock.now().timestamp() * 1000)
         stale_ms = int(self._settings.busy_stale_seconds * 1000)
         listed: list[_Listed] = []
+        lists: _Lists = {}
         with OpenCodeDb.open(self._db_path) as db:
             columns = db.check_schema()
             rows = db.sessions({parse.norm_dir(proc.cwd) for proc in procs}, columns)
@@ -245,7 +261,8 @@ class OpenCodeCollector:
                 listed.append(
                     (parse.session_key(row.id), payload, parse.activity_of(row, turn, tool, todos))
                 )
-        return listed
+                lists[parse.session_key(row.id)] = tuple(todos)
+        return listed, lists
 
     async def _refresh_processes(self, pids: list[int]) -> None:
         """Keep key, ancestors and start of each live pid; ``ps`` is asked only for new ones."""
@@ -286,6 +303,23 @@ class OpenCodeCollector:
         self._last_emit_at = mono
         self.emissions += 1
         return True
+
+    def _emit_task_lists(self, lists: _Lists) -> int:
+        """Emit each todo list that changed, and an empty one for each session no longer listed."""
+        ended = sorted(key for key in self._task_lists if key not in lists)
+        changed = sorted(key for key, rows in lists.items() if self._task_lists.get(key) != rows)
+        if not ended and not changed:
+            return 0
+        now = self._context.clock.now()
+        sink = self._context.sink
+        for key in changed:
+            sink.emit(parse.todo_snapshot(key, lists[key], now))
+            self._task_lists[key] = lists[key]
+        for key in ended:
+            sink.emit(parse.todo_snapshot(key, (), now))  # the session ended: its list is gone
+            del self._task_lists[key]
+        self.task_emissions += len(changed) + len(ended)
+        return len(changed) + len(ended)
 
     # -- failures ---------------------------------------------------------------------------
 

@@ -24,6 +24,7 @@ from fylgja.store.rows import (
     ActivityRow,
     FocusRow,
     HealthRow,
+    ImportedTodoRow,
     ProjectRow,
     SessionRow,
     StoreRow,
@@ -39,6 +40,7 @@ __all__ = [
     "Put",
     "PutStatus",
     "checkpoint_truncate",
+    "close_imported_session_todos",
     "close_missing_activity",
     "close_missing_usage",
     "close_missing_windows",
@@ -53,8 +55,10 @@ __all__ = [
     "insert_event",
     "insert_todo",
     "latest_focus",
+    "list_import_todos",
     "list_todos",
     "load_active_todos",
+    "mark_todos_absent",
     "load_health",
     "load_live_sessions",
     "load_open_activity",
@@ -70,6 +74,7 @@ __all__ = [
     "set_manual_label",
     "soft_delete_todo",
     "unfocus_other_workspaces",
+    "update_imported_todo",
     "update_session_from_activity",
     "update_todo",
     "upsert_build",
@@ -1053,7 +1058,9 @@ def insert_todo(
     source: str,
     source_ref: str | None,
     link: str | None,
+    updated_at: str | None = None,
 ) -> TodoRow:
+    """Insert a todo; ``updated_at`` defaults to ``created_at``."""
     connection.execute(
         INSERT_TODO,
         {
@@ -1067,7 +1074,7 @@ def insert_todo(
             "source": source,
             "source_ref": source_ref,
             "link": link,
-            "updated_at": created_at,
+            "updated_at": created_at if updated_at is None else updated_at,
         },
     )
     row = get_todo(connection, todo_id)
@@ -1131,6 +1138,100 @@ def list_todos(
     where = " AND ".join(clauses)
     sql = f"SELECT {_TODO_COLUMNS} FROM todos WHERE {where} ORDER BY created_at, rowid"
     return [TodoRow.from_db(row) for row in connection.execute(sql, params)]
+
+
+# Imported lists (WP4.3). The rows of one list share a source and a ``source_ref`` prefix
+# (``<list ref>#``); the reconciler (fylgja.core.todo_import) checks the exact list itself.
+
+SELECT_IMPORT_TODOS: Final = (
+    f"SELECT {_TODO_COLUMNS}, deleted_at, deleted_reason FROM todos "
+    "WHERE source = :source AND substr(source_ref, 1, length(:prefix)) = :prefix ORDER BY rowid"
+)
+
+UPDATE_IMPORTED_TODO: Final = """
+UPDATE todos SET scope_kind = :scope_kind, scope_ref = :scope_ref, text = :text, status = :status,
+    link = :link, done_at = :done_at, updated_at = :updated_at,
+    deleted_at = NULL, deleted_reason = NULL
+WHERE id = :id
+"""
+
+MARK_TODO_ABSENT: Final = """
+UPDATE todos SET deleted_at = :at, deleted_reason = 'source_absent', updated_at = :at
+WHERE id = :id AND deleted_at IS NULL
+"""
+
+SELECT_IMPORTED_SESSION_TODOS: Final = """
+SELECT id FROM todos
+WHERE scope_kind = 'session' AND scope_ref = :session_key AND source <> :native_source
+  AND deleted_at IS NULL AND updated_at <= :at
+ORDER BY rowid
+"""
+
+
+def list_import_todos(
+    connection: sqlite3.Connection, *, source: str, prefix: str
+) -> list[ImportedTodoRow]:
+    """Every row of ``source`` whose ``source_ref`` starts with ``prefix``, deleted ones too."""
+    found = connection.execute(SELECT_IMPORT_TODOS, {"source": source, "prefix": prefix})
+    return [ImportedTodoRow.from_db(row) for row in found]
+
+
+def update_imported_todo(
+    connection: sqlite3.Connection,
+    *,
+    todo_id: str,
+    scope_kind: str,
+    scope_ref: str,
+    text: str,
+    status: str,
+    link: str | None,
+    done_at: str | None,
+    at: str,
+) -> TodoRow | None:
+    """Set an imported row to what its source says; a deleted row is restored."""
+    connection.execute(
+        UPDATE_IMPORTED_TODO,
+        {
+            "id": todo_id,
+            "scope_kind": scope_kind,
+            "scope_ref": scope_ref,
+            "text": text,
+            "status": status,
+            "link": link,
+            "done_at": done_at,
+            "updated_at": at,
+        },
+    )
+    return get_todo(connection, todo_id)
+
+
+def mark_todos_absent(connection: sqlite3.Connection, *, ids: Sequence[str], at: str) -> list[str]:
+    """Soft-delete the rows a complete read no longer lists (``source_absent``).
+
+    Returns the ids that were live until now.
+    """
+    return [
+        todo_id
+        for todo_id in ids
+        if connection.execute(MARK_TODO_ABSENT, {"id": todo_id, "at": at}).rowcount > 0
+    ]
+
+
+def close_imported_session_todos(
+    connection: sqlite3.Connection, *, session_key: str, native_source: str, at: str
+) -> list[str]:
+    """Mark the imported todos of a session that ended at ``at`` ``source_absent``.
+
+    A row a read restored after ``at`` stays. Returns the ids that were closed.
+    """
+    ids = [
+        str(row[0])
+        for row in connection.execute(
+            SELECT_IMPORTED_SESSION_TODOS,
+            {"session_key": session_key, "native_source": native_source, "at": at},
+        )
+    ]
+    return mark_todos_absent(connection, ids=ids, at=at)
 
 
 # --------------------------------------------------------------------------------------------

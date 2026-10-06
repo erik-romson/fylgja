@@ -4,8 +4,9 @@ The registry is a real temporary directory of committed fixture rows; ``ps`` is 
 :class:`FakeProcessRunner` that lists each row's process. No Claude Code is needed.
 
 The working source also holds one hook envelope in the inbox and one statusline snapshot (WP2.2),
-so the records of the inbox drain and the statusline reader pass the same checks: schema-valid,
-stable identity and dedup keys, clean cancellation. The broken sources include an inbox that is not
+and a transcript with a task list for one session (WP4.3), so the records of the inbox drain, the
+statusline reader and the task-list import pass the same checks: schema-valid, stable identity and
+dedup keys, clean cancellation. The broken sources include an inbox that is not
 a directory.
 """
 
@@ -21,9 +22,13 @@ from typing import Any
 import pytest
 from claude_support import FIXTURE_ROWS, ps_text
 from inbox_support import SESSION, make_envelope, write_envelope
+from transcript_support import CLAUDE_TRANSCRIPTS
 
 from fylgja import hook, paths
-from fylgja.collectors.claude import adapter, parse
+from fylgja.collectors.claude import adapter, parse, plugin, transcript
+from fylgja.collectors.claude.collector import ClaudeCollector, ClaudeSettings
+from fylgja.collectors.context import build_context
+from fylgja.models import EntityKind
 from fylgja.testing.contract import CollectorContract, ContractEnv, ContractSource
 from fylgja.testing.fakes import EPOCH
 
@@ -92,9 +97,20 @@ def _spool_hook_files() -> None:
     os.utime(target, (before + 5, before + 5))
 
 
+def _task_transcript(rows: list[parse.RegistryRow]) -> None:
+    """The last fixture session gets a transcript that builds a task list (WP4.3)."""
+    row = rows[-1]
+    directory = adapter.default_projects_dir() / transcript.project_slug(row.cwd)
+    directory.mkdir(parents=True, exist_ok=True)
+    source = CLAUDE_TRANSCRIPTS / "task-tools-synthetic.jsonl"
+    (directory / f"{row.session_id}.jsonl").write_bytes(source.read_bytes())
+
+
 def _working(env: ContractEnv) -> Mapping[str, Any]:
     registry = _registry(env)
-    _script_ps(env, _copy_rows(registry))
+    rows = _copy_rows(registry)
+    _script_ps(env, rows)
+    _task_transcript(rows)
     _install(env)
     _spool_hook_files()
     return {"registry_dir": str(registry)}
@@ -156,3 +172,17 @@ class TestClaudeContract(CollectorContract):
             ContractSource(label="garbage rows", arrange=_garbage_rows),
             ContractSource(label="inbox is not a directory", arrange=_inbox_not_a_directory),
         ]
+
+
+async def test_the_working_source_includes_a_task_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guards the working source above: the contract runs really see a TODOS snapshot."""
+    env = ContractEnv(tmp_path, monkeypatch)
+    settings = ClaudeSettings.model_validate(_working(env))
+    collector = plugin.factory(settings, build_context("claude", env.sink, clock=env.clock))
+    assert isinstance(collector, ClaudeCollector)
+    await collector.poll()
+    (todos,) = env.sink.of_kind(EntityKind.TODO)
+    assert todos.entity_id == f"claude-tasks:claude:{_copy_rows(_registry(env))[-1].session_id}"
+    assert [item.entity_id for item in todos.items] == ["task-1", "task-2"]

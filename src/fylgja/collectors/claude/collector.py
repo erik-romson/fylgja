@@ -17,6 +17,13 @@ in the store.
   session without a chain (a new session or a new process); the chains are kept until the process
   is gone. A failing call only costs the chains: the sessions are still listed.
 
+**Task lists (WP4.3).** Each live session whose transcript was read has its whole task list
+emitted as one complete TODOS snapshot (:func:`~fylgja.collectors.claude.parse.task_snapshot`)
+whenever it differs from the list last emitted for that session. When a session is no longer
+live, its list is gone with it: a complete, empty snapshot is emitted for it once. A session whose
+transcript cannot be read, or has not been read to its end yet (a backlog read over several
+polls), emits no list: its stored tasks stay as they were until the whole list is known.
+
 A snapshot is emitted when it differs from the last one, and at least every
 ``heartbeat_seconds`` so ``last_seen`` stays fresh. A missing registry or a failing ``ps`` never
 crashes the collector: the loop logs the first failure, keeps the last state and retries, and
@@ -44,6 +51,7 @@ from fylgja import paths
 from fylgja.collectors.base import CollectorContext
 from fylgja.collectors.claude import parse, transcript
 from fylgja.collectors.claude.adapter import PsFailure, Seams, ps_process_table, ps_start_times
+from fylgja.collectors.claude.facts import TaskItem
 from fylgja.collectors.claude.inbox import InboxDrainer
 from fylgja.collectors.claude.registry import Continuity, PollResult, RegistryPoller
 from fylgja.collectors.claude.statusline import StatuslineReader
@@ -128,9 +136,15 @@ class ClaudeCollector:
         self._polled = False
         self._last_emitted: list[_ListedSession] | None = None
         self._last_emit_at = 0.0
+        self._task_lists: dict[str, tuple[TaskItem, ...]] = {}
+        """The task list last emitted for each session key."""
+        self._read_lists: dict[str, tuple[TaskItem, ...]] = {}
+        """The task lists the last poll read, by session key."""
         self.stats = PollStats()
         self.emissions = 0
         """Snapshot pairs that reached the sink."""
+        self.task_emissions = 0
+        """Task-list snapshots that reached the sink."""
         self.inbox = InboxDrainer(
             context.paths.inbox_dir,
             context.sink,
@@ -177,7 +191,9 @@ class ClaudeCollector:
         listed = self._live_sessions(candidates, starts)
         self._update_stats(result, candidates)
         self._polled = True
-        return self._emit(listed)
+        emitted = self._emit(listed)
+        self._emit_task_lists({key for key, _, _ in listed})
+        return emitted
 
     async def _refresh_chains(
         self, candidates: dict[int, parse.RegistryRow], starts: dict[int, float]
@@ -214,6 +230,7 @@ class ClaudeCollector:
     ) -> list[_ListedSession]:
         listed: dict[str, _ListedSession] = {}
         process_keys: set[str] = set()
+        self._read_lists = {}
         dead = reused = 0
         for pid in sorted(candidates):
             row = candidates[pid]
@@ -243,6 +260,9 @@ class ClaudeCollector:
                 payload,
                 parse.activity_of(row, facts, None if tail is None else tail.pending_tool()),
             )
+            if tail is not None and not tail.backlog:
+                # A transcript still being caught up on is a partial read: its list waits.
+                self._read_lists[parse.session_key(row.session_id)] = tail.task_list()
         live_ids = {item[1].native_id for item in listed.values()}
         self._transcripts = {sid: t for sid, t in self._transcripts.items() if sid in live_ids}
         self._continuity.retain(process_keys, live_ids)
@@ -301,6 +321,24 @@ class ClaudeCollector:
         self._last_emit_at = mono
         self.emissions += 1
         return True
+
+    def _emit_task_lists(self, live: set[str]) -> int:
+        """Emit each read task list that changed, and an empty one for each session that ended."""
+        lists = {key: items for key, items in self._read_lists.items() if key in live}
+        ended = sorted(key for key in self._task_lists if key not in live)
+        changed = sorted(key for key, items in lists.items() if self._task_lists.get(key) != items)
+        if not ended and not changed:
+            return 0
+        now = self._context.clock.now()
+        sink = self._context.sink
+        for key in changed:
+            sink.emit(parse.task_snapshot(key, lists[key], now))
+            self._task_lists[key] = lists[key]
+        for key in ended:
+            sink.emit(parse.task_snapshot(key, (), now))  # the session ended: its list is gone
+            del self._task_lists[key]
+        self.task_emissions += len(changed) + len(ended)
+        return len(changed) + len(ended)
 
     # -- failures ---------------------------------------------------------------------------
 

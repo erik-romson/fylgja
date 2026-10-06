@@ -529,9 +529,11 @@ def test_settings_reject_unknown_keys_and_bad_values() -> None:
     assert OpenCodeSettings().process_name == "opencode"
 
 
-def test_the_plugin_descriptor_declares_sessions(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_plugin_descriptor_declares_sessions_and_todos(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert plugin.name == "opencode"
-    assert plugin.capabilities == frozenset({Capability.SESSIONS})
+    assert plugin.capabilities == frozenset({Capability.SESSIONS, Capability.TODOS})
     assert plugin.config_model is OpenCodeSettings
     from fylgja.collectors.context import build_context
     from fylgja.testing.fakes import FakeClock, RecordingSink

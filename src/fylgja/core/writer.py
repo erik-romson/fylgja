@@ -32,10 +32,16 @@ returned. A failed item raises its error to the caller; a stopped writer raises
   - project: the ``projects`` row, merged;
   - build: ``projects.build*`` (§4.7);
   - usage: a ``usage_snapshots`` change interval (§4.7, closes missing ones);
-  - focus, events only: the live view's focused window.
+  - focus, events only: the live view's focused window;
+  - todo, snapshots only: an import list reconciled into ``todos``
+    (:mod:`fylgja.core.todo_import`, WP4.3). A todo snapshot that names no import list is kept
+    in ``events`` instead, and one the reconciler refuses changes nothing.
 
-  Snapshots of the kinds without a projection (todo, context item, presence, focus) are appended
-  to ``events`` like events, so a later projection can replay them.
+  Snapshots of the kinds without a projection (context item, presence, focus) are appended to
+  ``events`` like events, so a later projection can replay them.
+
+* A session that ends also ends its own imported task lists
+  (:func:`~fylgja.core.todo_import.close_session_lists`).
 
 * **Change intervals (A20)** follow :mod:`fylgja.store.queries`: a record carries the full current
   state of an interval entity, an unchanged state writes nothing, a changed one closes the open
@@ -69,6 +75,7 @@ from pydantic import BaseModel
 from fylgja import paths
 from fylgja.collectors.base import Clock
 from fylgja.collectors.context import SystemClock
+from fylgja.core import todo_import
 from fylgja.core.live_view import FOCUS_KEY, Change, Collection
 from fylgja.core.one_liner import session_one_liner
 from fylgja.models import (
@@ -257,6 +264,7 @@ def _focus(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
 
 def _end_session(tx: Tx, key: str, at: str) -> None:
     queries.close_open_activity(tx.connection, session_key=key, at=at)
+    todo_import.close_session_lists(tx, key, at)
     tx.changed(Change(Collection.SESSIONS, key, None))
     tx.changed(Change(Collection.ACTIVITY, key, None))
 
@@ -456,11 +464,32 @@ def _store_raw(tx: Tx, record: Record, received_at: str) -> Outcome:
     return Outcome.STORED if inserted else Outcome.DUPLICATE
 
 
+def _import_todos(tx: Tx, record: Snapshot[Any], received_at: str) -> Outcome:
+    """Reconcile an import list; a snapshot that names no list is kept as a raw event."""
+    result = todo_import.reconcile(tx, record)
+    if result.refused is todo_import.Refusal.NOT_A_LIST:
+        return _store_raw(tx, cast(Record, record), received_at)
+    if result.refused is not None:
+        logger.warning("a todo list from %s was refused: %s", record.source, result.refused.value)
+    return Outcome.STORED
+
+
+SnapshotHandler = Callable[[Tx, Snapshot[Any], str], Outcome]
+
+_WHOLE_SNAPSHOTS: Final[Mapping[EntityKind, SnapshotHandler]] = {
+    EntityKind.TODO: _import_todos,
+}
+"""Kinds whose snapshot is applied as a whole rather than item by item."""
+
+
 def apply_record(tx: Tx, record: Record, received_at: str) -> Outcome:
     """Store one validated record (see the module docstring for what that means per kind)."""
     at = db.to_db_time(record.observed_at)
     projection = _PROJECTIONS.get(record.entity_kind)
     if isinstance(record, Snapshot):
+        whole = _WHOLE_SNAPSHOTS.get(record.entity_kind)
+        if whole is not None:
+            return whole(tx, record, received_at)
         if projection is None:
             return _store_raw(tx, record, received_at)
         for item in record.items:

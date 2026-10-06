@@ -37,7 +37,8 @@ def write_config(port: int, extra: str = "") -> None:
         "[collectors.claude]\nenabled = false\n"
         "[collectors.codex]\nenabled = false\n"
         "[collectors.opencode]\nenabled = false\n"
-        "[collectors.norn]\nenabled = false\n" + extra,
+        "[collectors.norn]\nenabled = false\n"
+        "[collectors.project]\nenabled = false\n" + extra,
         encoding="utf-8",
     )
 

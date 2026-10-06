@@ -13,6 +13,11 @@ The registry (``~/.claude/sessions/<pid>.json``, R5) is read strictly:
 
 Names, working directories and session ids are free text or identifiers: they are carried through
 and never logged here (the ingest gate redacts what needs it).
+
+**The session's task list** (WP4.3) is imported as read-only todos: :func:`task_snapshot` is the
+complete list of one live session, ``claude-tasks:claude:<session id>``, each task keyed by its
+native id (see :meth:`~fylgja.collectors.claude.facts.FactsAccumulator.task_list`), scoped to the
+session and linked to it by its session key. A task without text is left out.
 """
 
 from __future__ import annotations
@@ -26,7 +31,8 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any, Final
 
-from fylgja.collectors.claude.facts import PendingTool, open_task
+from fylgja.collectors.claude.facts import PendingTool, TaskItem, open_task
+from fylgja.collectors.todo_lists import agent_status, todo_list_snapshot
 from fylgja.models import (
     ProcessRef,
     SessionActivity,
@@ -34,6 +40,8 @@ from fylgja.models import (
     SessionPayload,
     SessionSnapshot,
     SnapshotItem,
+    TodoPayload,
+    TodoSnapshot,
 )
 
 __all__ = [
@@ -42,6 +50,7 @@ __all__ = [
     "SNAPSHOT_SCOPE",
     "SOURCE",
     "STATUS_TO_STATE",
+    "TASKS_SOURCE",
     "Liveness",
     "RegistryRow",
     "RowRejected",
@@ -61,10 +70,13 @@ __all__ = [
     "session_key",
     "session_payload",
     "session_snapshot",
+    "task_snapshot",
 ]
 
 SOURCE: Final = "claude"
 KIND: Final = "claude"
+TASKS_SOURCE: Final = "claude-tasks"
+"""The ``todos.source`` of an imported Claude task (WP4.3)."""
 SNAPSHOT_SCOPE: Final = "all"
 BRIDGE_URL_PREFIX: Final = "https://claude.ai/code/"
 
@@ -420,4 +432,28 @@ def activity_snapshot(
         observed_at=observed_at,
         items=tuple(SnapshotItem(entity_id=key, payload=payload) for key, payload in items),
         complete=True,
+    )
+
+
+def task_snapshot(key: str, tasks: Iterable[TaskItem], observed_at: datetime) -> TodoSnapshot:
+    """The complete task list of session ``key`` (``claude:<session id>``) as read-only todos."""
+    return todo_list_snapshot(
+        SOURCE,
+        TASKS_SOURCE,
+        key,
+        (
+            (
+                task.key,
+                TodoPayload(
+                    text=task.content,
+                    status=agent_status(task.status),
+                    scope_kind="session",
+                    scope_ref=key,
+                    link=key,
+                ),
+            )
+            for task in tasks
+            if task.content.strip()
+        ),
+        observed_at,
     )

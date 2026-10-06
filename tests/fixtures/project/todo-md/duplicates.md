@@ -1,0 +1,6 @@
+- [ ] Run the tests
+- [x] Run the tests
+- [ ] Run   the tests
+- [ ] next: Run the tests
+- [ ] Deploy
+- [ ] Run the tests #next

@@ -26,6 +26,12 @@ command, the file name of an edited file, a pattern, a URL or a task description
 replaces it). It is exposed as ``facts.tasks`` in the shape Claude's list has
 (``{status, content}``, at most 20, ``content`` cut to 80), and the first ``in_progress`` row is
 the open task of the one-liner (rule 4).
+
+It is also imported as read-only todos (WP4.3): :func:`todo_snapshot` is the session's whole list,
+``opencode-todo:opencode:<session id>``. A row is keyed by its native id: the table's primary key is
+``(session_id, position)``, so the key is the ``position``. ``todowrite`` rewrites the list, so a
+task renamed at the same position is updated in place. The items are scoped to the session and
+linked to it by its session key.
 """
 
 from __future__ import annotations
@@ -33,11 +39,12 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any, Final
 
+from fylgja.collectors.todo_lists import agent_status, todo_list_snapshot
 from fylgja.models import (
     ProcessRef,
     SessionActivity,
@@ -45,6 +52,8 @@ from fylgja.models import (
     SessionPayload,
     SessionSnapshot,
     SnapshotItem,
+    TodoPayload,
+    TodoSnapshot,
 )
 
 __all__ = [
@@ -55,6 +64,7 @@ __all__ = [
     "REQUIRED_COLUMNS",
     "SNAPSHOT_SCOPE",
     "SOURCE",
+    "TODO_SOURCE",
     "MessageRow",
     "PartRow",
     "ProcInfo",
@@ -78,12 +88,15 @@ __all__ = [
     "session_snapshot",
     "task_entries",
     "todo_row",
+    "todo_snapshot",
     "tool_target",
     "turn_facts",
 ]
 
 SOURCE: Final = "opencode"
 KIND: Final = "opencode"
+TODO_SOURCE: Final = "opencode-todo"
+"""The ``todos.source`` of an imported OpenCode todo (WP4.3)."""
 SNAPSHOT_SCOPE: Final = "all"
 
 BUSY: Final = "busy"
@@ -113,6 +126,8 @@ MAX_TITLE_CHARS: Final = 200
 MAX_TARGET_CHARS: Final = 80
 MAX_TASKS: Final = 20
 MAX_TASK_CHARS: Final = 80
+MAX_IMPORT_CHARS: Final = 1000
+"""The text of a todo kept for the import (``facts.tasks`` shows :data:`MAX_TASK_CHARS`)."""
 MAX_CHAIN_PARTS: Final = 40
 """How many of the newest parts of the incomplete message the adapter reads."""
 
@@ -317,13 +332,18 @@ def part_row(row: Mapping[str, Any]) -> PartRow | None:
 @dataclass(frozen=True)
 class TodoRow:
     content: str
+    """The text as ``facts.tasks`` shows it: collapsed, cut to :data:`MAX_TASK_CHARS`."""
     status: str
     position: int
+    text: str = field(default="", compare=False)
+    """The text for the import: collapsed, cut to :data:`MAX_IMPORT_CHARS` (``content`` when
+    empty)."""
 
 
 def todo_row(row: Mapping[str, Any]) -> TodoRow | None:
     """A :class:`TodoRow`; a row without content gives ``None``."""
-    content = _clip(_text(row.get("content")), MAX_TASK_CHARS)
+    raw = _text(row.get("content"))
+    content = _clip(raw, MAX_TASK_CHARS)
     if content is None:
         return None
     position = _millis(row.get("position"))
@@ -331,6 +351,7 @@ def todo_row(row: Mapping[str, Any]) -> TodoRow | None:
         content=content,
         status=_text(row.get("status")) or "pending",
         position=0 if position is None else position,
+        text=_clip(raw, MAX_IMPORT_CHARS) or content,
     )
 
 
@@ -523,4 +544,27 @@ def activity_snapshot(
         observed_at=observed_at,
         items=tuple(SnapshotItem(entity_id=key, payload=payload) for key, payload in items),
         complete=True,
+    )
+
+
+def todo_snapshot(key: str, todos: Iterable[TodoRow], observed_at: datetime) -> TodoSnapshot:
+    """The complete todo list of session ``key`` (``opencode:<session id>``) as read-only todos."""
+    return todo_list_snapshot(
+        SOURCE,
+        TODO_SOURCE,
+        key,
+        (
+            (
+                str(todo.position),
+                TodoPayload(
+                    text=todo.text or todo.content,
+                    status=agent_status(todo.status),
+                    scope_kind="session",
+                    scope_ref=key,
+                    link=key,
+                ),
+            )
+            for todo in sorted(todos, key=lambda todo: todo.position)
+        ),
+        observed_at,
     )

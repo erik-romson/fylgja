@@ -39,8 +39,9 @@ plugin = CollectorPlugin(
     name=NAME,
     api_major=COLLECTOR_API_MAJOR,
     # SESSIONS: sessions, activity and hook events. PROJECT_STATE: the usage rows (rate limits) the
-    # statusline reader emits; the ingest gate rejects kinds a plugin did not declare.
-    capabilities=frozenset({Capability.SESSIONS, Capability.PROJECT_STATE}),
+    # statusline reader emits. TODOS: each live session's task list (WP4.3). The ingest gate rejects
+    # kinds a plugin did not declare.
+    capabilities=frozenset({Capability.SESSIONS, Capability.PROJECT_STATE, Capability.TODOS}),
     config_model=ClaudeSettings,
     factory=_factory,
 )

@@ -4,6 +4,10 @@ A todo has a scope (a workspace, a project or a session), a text, and one of thr
 ``open``, ``next`` and ``done``. Native items have ``source = "fylgja"``; importers (WP4.3) write
 their own source, and the unique ``(source, source_ref)`` pair keeps an import from duplicating.
 
+* **Imported todos are read-only** (WP4.3). Their source owns them and every read reconciles them
+  (:mod:`fylgja.core.todo_import`), so ``update`` and ``delete`` refuse them with
+  :class:`TodoReadOnly`; the change belongs in the source (the ``TODO.md`` line, the agent's list).
+
 * **One writer.** Every change runs as a job in the daemon's single writer
   (:meth:`~fylgja.core.writer.Writer.execute`), reports the changed row to the live view, and is
   committed before the call returns. The live view holds the **open and next** items; ``/now``
@@ -27,11 +31,19 @@ import sqlite3
 import uuid
 from collections.abc import Callable, Collection
 from datetime import datetime
-from typing import Final
 
 from fylgja.collectors.base import Clock
 from fylgja.core.live_view import Change, LiveView
 from fylgja.core.live_view import Collection as LiveCollection
+from fylgja.core.todo_import import (
+    ACTIVE_STATUSES,
+    MAX_REF_CHARS,
+    MAX_TEXT_CHARS,
+    NATIVE_SOURCE,
+    SCOPE_KINDS,
+    STATUSES,
+    is_imported,
+)
 from fylgja.core.writer import Tx, Writer
 from fylgja.privacy import PrivacyFilter
 from fylgja.store import db, queries
@@ -39,6 +51,7 @@ from fylgja.store.rows import TodoRow
 
 __all__ = [
     "ACTIVE_STATUSES",
+    "MAX_REF_CHARS",
     "MAX_TEXT_CHARS",
     "NATIVE_SOURCE",
     "SCOPE_KINDS",
@@ -46,18 +59,12 @@ __all__ = [
     "NoFocusedWorkspace",
     "TodoError",
     "TodoNotFound",
+    "TodoReadOnly",
     "TodoService",
     "TodoValidationError",
 ]
 
 logger = logging.getLogger("fylgja.todos")
-
-NATIVE_SOURCE: Final = "fylgja"
-SCOPE_KINDS: Final = ("workspace", "project", "session")
-STATUSES: Final = ("open", "next", "done")
-ACTIVE_STATUSES: Final = frozenset({"open", "next"})
-MAX_TEXT_CHARS: Final = 1000
-MAX_REF_CHARS: Final = 1024
 
 
 class TodoError(Exception):
@@ -66,6 +73,17 @@ class TodoError(Exception):
 
 class TodoNotFound(TodoError):
     """No such todo, or it was deleted."""
+
+
+class TodoReadOnly(TodoError):
+    """The todo is imported: only its source changes it (WP4.3)."""
+
+    def __init__(self, source: str) -> None:
+        super().__init__(
+            f"this todo is imported from {source} and is read-only in Fylgja; "
+            "change it where it comes from"
+        )
+        self.source = source
 
 
 class NoFocusedWorkspace(TodoError):
@@ -188,7 +206,10 @@ class TodoService:
     async def update(
         self, todo_id: str, *, text: str | None = None, status: str | None = None
     ) -> TodoRow:
-        """Change the text and/or the status; a no-op change writes nothing."""
+        """Change the text and/or the status; a no-op change writes nothing.
+
+        An imported todo is refused with :class:`TodoReadOnly`.
+        """
         cleaned = None if text is None else _clean_text(text, self._privacy)
         if status is not None:
             _check_status(status)
@@ -198,6 +219,8 @@ class TodoService:
             current = queries.get_todo(tx.connection, todo_id)
             if current is None:
                 raise TodoNotFound(todo_id)
+            if is_imported(current.source):
+                raise TodoReadOnly(current.source)
             new_text = current.text if cleaned is None else cleaned
             new_status = current.status if status is None else status
             if new_text == current.text and new_status == current.status:
@@ -223,10 +246,13 @@ class TodoService:
         return await self.update(todo_id, status="done")
 
     async def delete(self, todo_id: str) -> None:
-        """Soft-delete the todo (``deleted_reason = 'user'``)."""
+        """Soft-delete the todo (``deleted_reason = 'user'``); an imported one is refused."""
         stamp = db.to_db_time(self._clock.now())
 
         def job(tx: Tx) -> None:
+            current = queries.get_todo(tx.connection, todo_id)
+            if current is not None and is_imported(current.source):
+                raise TodoReadOnly(current.source)
             if not queries.soft_delete_todo(tx.connection, todo_id=todo_id, at=stamp):
                 raise TodoNotFound(todo_id)
             tx.changed(Change(LiveCollection.TODOS, todo_id, None))

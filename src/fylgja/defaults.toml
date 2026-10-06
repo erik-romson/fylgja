@@ -104,3 +104,9 @@ enabled = true
 # to `max_depth`. See docs/collectors/norn.md.
 roots = ["~/projects"]
 max_depth = 3
+
+[collectors.project]
+enabled = true
+# The repo-root TODO.md of every project the daemon knows (read-only, from its own store), imported
+# as read-only todos of that project and reconciled on every read. See docs/collectors/project.md.
+poll_interval_seconds = 5
