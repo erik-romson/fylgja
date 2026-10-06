@@ -5,8 +5,9 @@ from the configuration. The app's lifespan starts a daemon it finds stopped and 
 shutdown; a daemon the caller already started is left to the caller.
 
 * Every route is behind :class:`~fylgja.api.security.HostGuard`; no CORS middleware exists.
-* The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/collectors`` and
-  ``/health``) need no authentication. The interactive docs and the OpenAPI document are off.
+* The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/collectors``,
+  ``/health`` and the ``/events`` change stream) need no authentication. The interactive docs and
+  the OpenAPI document are off.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
 
 :func:`server_config` is the Uvicorn configuration ``fylgja serve`` runs with: it binds
@@ -21,6 +22,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
+from fylgja.api import sse
 from fylgja.api.routes import collectors, health, now, projects, sessions, workspaces
 from fylgja.api.security import HostGuard
 from fylgja.config import LOOPBACK_HOST, Config, load_config
@@ -35,6 +37,7 @@ _ROUTERS = (
     projects.router,
     collectors.router,
     health.router,
+    sse.router,
 )
 
 
@@ -42,6 +45,8 @@ def create_app(daemon: Daemon | None = None, *, config: Config | None = None) ->
     """The API over ``daemon``; without one, a daemon built from ``config`` (default: the user's
     ``config.toml`` over the packaged defaults)."""
     services = daemon if daemon is not None else Daemon(load_config() if config is None else config)
+
+    events = sse.EventHub(services.view)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -51,6 +56,7 @@ def create_app(daemon: Daemon | None = None, *, config: Config | None = None) ->
         try:
             yield
         finally:
+            events.close()
             if owned:
                 await services.stop()
 
@@ -62,6 +68,7 @@ def create_app(daemon: Daemon | None = None, *, config: Config | None = None) ->
         lifespan=lifespan,
     )
     app.state.daemon = services
+    app.state.events = events
     for router in _ROUTERS:
         app.include_router(router)
     app.add_middleware(HostGuard, port=services.config.api.port)
