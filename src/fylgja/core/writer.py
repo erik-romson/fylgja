@@ -347,8 +347,25 @@ def _activity(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
     after = queries.get_session(connection, key)
     if after is not None:
         tx.changed(Change(Collection.SESSIONS, key, after))
-    if put.status is PutStatus.OPENED and put.row is not None:
-        tx.changed(Change(Collection.ACTIVITY, key, put.row))
+    # The readings (§4.7) are updated in place: they change with every message and are not state.
+    updated = queries.set_activity_readings(connection, session_key=key, values=_readings(activity))
+    row = updated if updated is not None else put.row
+    if row is not None and (updated is not None or put.status is PutStatus.OPENED):
+        tx.changed(Change(Collection.ACTIVITY, key, row))
+
+
+def _readings(activity: SessionActivity) -> dict[str, Any]:
+    """The carried columns an activity record knows (§4.7); the others stay as they are."""
+    values: dict[str, Any] = {"context_pct": activity.context_pct, "cost_usd": activity.cost_usd}
+    tokens = activity.tokens
+    if tokens is not None:
+        values.update(
+            tokens_input=tokens.input,
+            tokens_output=tokens.output,
+            tokens_cache_read=tokens.cache_read,
+            tokens_cache_write=tokens.cache_write,
+        )
+    return values
 
 
 def _close_activity(tx: Tx, record: Snapshot[Any], at: str) -> None:
@@ -384,6 +401,8 @@ def _build(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
 
 def _usage(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
     usage = _as(payload, UsagePayload)
+    if usage.error_kind is not None:
+        return  # a failed attempt carries no reading; the daemon's usage memory keeps the kind
     columns = _columns(usage)
     values = {
         "used_pct": usage.used_pct,
@@ -405,9 +424,11 @@ def _usage(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
 
 
 def _close_usage(tx: Tx, record: Snapshot[Any], at: str) -> None:
-    present = {(item.payload.provider, item.payload.window or "") for item in record.items}
+    readings = [item.payload for item in record.items if item.payload.error_kind is None]
+    present = {(payload.provider, payload.window or "") for payload in readings}
+    failed = {item.payload.provider for item in record.items if item.payload.error_kind}
     for key in queries.close_missing_usage(
-        tx.connection, collector=record.source, present=present, at=at
+        tx.connection, collector=record.source, present=present, at=at, keep_providers=failed
     ):
         tx.changed(Change(Collection.USAGE, key, None))
 

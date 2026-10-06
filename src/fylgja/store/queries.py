@@ -80,6 +80,7 @@ __all__ = [
     "put_health",
     "put_usage",
     "put_window",
+    "set_activity_readings",
     "set_manual_label",
     "soft_delete_todo",
     "unfocus_other_workspaces",
@@ -743,6 +744,44 @@ def put_activity(
     return Put(status, _row(ActivityRow, row))
 
 
+UPDATE_ACTIVITY_READINGS: Final = """
+UPDATE session_snapshots SET
+    context_pct = coalesce(:context_pct, context_pct),
+    cost_usd = coalesce(:cost_usd, cost_usd),
+    tokens_input = coalesce(:tokens_input, tokens_input),
+    tokens_output = coalesce(:tokens_output, tokens_output),
+    tokens_cache_read = coalesce(:tokens_cache_read, tokens_cache_read),
+    tokens_cache_write = coalesce(:tokens_cache_write, tokens_cache_write)
+WHERE session_key = :session_key AND valid_to IS NULL
+  AND ((:context_pct IS NOT NULL AND context_pct IS NOT :context_pct)
+       OR (:cost_usd IS NOT NULL AND cost_usd IS NOT :cost_usd)
+       OR (:tokens_input IS NOT NULL AND tokens_input IS NOT :tokens_input)
+       OR (:tokens_output IS NOT NULL AND tokens_output IS NOT :tokens_output)
+       OR (:tokens_cache_read IS NOT NULL AND tokens_cache_read IS NOT :tokens_cache_read)
+       OR (:tokens_cache_write IS NOT NULL AND tokens_cache_write IS NOT :tokens_cache_write))
+"""
+
+
+def set_activity_readings(
+    connection: sqlite3.Connection,
+    *,
+    session_key: str,
+    values: Mapping[str, Any],
+) -> ActivityRow | None:
+    """Update the :data:`ACTIVITY_CARRIED` readings of the open interval **in place** (§4.7).
+
+    Context percentage, cost and token sums change with every message; they are not state, so
+    they never open an interval (A20) but are carried from one interval to the next by
+    :func:`put_activity`. ``values`` holds any of the carried columns; a missing or ``None`` one
+    keeps the stored value. Returns the changed row, or ``None`` when nothing changed.
+    """
+    params = {column: values.get(column) for column in ACTIVITY_CARRIED}
+    cursor = connection.execute(UPDATE_ACTIVITY_READINGS, {"session_key": session_key, **params})
+    if not cursor.rowcount:
+        return None
+    return _row(ActivityRow, connection.execute(SELECT_OPEN_ACTIVITY, (session_key,)).fetchone())
+
+
 def close_open_activity(connection: sqlite3.Connection, *, session_key: str, at: str) -> bool:
     """Close the open activity interval of one session (it ended)."""
     current = connection.execute(SELECT_OPEN_ACTIVITY, (session_key,)).fetchone()
@@ -967,11 +1006,20 @@ def close_missing_usage(
     collector: str,
     present: Collection[tuple[str, str]],
     at: str,
+    keep_providers: Collection[str] = (),
 ) -> list[str]:
-    """Close the open usage rows of ``collector`` whose ``(provider, window)`` is not present."""
+    """Close the open usage rows of ``collector`` whose ``(provider, window)`` is not present.
+
+    The rows of ``keep_providers`` stay open: the attempt for those providers failed, so what was
+    last read is still the best answer (``/now`` marks it ``unavailable``).
+    """
     closed: list[str] = []
     for row in connection.execute(SELECT_OPEN_USAGE_OF_COLLECTOR, (collector,)).fetchall():
-        if (row["provider"], row["window"]) in present or row["valid_from"] > at:
+        if (
+            (row["provider"], row["window"]) in present
+            or row["provider"] in keep_providers
+            or row["valid_from"] > at
+        ):
             continue
         connection.execute(CLOSE_USAGE, (at, row["id"]))
         closed.append(f"{collector}:{row['provider']}:{row['window']}")

@@ -310,7 +310,9 @@ async def test_the_collector_runs_both_loops_and_stops_cleanly(tmp_path: Any) ->
 async def test_doctor_follows_git_and_gh(tmp_path: Any) -> None:
     clock, runner, sink = FakeClock(AT), FakeProcessRunner(), RecordingSink()
     collector = _collector(tmp_path, clock, runner, sink)
-    assert (await collector.doctor()).detail == "not polled yet"
+    assert (await collector.doctor()).detail == (
+        "not polled yet; usage: no data yet (CodexBar not asked yet)"
+    )
     collector.poll()
     await collector.poll_state()  # nothing is scripted: git is missing
     report = await collector.doctor()

@@ -85,3 +85,55 @@ degrade the collector in `doctor`); `gh_missing`, `gh_not_authenticated` (blocks
 `git_command` and `gh_command` (`git`, `gh`; give an absolute path when the daemon's `PATH` lacks Homebrew).
 
 **Not stored.** `dirty_count`, `pr.checks` and `pr.url` have no column; they stay empty in `/now`.
+
+## Usage: quota and spend (WP5.4 part 2, §4.7, decision 0045)
+
+`usage` of `/now` has two sources. **Claude's rate limits** come from the statusline snapshot, which the Claude
+collector reads (`five_hour`, `seven_day` and, behind a Claude apps gateway, `spend_limit`: a used percentage and a reset
+time). **Every other provider's quota, and the spend,** come from the CodexBar CLI, which the project collector asks in a
+task of its own (`usage.py`; §3.1 lists no separate usage collector), so a slow CLI never delays git or a `TODO.md` read.
+
+| What | Command (the binary is `[paths] codexbar`) | When |
+|---|---|---|
+| quota windows | `codexbar usage --provider <p> --json --no-color`, once for each of `usage_providers` (`codex`, `copilot`) | every `usage_interval_seconds` (5 min) |
+| spend | `codexbar cost --provider <p> --json --no-color`, once for each of `cost_providers` (`codex`, `claude`); it scans the local agent logs and needs no login | every `cost_interval_seconds` (15 min) |
+
+A quota window is named by its length: 300 minutes is `five_hour` and 10080 is `seven_day` (the statusline's names),
+any other length `<n>m`. `usage.cost` is `last30DaysCostUSD` summed over the providers, period `30d`, a list-price
+estimate. CodexBar exits 1 when any provider it was asked fails and still prints the JSON, so the output is read whatever
+the exit status; the account details in it (`accountEmail`, credits) are never read.
+
+**Storage** is `usage_snapshots` as change intervals (A20). The collector emits one **complete** snapshot per round of
+everything it knows, because a complete snapshot is what closes a row that is no longer reported. When an attempt failed
+the snapshot carries an error item for that provider instead of a reading; the writer stores nothing for it and keeps the
+provider's earlier rows open.
+
+**Freshness and `error_kind`.** A row stored as a change interval has no "last looked at" time, so the daemon remembers
+each observation in memory (`core/usage_view.py`: when, the poll interval the source named, the reason of a failed
+attempt). `/now` joins it with the stored rows: `fresh` within twice the interval (statusline 150 s, CodexBar's own
+`usage_interval_seconds` or `cost_interval_seconds`), `stale` after that, `unavailable` with `error_kind` when the last
+attempt failed (the last reading is kept). After a restart, before the next observation, a row falls back to the time its
+reading last changed and a 5 min interval. A section as a whole is as good as its best part. **No data yet is no `usage`
+key**, and the reason is in the `project` entry of `collectors[]`: `usage: no data yet (CodexBar not asked yet)`,
+`usage: disabled`, or `usage: <n> quota windows, <m> cost providers; CodexBar unavailable (<code>)`.
+
+**Failures** are short codes and never degrade the collector: `codexbar_missing`, `codexbar_timeout`, `codexbar_failed`
+(another error, or a non-zero exit with no JSON), `codexbar_parse`, `codexbar_no_data`, `codexbar_no_strategy`,
+`codexbar_unsupported`, `codexbar_not_authenticated` and `codexbar_provider_error`. Copilot has no CodexBar strategy
+without a token of its own, so it is listed `unavailable` with `codexbar_no_strategy`; Lidskjalv's quota switch keeps its
+own source for it.
+
+**Settings** (`[collectors.project]`): `usage_enabled` true, `usage_providers`, `cost_providers`,
+`usage_interval_seconds` 300, `cost_interval_seconds` 900, `codexbar_timeout_seconds` 45 and `codexbar_command` (default
+`[paths] codexbar`).
+
+## Tokens, cost and context of a session (Claude collector)
+
+Each live Claude session's activity carries `tokens` (`input`, `output`, `cache_read`, `cache_write`), `cost_usd` and
+`context_pct`, which fill `sessions[].tokens`, `cost_usd` and `context_pct` of `/now`. The token sums are a Python port of
+Lidskjalv's `_COSTS_JQ` (`collectors/claude/costs.py`), accumulated line by line by the transcript tail that already reads
+the facts; the cost and the context percentage come from the newest statusline snapshot of the session. They are readings:
+the store updates them in place in the open `session_snapshots` interval, and a new interval carries them over. `tokens`
+carries `source: "transcript"`, `observed_at` (the session's last observation) and `freshness` against the collector's
+30 s heartbeat; it is absent until a transcript line with usage was read. The sums match Lidskjalv's exactly, which
+includes counting every line of a repeated message (decision 0045).

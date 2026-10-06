@@ -1,0 +1,11 @@
+[
+  {
+    "error": {
+      "code": 2,
+      "kind": "runtime",
+      "message": "Something unexpected happened."
+    },
+    "provider": "codex",
+    "source": "web"
+  }
+]

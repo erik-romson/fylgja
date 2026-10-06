@@ -1,0 +1,11 @@
+[
+  {
+    "error": {
+      "code": 1,
+      "kind": "provider",
+      "message": "Source 'oauth' is not supported for copilot."
+    },
+    "provider": "copilot",
+    "source": "oauth"
+  }
+]

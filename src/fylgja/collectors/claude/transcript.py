@@ -13,7 +13,8 @@ offset and returns only the objects completed since the last poll:
 - a line longer than ``max_line`` is skipped, never buffered without limit.
 
 :class:`SessionTranscript` pairs a tail with a :class:`~fylgja.collectors.claude.FactsAccumulator`
-and rebuilds the facts from the start whenever the tail resets. :func:`locate` finds the file of a
+and a :class:`~fylgja.collectors.claude.costs.TokenAccumulator` and rebuilds both from the start
+whenever the tail resets. :func:`locate` finds the file of a
 session. Only ``*.jsonl`` files named after a session id are ever opened.
 
 Nothing here logs or exposes transcript content.
@@ -26,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
+from fylgja.collectors.claude.costs import TokenAccumulator, TokenSums
 from fylgja.collectors.claude.facts import FactsAccumulator, PendingTool, TaskItem, decode_line
 from fylgja.collectors.seams import FileSystem, RangeReader
 
@@ -194,6 +196,7 @@ class SessionTranscript:
     def __init__(self, tail: TranscriptTail) -> None:
         self.tail = tail
         self._facts = FactsAccumulator()
+        self._tokens = TokenAccumulator()
         self.present = True
         """The file existed at the last :meth:`update`."""
         self.backlog = False
@@ -215,14 +218,23 @@ class SessionTranscript:
         changed = False
         if update.reset:
             self._facts = FactsAccumulator()
+            self._tokens = TokenAccumulator()
             changed = True
         if update.entries:
             self._facts.feed_all(update.entries)
+            self._tokens.feed_all(update.entries)
             changed = True
         return changed
 
     def facts(self) -> dict[str, Any]:
         return self._facts.facts()
+
+    def tokens(self) -> TokenSums | None:
+        """The token sums of the transcript read so far (§4.7), as ``_COSTS_JQ`` computes them.
+
+        ``None`` while no assistant line with a usage object was read: there is no data yet.
+        """
+        return self._tokens.sums() if self._tokens.records else None
 
     def task_list(self) -> tuple[TaskItem, ...]:
         """The session's whole task list, each task with its key (WP4.3)."""

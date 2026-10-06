@@ -31,6 +31,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any, Final
 
+from fylgja.collectors.claude.costs import TokenSums
 from fylgja.collectors.claude.facts import PendingTool, TaskItem, open_task
 from fylgja.collectors.todo_lists import agent_status, todo_list_snapshot
 from fylgja.models import (
@@ -42,6 +43,7 @@ from fylgja.models import (
     SnapshotItem,
     TodoPayload,
     TodoSnapshot,
+    TokenCounts,
 )
 
 __all__ = [
@@ -384,12 +386,19 @@ def activity_of(
     row: RegistryRow,
     facts: Mapping[str, Any] | None = None,
     pending: PendingTool | None = None,
+    *,
+    tokens: TokenSums | None = None,
+    context_pct: float | None = None,
+    cost_usd: float | None = None,
 ) -> SessionActivity:
     """The Claude ``SessionActivity`` (§4.6): the registry state plus the transcript's facts.
 
     ``current_tool`` and ``current_target`` come from the newest tool call without a result, and
     only while the session is working or waiting. The title falls back to the registry name until
     the transcript has an ``ai-title``.
+
+    ``tokens`` (the transcript's token sums), ``context_pct`` and ``cost_usd`` (the statusline
+    snapshot) are the readings of §4.7; each is left out when it is not known.
     """
     state = map_state(row.status)
     tool = pending if state in ("working", "waiting") else None
@@ -407,6 +416,9 @@ def activity_of(
         title=_fact(facts, "title") or row.name,
         branch=_fact(facts, "branch"),
         facts=None if facts is None else dict(facts),
+        tokens=None if tokens is None else TokenCounts(**tokens.as_dict()),
+        context_pct=context_pct,
+        cost_usd=cost_usd,
     )
 
 

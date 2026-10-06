@@ -229,6 +229,123 @@ def test_every_lidskjalv_field_read_is_listed() -> None:
     assert missing == []
 
 
+BUILD_FIELDS = (
+    "<root>",
+    "state",
+    "head_sha",
+    "local_head_sha",
+    "url",
+    "workflows[].workflow",
+    "workflows[].state",
+    "workflows[].status",
+    "workflows[].conclusion",
+    "workflows[].run_id",
+    "workflows[].url",
+    "workflows[].run_started_at",
+    "workflows[].run_duration",
+    "workflows[].typical_duration",
+    "checked_at",
+    "next_check_at",
+    "etag",
+    "rate_remaining",
+    "owner_repo",
+    "branch",
+    "root",
+)
+COST_FIELDS = ("<session_id>", "input", "output", "cache_read", "cache_write", "session_id")
+QUOTA_PROVIDERS = ("claude", "copilot", "codex")
+
+
+def test_every_field_of_the_builds_and_costs_modules_is_listed() -> None:
+    """``builds/builds.json`` (the fold plus its schedule) and ``costs/costs.json`` (the four sums,
+    keyed by session id), field by field (WP5.4, A24)."""
+    listed = {(row.file, row.field) for row in mapping_rows()}
+    missing = [
+        ("builds/builds.json", f) for f in BUILD_FIELDS if ("builds/builds.json", f) not in listed
+    ]
+    missing += [
+        ("costs/costs.json", f) for f in COST_FIELDS if ("costs/costs.json", f) not in listed
+    ]
+    assert missing == []
+
+
+def test_the_builds_and_costs_rows_map_onto_the_section_paths() -> None:
+    by_field = {(r.file, r.field): r.path for r in mapping_rows()}
+    assert by_field[("builds/builds.json", "state")] == "projects[].build.state"
+    assert by_field[("builds/builds.json", "workflows[].run_duration")] == (
+        "projects[].build.workflows[].run_duration_s"
+    )
+    assert by_field[("builds/builds.json", "workflows[].typical_duration")] == (
+        "projects[].build.workflows[].typical_duration_s"
+    )
+    assert by_field[("costs/costs.json", "input")] == "sessions[].tokens.input"
+    assert by_field[("costs/costs.json", "cache_write")] == "sessions[].tokens.cache_write"
+    assert by_field[("costs/costs.json", "<session_id>")] == "sessions[].native_id"
+
+
+def test_every_showy_quota_provider_has_rows_and_says_whether_fylgja_covers_it() -> None:
+    """A provider Fylgja cannot supply keeps Lidskjalv's own source, so the table must say which."""
+    rows = mapping_rows()
+    for provider in QUOTA_PROVIDERS:
+        mine = [r for r in rows if r.file == f"showy-quota: {provider}"]
+        assert mine, f"no rows for {provider}"
+        for row in mine:
+            assert row.path.startswith("usage.providers[]."), row
+            assert ("**Covered**" in row.notes) or ("**Not covered**" in row.notes), row
+    covered = {
+        r.file.removeprefix("showy-quota: ")
+        for r in rows
+        if r.file.startswith("showy-quota: ") and "**Covered**" in r.notes
+    }
+    not_covered = {
+        r.file.removeprefix("showy-quota: ")
+        for r in rows
+        if r.file.startswith("showy-quota: ") and "**Not covered**" in r.notes
+    }
+    assert covered == {"claude", "codex"}
+    assert not_covered == {"copilot"}
+
+
+def test_the_new_paths_are_in_the_schema_and_in_a_recorded_fixture(schema: dict[str, Any]) -> None:
+    """The §4.7 sections were part of ``fylgja.now/1`` from the start; a recorded document carries
+    each path the new rows name (the parametrised tests above check the rest)."""
+    paths = [
+        "projects[].build.workflows[].run_duration_s",
+        "projects[].build.workflows[].typical_duration_s",
+        "projects[].build.observed_at",
+        "sessions[].tokens.cache_read",
+        "sessions[].tokens.freshness",
+        "sessions[].cost_usd",
+        "sessions[].context_pct",
+        "usage.providers[].used_pct",
+        "usage.providers[].resets_at",
+        "usage.providers[].error_kind",
+        "usage.cost.usd",
+        "usage.cost.period",
+        "usage.freshness",
+    ]
+    document = _documents()["phase5-usage-builds.json"]
+    for path in paths:
+        assert in_schema(schema, path), path
+        assert in_document(document, path), path
+
+
+def test_the_usage_fixture_covers_every_freshness_story() -> None:
+    document = _documents()["phase5-usage-builds.json"]
+    providers = {(p["provider"], p.get("window")): p for p in document["usage"]["providers"]}
+    assert {"claude", "codex", "copilot"} == {provider for provider, _ in providers}
+    assert providers[("claude", "five_hour")]["source"] == "statusline"
+    assert providers[("codex", "seven_day")]["source"] == "codexbar"
+    assert providers[("copilot", None)]["freshness"] == "unavailable"
+    assert providers[("copilot", None)]["error_kind"] == "codexbar_no_strategy"
+    assert "used_pct" not in providers[("copilot", None)]
+    [session] = document["sessions"]
+    assert session["tokens"]["source"] == "transcript"
+    [project] = document["projects"]
+    assert project["build"]["state"] == "fail"
+    assert len(project["build"]["workflows"]) == 2
+
+
 def test_lane_key_is_mapped_for_the_lane() -> None:
     lane = next(r for r in mapping_rows() if (r.file, r.field) == ("lane.json", "lane_id"))
     assert lane.path == "sessions[].lane_key"

@@ -67,6 +67,7 @@ from fylgja.core.retention import MaintenanceJob
 from fylgja.core.sessions import SessionStateEngine
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.core.todos import TodoService
+from fylgja.core.usage_view import UsageMemory, UsageMeta
 from fylgja.core.writer import Writer, WriterClosed, session_key, split_session_key
 from fylgja.messaging.service import MessageService, WriterReceipts
 from fylgja.models import (
@@ -165,6 +166,8 @@ class StateView:
     have no stored row)."""
     contexts: Mapping[str, tuple[ContextEntry, ...]] = field(default_factory=dict)
     """The context items of each open window (WP5.3), by window id."""
+    usage: UsageMeta = field(default_factory=UsageMeta)
+    """When each usage row was last observed and why an attempt failed (§4.7)."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -374,6 +377,7 @@ class Daemon:
         self.writer = Writer(database, clock=self.clock, on_commit=self.view.apply)
         self.memory = SessionMemory()
         self.contexts = ContextMemory()
+        self.usage = UsageMemory()
         self.session_state = SessionStateEngine(self.writer.submit, self._window_of)
         self.resolver = Resolver(
             self.writer,
@@ -398,6 +402,7 @@ class Daemon:
                     self.memory.observe,
                     self.spans.observe,
                     self.contexts.observe,
+                    self.usage.observe,
                 ),
                 (self.session_state.apply,),
             ),
@@ -719,6 +724,7 @@ class Daemon:
             if resolution is None
             else {name: label.text for name, label in resolution.labels.items()},
             contexts=self.contexts.by_window(snapshot.windows.keys()),
+            usage=self.usage.meta(),
         )
 
 

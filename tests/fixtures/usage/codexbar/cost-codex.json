@@ -1,0 +1,59 @@
+[
+  {
+    "coverage": {
+      "estimated": 0,
+      "priced": 13,
+      "unmetered": 0,
+      "unpriced": 1
+    },
+    "currencyCode": "USD",
+    "daily": [
+      {
+        "cacheReadTokens": 1143424,
+        "date": "2026-10-05",
+        "inputTokens": 1327546,
+        "modelsUsed": [
+          "gpt-5.6-sol"
+        ],
+        "outputTokens": 29944,
+        "totalCost": 1.7927376,
+        "totalTokens": 1357490
+      },
+      {
+        "cacheReadTokens": 512000,
+        "date": "2026-10-06",
+        "inputTokens": 586716,
+        "modelsUsed": [
+          "gpt-5.6-sol"
+        ],
+        "outputTokens": 9258,
+        "totalCost": 0.688824,
+        "totalTokens": 595974
+      }
+    ],
+    "historyCoverageIsEstablished": true,
+    "historyDays": 30,
+    "last30DaysCostUSD": 24.276115000000004,
+    "last30DaysTokens": 27539671,
+    "provenance": "listPriceEstimate",
+    "provider": "codex",
+    "sessionCostUSD": 0.688824,
+    "sessionTokens": 595974,
+    "source": "local",
+    "totals": {
+      "cacheReadTokens": 24884736,
+      "coverage": {
+        "estimated": 0,
+        "priced": 13,
+        "unmetered": 0,
+        "unpriced": 1
+      },
+      "inputTokens": 27262699,
+      "outputTokens": 276972,
+      "provenance": "listPriceEstimate",
+      "totalCost": 24.276115000000004,
+      "totalTokens": 27539671
+    },
+    "updatedAt": "2026-10-06T11:27:42Z"
+  }
+]

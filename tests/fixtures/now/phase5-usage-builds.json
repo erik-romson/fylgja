@@ -1,0 +1,317 @@
+{
+  "schema": "fylgja.now/1",
+  "generated_at": "2026-10-05T12:00:00Z",
+  "focused": {
+    "window_id": "100",
+    "workspace": "1",
+    "app_name": "cmux",
+    "bundle_id": "com.cmuxterm.app",
+    "title": "Shell",
+    "session_key": "claude:c-1",
+    "since": "2026-10-05T12:00:00Z"
+  },
+  "workspaces": [
+    {
+      "name": "1",
+      "label": "alpha",
+      "label_source": "inferred",
+      "inferred_label": "alpha",
+      "one_liner": "alpha — Bash pytest",
+      "focused": true,
+      "windows": [
+        {
+          "id": "100",
+          "app": "cmux",
+          "bundle_id": "com.cmuxterm.app",
+          "title": "Shell",
+          "focused": true
+        }
+      ],
+      "projects": [
+        "/work/alpha"
+      ],
+      "sessions": [
+        "claude:c-1"
+      ]
+    },
+    {
+      "name": "2",
+      "label": "IntelliJ IDEA gamma",
+      "label_source": "inferred",
+      "inferred_label": "IntelliJ IDEA gamma",
+      "one_liner": "IntelliJ IDEA gamma",
+      "focused": false,
+      "windows": [
+        {
+          "id": "101",
+          "app": "IntelliJ IDEA",
+          "bundle_id": "com.jetbrains.intellij",
+          "title": "gamma – Main.java",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "3",
+      "label": "iTerm2 Shell",
+      "label_source": "inferred",
+      "inferred_label": "iTerm2 Shell",
+      "one_liner": "iTerm2 Shell",
+      "focused": false,
+      "windows": [
+        {
+          "id": "102",
+          "app": "iTerm2",
+          "bundle_id": "com.googlecode.iterm2",
+          "title": "Shell",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "4",
+      "label": "Safari Release",
+      "label_source": "inferred",
+      "inferred_label": "Safari Release",
+      "one_liner": "Safari Release",
+      "focused": false,
+      "windows": [
+        {
+          "id": "103",
+          "app": "Safari",
+          "bundle_id": "com.apple.Safari",
+          "title": "Release notes",
+          "focused": false
+        }
+      ],
+      "projects": [],
+      "sessions": []
+    },
+    {
+      "name": "5",
+      "label": "—",
+      "label_source": "none",
+      "one_liner": "—",
+      "focused": false,
+      "windows": [],
+      "projects": [],
+      "sessions": []
+    }
+  ],
+  "sessions": [
+    {
+      "key": "claude:c-1",
+      "kind": "claude",
+      "native_id": "c-1",
+      "title": "Fix the flaky build",
+      "cwd": "/work/alpha/src",
+      "project_path": "/work/alpha",
+      "pid": 501,
+      "state": "busy",
+      "state_since": "2026-10-05T12:00:00Z",
+      "current_tool": "Bash",
+      "current_target": "pytest",
+      "host": {
+        "kind": "cmux",
+        "window_id": "100",
+        "workspace": "1",
+        "via": "parent-chain",
+        "confidence": "window-only"
+      },
+      "entrypoint": "cli",
+      "model": "claude-opus-5",
+      "branch": "feature/build-fix",
+      "version": "2.1.291",
+      "lane_key": "501-1790000000",
+      "process_key": "501-1790000000",
+      "facts": {
+        "title": "Fix the flaky build",
+        "prompt": "make the integration build green again",
+        "said": "The failing test is isolated; running the suite once more.",
+        "mode": "default",
+        "branch": "feature/build-fix",
+        "version": "2.1.289",
+        "model": "claude-opus-5",
+        "turns": 4,
+        "started": 1790000000,
+        "last_at": 1790000540,
+        "prompts": [
+          "make the integration build green again",
+          "run it once more"
+        ],
+        "tools": {
+          "Bash": 3,
+          "Edit": 1
+        },
+        "files": [
+          "/work/alpha/src/build.py"
+        ],
+        "tasks": [
+          {
+            "status": "completed",
+            "content": "isolate the failing test"
+          },
+          {
+            "status": "in_progress",
+            "content": "fix the build"
+          }
+        ]
+      },
+      "one_liner": "Bash pytest",
+      "one_liner_from": "tool",
+      "tokens": {
+        "input": 1234,
+        "output": 5678,
+        "cache_read": 910111,
+        "cache_write": 21314,
+        "source": "transcript",
+        "observed_at": "2026-10-05T12:00:00Z",
+        "freshness": "fresh"
+      },
+      "cost_usd": 1.2345,
+      "context_pct": 42.5,
+      "first_seen": "2026-10-05T12:00:00Z",
+      "last_seen": "2026-10-05T12:00:00Z"
+    }
+  ],
+  "projects": [
+    {
+      "path": "/work/alpha",
+      "name": "repo",
+      "repo_root": "/work/alpha",
+      "repo_name": "repo",
+      "remote_url": "https://github.com/example/repo",
+      "workspace": "1",
+      "sessions": [
+        "claude:c-1"
+      ],
+      "branch": "feature/build-fix",
+      "dirty": true,
+      "ahead": 2,
+      "behind": 0,
+      "pr": {
+        "number": 17,
+        "state": "OPEN",
+        "review_decision": "REVIEW_REQUIRED"
+      },
+      "build": {
+        "state": "fail",
+        "head_sha": "bbb222",
+        "url": "https://github.com/example/repo/commit/bbb222/checks",
+        "workflows": [
+          {
+            "workflow": "ci.yml",
+            "state": "fail",
+            "status": "completed",
+            "conclusion": "failure",
+            "run_id": 201,
+            "url": "https://github.com/myorg/myrepo/actions/runs/201",
+            "run_started_at": "2025-06-01T10:00:00Z",
+            "run_duration_s": 300.0
+          },
+          {
+            "workflow": "lint.yml",
+            "state": "pass",
+            "status": "completed",
+            "conclusion": "success",
+            "run_id": 202,
+            "url": "https://github.com/myorg/myrepo/actions/runs/202",
+            "run_started_at": "2025-06-01T10:00:00Z",
+            "run_duration_s": 180.0,
+            "typical_duration_s": 180.0
+          }
+        ],
+        "source": "gh",
+        "observed_at": "2026-10-05T12:00:00Z",
+        "freshness": "fresh"
+      },
+      "last_commit_at": "2026-10-05T10:00:00Z",
+      "updated_at": "2026-10-05T12:00:00Z"
+    }
+  ],
+  "usage": {
+    "providers": [
+      {
+        "provider": "claude",
+        "window": "five_hour",
+        "used_pct": 23.5,
+        "resets_at": "2026-10-05T16:00:00Z",
+        "source": "statusline",
+        "observed_at": "2026-10-05T12:00:00Z",
+        "freshness": "fresh"
+      },
+      {
+        "provider": "claude",
+        "window": "seven_day",
+        "used_pct": 41.2,
+        "resets_at": "2026-10-11T12:00:00Z",
+        "source": "statusline",
+        "observed_at": "2026-10-05T12:00:00Z",
+        "freshness": "fresh"
+      },
+      {
+        "provider": "codex",
+        "window": "five_hour",
+        "used_pct": 0.0,
+        "resets_at": "2026-10-05T16:00:00Z",
+        "source": "codexbar",
+        "observed_at": "2026-10-05T12:00:00Z",
+        "freshness": "fresh"
+      },
+      {
+        "provider": "codex",
+        "window": "seven_day",
+        "used_pct": 3.0,
+        "resets_at": "2026-10-11T12:00:00Z",
+        "source": "codexbar",
+        "observed_at": "2026-10-05T12:00:00Z",
+        "freshness": "fresh"
+      },
+      {
+        "provider": "copilot",
+        "source": "codexbar",
+        "observed_at": "2026-10-05T12:00:00Z",
+        "freshness": "unavailable",
+        "error_kind": "codexbar_no_strategy"
+      }
+    ],
+    "cost": {
+      "period": "30d",
+      "usd": 3064.06,
+      "source": "codexbar",
+      "observed_at": "2026-10-05T12:00:00Z",
+      "freshness": "fresh"
+    },
+    "source": "codexbar,statusline",
+    "observed_at": "2026-10-05T12:00:00Z",
+    "freshness": "fresh"
+  },
+  "collectors": [
+    {
+      "name": "agents",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    },
+    {
+      "name": "ps",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    },
+    {
+      "name": "wm",
+      "origin": "built-in",
+      "state": "starting",
+      "since": "2026-10-05T12:00:00Z",
+      "restarts": 0
+    }
+  ],
+  "degraded": []
+}

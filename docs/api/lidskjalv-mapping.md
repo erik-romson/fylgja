@@ -2,8 +2,8 @@
 
 This is the Fylgja half of WP1.11: every field Lidskjalv reads from its own cache files, and the `/now` path
 the Lidskjalv transform (`lib/fylgja_now.sh`, built in the Lidskjalv repository) reads instead. WP2.6 later wires
-the same transform behind `LIDSKJALV_SOURCE_SESSIONS=fylgja`; WP5.4 extends this table with the builds, costs,
-quota and stories rows (A24, step 42).
+the same transform behind `LIDSKJALV_SOURCE_SESSIONS=fylgja`; WP5.4 extends this table with the builds, costs
+and quota rows (A24, step 42); stories come later.
 
 - **Where Lidskjalv reads the fields.** `plugins/lidskjalv_sessions.sh` (roster at lines 452–470, stories 600–607,
   summaries 615–624, lanes 626–700, records 1048–1069, `render_from` at 704) and `bin/lidskjalv.sh`
@@ -69,6 +69,48 @@ quota and stories rows (A24, step 42).
 | `roster.json` | `sessions[].status` | `sessions[].state` | `busy` and `idle` are the registry's own states, kept as `busy` and `idle` in `/now` until hooks give finer ones. A headless run has no status; the transform drops a session without `state`. |
 | `roster.json` | `sessions[].cwd` | `sessions[].cwd` | `LIDSKJALV_IGNORE_CWD` is applied to it by the transform. |
 | `roster.json` | `sessions[].startedAt` | `sessions[].first_seen` | Milliseconds in the registry, an ISO timestamp in `/now`. |
+| `builds/builds.json` | `<root>` | `projects[].path` | The key of an entry: Lidskjalv keys it by repository root and joins a session to it when the session's `cwd` is the root or below it. `/now` lists the build on the project of the session (`sessions[].project_path`, `projects[].sessions[]`), so the transform needs no prefix match. Only a project with a GitHub remote has a `build`. |
+| `builds/builds.json` | `state` | `projects[].build.state` | `pass`, `fail`, `running`, `cancelled` or `none`: the same five values, from a Python port of `_BUILDS_FOLD_JQ` that the parity goldens check. |
+| `builds/builds.json` | `head_sha` | `projects[].build.head_sha` | The newest head sha of the branch's runs; absent when the branch has no runs. |
+| `builds/builds.json` | `local_head_sha` | — | The sha of the local checkout, written by Lidskjalv's own git call, which `/now` does not carry. Without it the transform cannot set the panel's `stale` flag (local differs from remote) and writes `false`; `projects[].ahead` and `projects[].behind` say the same thing in another way. |
+| `builds/builds.json` | `url` | `projects[].build.url` | The checks page of the head sha. |
+| `builds/builds.json` | `workflows[].workflow` | `projects[].build.workflows[].workflow` | The workflow file's name (the basename of its path). |
+| `builds/builds.json` | `workflows[].state` | `projects[].build.workflows[].state` | Same five values as the aggregate. |
+| `builds/builds.json` | `workflows[].status` | `projects[].build.workflows[].status` | GitHub's own `status` of the run. |
+| `builds/builds.json` | `workflows[].conclusion` | `projects[].build.workflows[].conclusion` | GitHub's own `conclusion`; absent while the run is not completed. |
+| `builds/builds.json` | `workflows[].run_id` | `projects[].build.workflows[].run_id` | The run's id. |
+| `builds/builds.json` | `workflows[].url` | `projects[].build.workflows[].url` | The run's page. |
+| `builds/builds.json` | `workflows[].run_started_at` | `projects[].build.workflows[].run_started_at` | Epoch seconds in Lidskjalv's file, an ISO timestamp in `/now`; the panel's `age` is the time since it. |
+| `builds/builds.json` | `workflows[].run_duration` | `projects[].build.workflows[].run_duration_s` | Seconds; absent for a run that is not completed. Renamed with its unit. |
+| `builds/builds.json` | `workflows[].typical_duration` | `projects[].build.workflows[].typical_duration_s` | The median duration of the workflow's successful runs on the page, in seconds; absent when it has none. Renamed with its unit. |
+| `builds/builds.json` | `checked_at` | `projects[].build.observed_at` | Epoch seconds in Lidskjalv's file, an ISO timestamp in `/now`. A failed attempt moves it too, so read `projects[].build.freshness` for the verdict. |
+| `builds/builds.json` | `next_check_at` | `projects[].build.freshness` | Lidskjalv's schedule decides when an entry is looked at again. Fylgja has one slow timer (5 minutes) plus focus and branch-tip triggers and reports the result as `fresh` (within twice the interval), `stale` or `unavailable`, which replaces the schedule. |
+| `builds/builds.json` | `etag` | — | The conditional-request tag is the collector's own memory (decision 0044); it is never part of `/now`. |
+| `builds/builds.json` | `rate_remaining` | — | GitHub's remaining quota, used by the collector to stop calling when it is below 100. When gh is blocked the build is `unavailable` with `projects[].build.error_kind` (`gh_rate_limited`). |
+| `builds/builds.json` | `owner_repo` | `projects[].repo_name` | Fylgja's `repo_name` is the repository's name without the owner; the owner is in `projects[].remote_url`. |
+| `builds/builds.json` | `branch` | `projects[].branch` | The branch of the project's checkout, which is the branch the runs are read for. |
+| `builds/builds.json` | `root` | `projects[].repo_root` | The repository root. |
+| `costs/costs.json` | `<session_id>` | `sessions[].native_id` | The key of an entry. `costs.json` is keyed by session id; `/now` carries the tokens on the session itself, so the transform joins nothing. |
+| `costs/costs.json` | `input` | `sessions[].tokens.input` | The sum of `input_tokens` over the transcript's assistant lines, by a Python port of `_COSTS_JQ`. |
+| `costs/costs.json` | `output` | `sessions[].tokens.output` | The sum of `output_tokens`. |
+| `costs/costs.json` | `cache_read` | `sessions[].tokens.cache_read` | The sum of `cache_read_input_tokens`. |
+| `costs/costs.json` | `cache_write` | `sessions[].tokens.cache_write` | The sum of `cache_creation_input_tokens`. |
+| `costs/costs.json` | `session_id` | `sessions[].native_id` | The session the sums belong to. |
+| `showy-quota: claude` | `five_hour` used percentage | `usage.providers[].used_pct` | Element with `provider` equal to `claude` and `window` equal to `five_hour`. **Covered**: Claude's `rate_limits` from the statusline snapshot, which exists for claude.ai Pro and Max accounts once a session has had its first response. With no recent snapshot the element is `stale`. |
+| `showy-quota: claude` | `five_hour` reset time | `usage.providers[].resets_at` | **Covered**, as the percentage. An ISO timestamp, where the statusline has epoch seconds. |
+| `showy-quota: claude` | `seven_day` used percentage | `usage.providers[].used_pct` | Element with `window` equal to `seven_day`. **Covered**, as the five-hour window. |
+| `showy-quota: claude` | `seven_day` reset time | `usage.providers[].resets_at` | **Covered**, as the weekly percentage. |
+| `showy-quota: codex` | `five_hour` used percentage | `usage.providers[].used_pct` | Element with `provider` equal to `codex` and `window` equal to `five_hour`. **Covered** while CodexBar can read Codex (`codexbar usage --provider codex`); otherwise the element is `unavailable` with `error_kind`, and the transform keeps the `lidskjalv` source for the provider. |
+| `showy-quota: codex` | `five_hour` reset time | `usage.providers[].resets_at` | **Covered**, as the percentage. |
+| `showy-quota: codex` | `seven_day` used percentage | `usage.providers[].used_pct` | Element with `window` equal to `seven_day`. **Covered**, as the five-hour window. |
+| `showy-quota: codex` | `seven_day` reset time | `usage.providers[].resets_at` | **Covered**, as the weekly percentage. |
+| `showy-quota: copilot` | used percentage | `usage.providers[].used_pct` | **Not covered** on this machine: CodexBar 0.55.0 has no fetch strategy for Copilot without a token of its own, so Fylgja lists the provider `unavailable` with `error_kind` `codexbar_no_strategy` and no percentage. Lidskjalv keeps its own source (showy-quota) for `copilot` until CodexBar can answer; WP5.5 revalidates this. |
+| `showy-quota: copilot` | reset time | `usage.providers[].resets_at` | **Not covered**, as the percentage. |
+| (new in Fylgja) | `sessions[].cost_usd` | `sessions[].cost_usd` | The session's total cost from the statusline snapshot (`cost.total_cost_usd`, a list-price estimate that resets with `/clear`). Lidskjalv has no equivalent today; additive. |
+| (new in Fylgja) | `sessions[].context_pct` | `sessions[].context_pct` | The context window's used percentage from the statusline snapshot. Additive. |
+| (new in Fylgja) | `usage.cost` | `usage.cost.usd` | The spend over `usage.cost.period` (`30d`), summed over the providers CodexBar prices from local logs (`codex` and `claude`). A list-price estimate. Additive. |
+| (new in Fylgja) | `usage.providers[]` freshness | `usage.providers[].freshness` | Every provider element also has `source`, `observed_at`, `freshness` and, when the last attempt failed, `error_kind`. The quota switch shows an `unavailable` or `stale` element dimmed instead of its percentage. Additive. |
+| (new in Fylgja) | `sessions[].tokens` freshness | `sessions[].tokens.freshness` | `tokens` also has `source` (`transcript`), `observed_at` and `freshness`. Additive. |
 
 ## State vocabulary
 
@@ -84,11 +126,33 @@ quota and stories rows (A24, step 42).
 
 Lidskjalv's `compacting` has no `/now` equivalent in Phase 1; a compacting session reads as `running`.
 
+## Builds, costs and quota
+
+These rows come with WP5.4 (A24). Lidskjalv keeps its own builds, costs and quota paths; WP5.5 adds a switch
+(`lidskjalv|fylgja`, default `lidskjalv`) that reads the `/now` paths instead.
+
+- **Builds** (`builds/builds.json`, one entry per repository root, folded by `_BUILDS_FOLD_JQ`) are
+  `projects[].build`. The fold is a Python port checked against goldens generated once from the jq program.
+  Fylgja's budget differs on purpose (decision 0044): it is a rolling sixty minutes and counts a `304`.
+- **Costs** (`costs/costs.json`, keyed by session id, from `_COSTS_JQ`) are `sessions[].tokens`. The port is exact,
+  so the numbers are the ones Lidskjalv shows. That includes the known overcount: Claude writes one transcript
+  line per content block, each with the message's usage, and `_COSTS_JQ` sums every line (revalidation log
+  `2026-10-06-usage.md`, decision 0045).
+- **Quota** (showy-quota providers `claude`, `copilot` and `codex`) is `usage.providers[]`. Claude comes from the
+  statusline's `rate_limits`, Codex and Copilot from the CodexBar CLI. The table says per provider whether
+  Fylgja's sources cover it: `claude` and `codex` are covered, `copilot` is not on this machine. A provider that
+  Fylgja cannot supply is listed `unavailable` with its `error_kind`, and the transform keeps Lidskjalv's own
+  source for that provider.
+- **Absent, never `null`.** A section with no data yet is absent. Before the first statusline snapshot there is
+  no Claude element, and with CodexBar missing every other provider is `unavailable` with
+  `error_kind` `codexbar_missing`; the reason also shows in the `project` entry of `collectors[]`.
+
 ## Not mapped here
 
-- Builds, costs, quota and stories come with step 42 (A24); Lidskjalv keeps its own paths for them meanwhile.
-- The panel's `build` and `costs` objects and the chip's build state read `builds/builds.json` and
-  `costs/costs.json`, not session files.
+- Stories come later (A24).
+- The panel's `build` and `costs` objects read `builds/builds.json` and `costs/costs.json`; the transform
+  rebuilds them from the rows above. Ended sessions are not in `/now`, so their token sums stay on
+  Lidskjalv's own files.
 
 ## The recorded documents
 
@@ -101,3 +165,4 @@ fixed clock and a fake filesystem. Run it by hand after a deliberate model chang
 | `states-and-hosts.json` | Session states `idle`, `busy` and `waiting`; host kinds `cmux` (with its exact surface), `jetbrains`, `iterm2` and an unresolved host; the facts block. |
 | `clear-predecessor.json` | A session that replaced another in the same process: `lane_key` and `predecessor_key`. |
 | `degraded-sessions.json` | The sessions collector is degraded, so `sessions[]` is absent and `degraded` names it. |
+| `phase5-usage-builds.json` | A Claude session with `tokens`, `cost_usd` and `context_pct`; a project with a failing `build` of two workflows; `usage` with Claude's five-hour and weekly windows, Codex's windows, Copilot `unavailable`, and the spend. |

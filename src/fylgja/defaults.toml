@@ -127,6 +127,17 @@ focus_refresh_seconds = 30
 active_window_seconds = 3600
 gh_calls_per_hour = 30
 gh_pr_calls_per_hour = 120
+# Quota and spend of the providers the Claude statusline does not cover (WP5.4, §4.7): the CodexBar
+# CLI ([paths] codexbar) is asked `usage --provider <p> --json` for each of usage_providers every
+# usage_interval_seconds, and `cost --provider <p> --json` (local logs, no login) for each of
+# cost_providers every cost_interval_seconds. A provider CodexBar cannot answer is `unavailable` in
+# /now with the reason and never degrades the collector. Set usage_enabled = false to stop asking.
+usage_enabled = true
+usage_providers = ["codex", "copilot"]
+cost_providers = ["codex", "claude"]
+usage_interval_seconds = 300
+cost_interval_seconds = 900
+codexbar_timeout_seconds = 45
 
 [collectors.presence]
 enabled = true

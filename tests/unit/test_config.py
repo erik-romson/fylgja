@@ -46,6 +46,12 @@ def test_defaults_load_without_a_user_file() -> None:
             "active_window_seconds": 3600,
             "gh_calls_per_hour": 30,
             "gh_pr_calls_per_hour": 120,
+            "usage_enabled": True,
+            "usage_providers": ["codex", "copilot"],
+            "cost_providers": ["codex", "claude"],
+            "usage_interval_seconds": 300,
+            "cost_interval_seconds": 900,
+            "codexbar_timeout_seconds": 45,
         },
         "presence": {
             "enabled": True,

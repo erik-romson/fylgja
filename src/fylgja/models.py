@@ -77,6 +77,7 @@ __all__ = [
     "TodoEvent",
     "TodoPayload",
     "TodoSnapshot",
+    "TokenCounts",
     "UsageEvent",
     "UsagePayload",
     "UsageSnapshot",
@@ -227,6 +228,15 @@ class Stage(_Frozen):
     total: int | None = None
 
 
+class TokenCounts(_Frozen):
+    """Token sums over a transcript's assistant ``message.usage`` (§4.7)."""
+
+    input: int = Field(ge=0)
+    output: int = Field(ge=0)
+    cache_read: int = Field(ge=0)
+    cache_write: int = Field(ge=0)
+
+
 class SessionActivity(_Frozen):
     """Normalized activity of one session (§4.6). Every field is optional."""
 
@@ -242,6 +252,13 @@ class SessionActivity(_Frozen):
     branch: str | None = None
     facts: dict[str, JsonValue] | None = None
     """Lidskjalv-compatible ``facts`` block (Claude, WP1.7); ``/now`` ``sessions[].facts``."""
+    tokens: TokenCounts | None = None
+    """Token sums of the transcript (§4.7). Readings, not state: a change updates the open interval
+    in place and never opens a new one."""
+    context_pct: float | None = None
+    """The context window's used percentage, from the statusline snapshot (§4.7). A reading."""
+    cost_usd: float | None = None
+    """The session's total cost, from the statusline snapshot (§4.7). A reading."""
 
 
 class TodoPayload(_Frozen):
@@ -314,6 +331,11 @@ class UsagePayload(_Frozen):
     cost_usd: float | None = None
     cost_period: str | None = None
     usage_source: str | None = None
+    poll_interval_s: float | None = None
+    """The source's poll interval; ``/now`` judges the freshness of the row against it (§4.7)."""
+    error_kind: str | None = None
+    """The last attempt of ``usage_source`` for this provider failed (a short code). Such an item
+    carries no reading and is not stored: it only marks the provider ``unavailable`` in ``/now``."""
 
 
 # --------------------------------------------------------------------------------------------

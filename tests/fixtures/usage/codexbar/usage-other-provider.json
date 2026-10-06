@@ -1,0 +1,25 @@
+[
+  {
+    "provider": "gemini",
+    "source": "oauth",
+    "usage": {
+      "dataConfidence": "exact",
+      "loginMethod": "plus",
+      "primary": {
+        "resetDescription": "6:28\u202fPM",
+        "resetsAt": "2026-10-06T16:28:31Z",
+        "usedPercent": 0,
+        "windowMinutes": 300
+      },
+      "secondary": {
+        "resetDescription": "Oct 12 at 1:37\u202fPM",
+        "resetsAt": "2026-10-12T11:37:08Z",
+        "usedPercent": 3,
+        "windowMinutes": 10080
+      },
+      "tertiary": null,
+      "updatedAt": "2026-10-06T11:28:32Z"
+    },
+    "version": "0.154.0"
+  }
+]

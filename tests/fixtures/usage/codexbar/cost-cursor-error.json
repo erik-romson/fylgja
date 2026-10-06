@@ -1,0 +1,13 @@
+[
+  {
+    "daily": [],
+    "error": {
+      "code": 1,
+      "kind": "provider",
+      "message": "No Cursor session found. Please log in to cursor.com in a supported browser."
+    },
+    "projects": [],
+    "provider": "cursor",
+    "source": "web"
+  }
+]

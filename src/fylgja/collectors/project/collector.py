@@ -24,6 +24,12 @@ records are ``project`` and ``build`` events. A git failure degrades the collect
 absent, not authenticated or rate-limited does not (the build section says so, see
 :mod:`~fylgja.collectors.project.state`).
 
+**Usage** (WP5.4, §4.7) runs in a third task: :class:`~fylgja.collectors.project.usage.UsageEngine`
+asks the CodexBar CLI for the quota windows and the spend of the other providers on a slow timer and
+emits one complete usage snapshot per round. CodexBar being absent, not signed in or failing is
+not a degradation: ``/now`` marks the provider ``unavailable`` with the reason, and the health
+detail carries the usage clause (``usage: no data yet``, ``usage: disabled``, ...).
+
 Nothing is logged or exposed from task text or file paths: failures are short codes and counts.
 """
 
@@ -39,6 +45,7 @@ from pydantic import Field
 from fylgja.collectors.base import CollectorContext
 from fylgja.collectors.project import adapter, parse
 from fylgja.collectors.project.state import ProjectStateEngine, StateSettings
+from fylgja.collectors.project.usage import UsageEngine, UsageSettings
 from fylgja.collectors.seams import FileSystem, ProcessRunner
 from fylgja.models import HealthReport, HealthState
 
@@ -48,8 +55,9 @@ STORE_UNREADABLE: Final = "store_unreadable"
 POLL_FAILED: Final = "poll_failed"
 
 
-class ProjectSettings(StateSettings):
-    """``[collectors.project]``: the ``TODO.md`` settings and, inherited, the project state's."""
+class ProjectSettings(StateSettings, UsageSettings):
+    """``[collectors.project]``: the ``TODO.md`` settings and, inherited, the project state's and
+    the CodexBar usage settings."""
 
     database: Path | None = None
     """The store the known projects are read from; default the daemon's own (read-only)."""
@@ -97,6 +105,12 @@ class ProjectCollector:
             runner=adapter.default_runner() if runner is None else runner,
             fs=fs,
         )
+        self._usage = UsageEngine(
+            settings,
+            clock=context.clock,
+            runner=adapter.default_runner() if runner is None else runner,
+        )
+        self._usage_failure: str | None = None
         self._state_failure: str | None = None
         self._files: dict[str, _FileState] = {}
         self._failures: dict[str, str] = {}
@@ -109,6 +123,8 @@ class ProjectCollector:
         """Snapshots that reached the sink."""
         self.state_emissions = 0
         """Project and build records that reached the sink."""
+        self.usage_emissions = 0
+        """Usage snapshots that reached the sink."""
 
     # -- one poll ---------------------------------------------------------------------------
 
@@ -216,9 +232,32 @@ class ProjectCollector:
                 self._state_failure = None
             await self._context.clock.sleep(self._settings.poll_interval_seconds)
 
+    async def poll_usage(self) -> int:
+        """Ask CodexBar what is due (§4.7). Returns the usage snapshots emitted."""
+        records = await self._usage.poll()
+        for record in records:
+            self._context.sink.emit(record)
+        self.usage_emissions += len(records)
+        return len(records)
+
+    async def _run_usage(self) -> None:
+        """CodexBar runs in a task of its own: a slow CLI never delays git or ``TODO.md``."""
+        while True:
+            try:
+                await self.poll_usage()
+            except Exception as exc:
+                kind = type(exc).__name__
+                if self._usage_failure != kind:
+                    self._context.logger.error("project usage poll failed: %s", kind)
+                self._usage_failure = kind
+            else:
+                self._usage_failure = None
+            await self._context.clock.sleep(self._settings.poll_interval_seconds)
+
     async def run(self) -> None:
         """Poll until cancelled. An unexpected error is logged once and the loop goes on."""
         state = asyncio.create_task(self._run_state(), name="project-state")
+        usage = asyncio.create_task(self._run_usage(), name="project-usage")
         try:
             while True:
                 try:
@@ -233,7 +272,8 @@ class ProjectCollector:
                 await self._context.clock.sleep(self._settings.poll_interval_seconds)
         finally:
             state.cancel()
-            await asyncio.gather(state, return_exceptions=True)
+            usage.cancel()
+            await asyncio.gather(state, usage, return_exceptions=True)
 
     # -- health -----------------------------------------------------------------------------
 
@@ -251,6 +291,13 @@ class ProjectCollector:
             return HealthReport(
                 state=HealthState.DEGRADED,
                 detail=f"the poll failed ({self._loop_failure})",
+                error_kind=POLL_FAILED,
+                checked_at=now,
+            )
+        if self._usage_failure is not None:
+            return HealthReport(
+                state=HealthState.DEGRADED,
+                detail=f"the usage poll failed ({self._usage_failure})",
                 error_kind=POLL_FAILED,
                 checked_at=now,
             )
@@ -293,4 +340,5 @@ class ProjectCollector:
         issue = self._engine.gh_issue
         if issue is not None:
             detail += f"; gh unavailable ({issue})"
+        detail += f"; {self._usage.summary()}"
         return HealthReport(state=HealthState.OK, detail=detail, checked_at=now)

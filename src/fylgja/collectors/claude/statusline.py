@@ -9,10 +9,13 @@ is ever written, deleted or quarantined here.
 Each reading becomes:
 
 * one :class:`~fylgja.models.HookEvent` named ``StatusLine`` with the session's context percentage,
-  cost and pull request (``/now`` ``context_pct`` and ``cost_usd`` are filled from it later);
+  cost and pull request. The collector lays the newest context percentage and cost of each live
+  session onto its activity (:meth:`StatuslineReader.readings`), which fills ``/now``
+  ``sessions[].context_pct`` and ``cost_usd`` (§4.7);
 * one incomplete :class:`~fylgja.models.UsageSnapshot` with a row per rate-limit window
-  (``five_hour``, ``seven_day``, …): ``usage.providers[]`` of §4.7. Rate limits belong to the
-  account, so several sessions report the same windows and the newest reading wins in the store.
+  (``five_hour``, ``seven_day``, ``spend_limit``): ``usage.providers[]`` of §4.7. Rate limits
+  belong to the account, so several sessions report the same windows and the newest reading wins in
+  the store.
 
 Both are stamped with the file's mtime, so a snapshot that is old is not mistaken for a new one. A
 snapshot older than :data:`MAX_AGE` is skipped: its session is long gone.
@@ -61,6 +64,10 @@ __all__ = [
 
 PROVIDER: Final = "claude"
 USAGE_SOURCE: Final = "statusline"
+RATE_LIMIT_INTERVAL: Final = 150.0
+"""The rhythm of the rate limits: Claude refreshes the statusline while a session works, so a
+reading is ``fresh`` for twice this long (§4.7) and ``stale`` once every session has been quiet
+for longer."""
 MAX_AGE: Final = 7 * 86400.0
 """Seconds after which a snapshot is not read (its session has ended)."""
 MAX_FILE_BYTES: Final = 8 * 1024 * 1024
@@ -221,6 +228,7 @@ def statusline_records(
                             used_pct=limit.used_pct,
                             resets_at=limit.resets_at,
                             usage_source=USAGE_SOURCE,
+                            poll_interval_s=RATE_LIMIT_INTERVAL,
                         ),
                     )
                     for limit in reading.rate_limits
@@ -252,11 +260,27 @@ class StatuslineReader:
         self._kind = kind
         self._max_age = max_age
         self._seen: dict[str, int] = {}
+        self._latest: dict[str, tuple[float | None, float | None]] = {}
         self.emitted = 0
         """Readings emitted so far."""
         self.ignored = 0
         """Files skipped as unreadable, partial or empty at their latest look."""
         self._failure: str | None = None
+
+    def readings(self, session_id: str) -> tuple[float | None, float | None]:
+        """``(context_pct, cost_usd)`` of the newest snapshot of a session that held them (§4.7).
+
+        Each part is the newest value seen, so a snapshot without a cost keeps the earlier one.
+        ``(None, None)`` when the session has no snapshot.
+        """
+        return self._latest.get(session_id, (None, None))
+
+    def _remember(self, reading: StatuslineReading) -> None:
+        context_pct, cost_usd = self._latest.get(reading.session_id, (None, None))
+        self._latest[reading.session_id] = (
+            reading.context_pct if reading.context_pct is not None else context_pct,
+            reading.cost_usd if reading.cost_usd is not None else cost_usd,
+        )
 
     @property
     def failure(self) -> str | None:
@@ -269,6 +293,7 @@ class StatuslineReader:
             names = sorted(os.listdir(self._directory))
         except FileNotFoundError:
             self._seen.clear()
+            self._latest.clear()
             self._set_failure(None)
             return 0
         except OSError as exc:
@@ -278,6 +303,7 @@ class StatuslineReader:
         present = {name for name in names if _NAME.fullmatch(name) is not None}
         for gone in set(self._seen) - present:
             del self._seen[gone]
+            self._latest.pop(gone.removesuffix(".json"), None)
         count = 0
         now = self._clock.now().timestamp()
         for name in sorted(present):
@@ -318,6 +344,7 @@ class StatuslineReader:
         except ValueError:
             self.ignored += 1
             return False
+        self._remember(reading)
         for record in records:
             self._sink.emit(record)
         self.emitted += 1

@@ -1,0 +1,136 @@
+[
+  {
+    "coverage": {
+      "estimated": 0,
+      "priced": 13,
+      "unmetered": 0,
+      "unpriced": 1
+    },
+    "currencyCode": "USD",
+    "daily": [
+      {
+        "cacheReadTokens": 1143424,
+        "date": "2026-10-05",
+        "inputTokens": 1327546,
+        "modelsUsed": [
+          "gpt-5.6-sol"
+        ],
+        "outputTokens": 29944,
+        "totalCost": 1.7927376,
+        "totalTokens": 1357490
+      },
+      {
+        "cacheReadTokens": 512000,
+        "date": "2026-10-06",
+        "inputTokens": 586716,
+        "modelsUsed": [
+          "gpt-5.6-sol"
+        ],
+        "outputTokens": 9258,
+        "totalCost": 0.688824,
+        "totalTokens": 595974
+      }
+    ],
+    "historyCoverageIsEstablished": true,
+    "historyDays": 30,
+    "last30DaysCostUSD": 24.276115000000004,
+    "last30DaysTokens": 27539671,
+    "provenance": "listPriceEstimate",
+    "provider": "codex",
+    "sessionCostUSD": 0.688824,
+    "sessionTokens": 595974,
+    "source": "local",
+    "totals": {
+      "cacheReadTokens": 24884736,
+      "coverage": {
+        "estimated": 0,
+        "priced": 13,
+        "unmetered": 0,
+        "unpriced": 1
+      },
+      "inputTokens": 27262699,
+      "outputTokens": 276972,
+      "provenance": "listPriceEstimate",
+      "totalCost": 24.276115000000004,
+      "totalTokens": 27539671
+    },
+    "updatedAt": "2026-10-06T11:27:42Z"
+  },
+  {
+    "coverage": {
+      "estimated": 0,
+      "priced": 21,
+      "unmetered": 0,
+      "unpriced": 0
+    },
+    "currencyCode": "USD",
+    "daily": [
+      {
+        "cacheCreationTokens": 10092967,
+        "cacheReadTokens": 298083289,
+        "date": "2026-10-05",
+        "inputTokens": 4076,
+        "modelsUsed": [
+          "claude-haiku-4-5",
+          "claude-opus-5",
+          "claude-opus-5-5",
+          "claude-sonnet-5-5"
+        ],
+        "outputTokens": 3409955,
+        "totalCost": 180.40754379999993,
+        "totalTokens": 311590287
+      },
+      {
+        "cacheCreationTokens": 8735531,
+        "cacheReadTokens": 378710786,
+        "date": "2026-10-06",
+        "inputTokens": 4610,
+        "modelsUsed": [
+          "claude-haiku-4-5",
+          "claude-opus-5",
+          "claude-opus-5-5",
+          "claude-sonnet-5-5"
+        ],
+        "outputTokens": 3113029,
+        "totalCost": 175.36403450000006,
+        "totalTokens": 390563956
+      }
+    ],
+    "historyCoverageIsEstablished": true,
+    "historyDays": 30,
+    "last30DaysCostUSD": 3039.7786430000006,
+    "last30DaysTokens": 4699034881,
+    "provenance": "listPriceEstimate",
+    "provider": "claude",
+    "sessionCostUSD": 175.36403450000006,
+    "sessionTokens": 390563956,
+    "source": "local",
+    "totals": {
+      "cacheCreationTokens": 126298178,
+      "cacheReadTokens": 4537839727,
+      "coverage": {
+        "estimated": 0,
+        "priced": 21,
+        "unmetered": 0,
+        "unpriced": 0
+      },
+      "inputTokens": 91137,
+      "outputTokens": 34805839,
+      "provenance": "listPriceEstimate",
+      "totalCost": 3039.7786430000006,
+      "totalTokens": 4699034881
+    },
+    "updatedAt": "2026-10-06T11:27:46Z"
+  },
+  {
+    "daily": [],
+    "error": {
+      "code": 1,
+      "kind": "provider",
+      "message": "No Cursor session found. Please log in to cursor.com in a supported browser."
+    },
+    "projects": [],
+    "provider": "cursor",
+    "source": "web"
+  }
+]

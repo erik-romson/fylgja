@@ -17,6 +17,11 @@ in the store.
   session without a chain (a new session or a new process); the chains are kept until the process
   is gone. A failing call only costs the chains: the sessions are still listed.
 
+**Readings (WP5.4, §4.7).** Each live session's activity also carries the token sums of its
+transcript (:mod:`~fylgja.collectors.claude.costs`, accumulated by the same tail as the facts) and
+the context percentage and cost of its newest statusline snapshot. They are readings: the store
+updates them in place, and a session without a transcript or a snapshot simply has none.
+
 **Task lists (WP4.3).** Each live session whose transcript was read has its whole task list
 emitted as one complete TODOS snapshot (:func:`~fylgja.collectors.claude.parse.task_snapshot`)
 whenever it differs from the list last emitted for that session. When a session is no longer
@@ -277,10 +282,18 @@ class ClaudeCollector:
                 facts=facts,
                 ancestry=None if chain is None else chain[1],
             )
+            context_pct, cost_usd = self.statusline.readings(row.session_id)
             listed[parse.session_key(row.session_id)] = (
                 parse.session_key(row.session_id),
                 payload,
-                parse.activity_of(row, facts, None if tail is None else tail.pending_tool()),
+                parse.activity_of(
+                    row,
+                    facts,
+                    None if tail is None else tail.pending_tool(),
+                    tokens=None if tail is None else tail.tokens(),
+                    context_pct=context_pct,
+                    cost_usd=cost_usd,
+                ),
             )
             if tail is not None and not tail.backlog:
                 # A transcript still being caught up on is a partial read: its list waits.

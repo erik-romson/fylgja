@@ -1,0 +1,14 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000002",
+  "cost": {"total_cost_usd": 3.5},
+  "context_window": {"used_percentage": null},
+  "rate_limits": {
+    "spend_limit": {
+      "used_percentage": 62.8,
+      "resets_at": 1740787200,
+      "used_usd": 31.4,
+      "limit_usd": 50,
+      "period": "monthly"
+    }
+  }
+}

@@ -21,6 +21,10 @@ no AeroSpace, no cmux, no Claude registry. Four scenarios, one file each:
 ``degraded-sessions.json``
     The sessions collector is degraded, so ``sessions[]`` and ``projects[]`` are absent while
     ``workspaces[]`` is still there and ``degraded`` names the collector.
+``phase5-usage-builds.json``
+    The §4.7 payloads (WP5.4): a Claude session with ``tokens``, ``cost_usd`` and ``context_pct``,
+    a project with a failing ``build`` of two workflows (folded from the sanitized runs fixture),
+    and ``usage`` with Claude's windows, Codex's windows, Copilot ``unavailable`` and the spend.
 ``phase3-agents.json``
     The Phase 3 acceptance payload (WP3.6): Claude, Codex, OpenCode and norn sessions, each from
     its own collector run over its sanitized fixtures (``tests/phase3_support.py``, shared with
@@ -329,6 +333,185 @@ async def _degraded_sessions(api: Any) -> dict[str, Any]:
         await daemon.stop()
 
 
+async def _usage_and_builds(api: Any) -> dict[str, Any]:
+    """The §4.7 payloads, as the Claude and project collectors emit them (WP5.4)."""
+    from datetime import timedelta
+
+    from api_support import Synthetic
+
+    from fylgja.collectors.base import Capability
+    from fylgja.collectors.project import builds
+    from fylgja.models import (
+        BuildEvent,
+        ProjectEvent,
+        ProjectPayload,
+        SessionActivity,
+        SnapshotItem,
+        TokenCounts,
+        UsagePayload,
+        UsageSnapshot,
+    )
+    from fylgja.testing.fakes import FakeFS
+
+    reset_5h = api.T0 + timedelta(hours=4)
+    reset_7d = api.T0 + timedelta(days=6)
+
+    def window(
+        provider: str, name: str, used: float, source: str, interval: float
+    ) -> SnapshotItem[UsagePayload]:
+        return SnapshotItem(
+            entity_id=f"{provider}:{name}",
+            payload=UsagePayload(
+                provider=provider,
+                window=name,
+                used_pct=used,
+                resets_at=reset_5h if name == "five_hour" else reset_7d,
+                usage_source=source,
+                poll_interval_s=interval,
+            ),
+        )
+
+    def cost(provider: str, usd: float) -> SnapshotItem[UsagePayload]:
+        return SnapshotItem(
+            entity_id=f"{provider}:cost",
+            payload=UsagePayload(
+                provider=provider,
+                cost_usd=usd,
+                cost_period="30d",
+                usage_source="codexbar",
+                poll_interval_s=900.0,
+            ),
+        )
+
+    def emit_state(context: Any) -> None:
+        path = "/work/alpha"
+        fold = builds.fold_runs_body(
+            (ROOT / "tests/fixtures/project/gh/actions-fail-multi.json").read_bytes(),
+            "example/repo",
+        )
+        context.sink.emit(
+            ProjectEvent(
+                source="ps",
+                entity_id=path,
+                observed_at=api.T0,
+                payload=ProjectPayload(
+                    path=path,
+                    repo_root=path,
+                    remote_url="https://github.com/example/repo",
+                    repo_name="repo",
+                    branch="feature/build-fix",
+                    dirty=True,
+                    ahead=2,
+                    behind=0,
+                    last_commit_at=api.T0 - timedelta(hours=2),
+                    pr_number=17,
+                    pr_state="OPEN",
+                    review_decision="REVIEW_REQUIRED",
+                ),
+            )
+        )
+        context.sink.emit(
+            BuildEvent(
+                source="ps",
+                entity_id=path,
+                observed_at=api.T0,
+                payload=fold.to_payload(path, poll_interval_s=300.0),
+            )
+        )
+        context.sink.emit(
+            UsageSnapshot(
+                source="ps",
+                entity_id="codexbar",
+                observed_at=api.T0,
+                complete=True,
+                items=(
+                    window("codex", "five_hour", 0, "codexbar", 300.0),
+                    window("codex", "seven_day", 3, "codexbar", 300.0),
+                    SnapshotItem(
+                        entity_id="copilot:usage",
+                        payload=UsagePayload(
+                            provider="copilot",
+                            usage_source="codexbar",
+                            error_kind="codexbar_no_strategy",
+                            poll_interval_s=300.0,
+                        ),
+                    ),
+                    cost("codex", 24.28),
+                    cost("claude", 3039.78),
+                ),
+            )
+        )
+
+    fs = FakeFS()
+    fs.add_dir("/work/alpha/.git")
+    state = Synthetic("ps", frozenset({Capability.PROJECT_STATE}), emit=emit_state)
+    # the Claude collector holds both capabilities: sessions, and the usage rows of the statusline
+    claude = Synthetic("agents", frozenset({Capability.SESSIONS, Capability.PROJECT_STATE}))
+    daemon = api.make_daemon(api.windows_collector(), claude, state, fs=fs)
+    await daemon.start()
+    try:
+        _windows(api, daemon)
+        agents = daemon.sink("agents")
+        agents.emit(
+            api.session_snapshot(
+                "agents",
+                [
+                    api.session(
+                        "claude",
+                        "c-1",
+                        pid=501,
+                        cwd="/work/alpha/src",
+                        host_pid=500,
+                        process_key="501-1790000000",
+                        entrypoint="cli",
+                        version="2.1.291",
+                        model="claude-opus-5",
+                        branch="feature/build-fix",
+                    )
+                ],
+                api.T0,
+            )
+        )
+        agents.emit(
+            api.activity_snapshot(
+                "agents",
+                {
+                    "claude:c-1": SessionActivity(
+                        state="busy",
+                        current_tool="Bash",
+                        current_target="pytest",
+                        title="Fix the flaky build",
+                        facts=FACTS,
+                        tokens=TokenCounts(
+                            input=1234, output=5678, cache_read=910111, cache_write=21314
+                        ),
+                        context_pct=42.5,
+                        cost_usd=1.2345,
+                    )
+                },
+                api.T0,
+            )
+        )
+        # Claude's rate limits come from the statusline, read by the Claude collector (here the
+        # sessions collector), which is not the collector that asks CodexBar
+        agents.emit(
+            UsageSnapshot(
+                source="agents",
+                entity_id="claude",
+                observed_at=api.T0,
+                complete=False,
+                items=(
+                    window("claude", "five_hour", 23.5, "statusline", 150.0),
+                    window("claude", "seven_day", 41.2, "statusline", 150.0),
+                ),
+            )
+        )
+        await daemon.settle()
+        return await _now(daemon, api)
+    finally:
+        await daemon.stop()
+
+
 def _write(name: str, payload: dict[str, Any]) -> None:
     from fylgja.api.now_models import Now
 
@@ -348,6 +531,7 @@ async def record(only: tuple[str, ...] = ()) -> None:
         "states-and-hosts.json": lambda: _states_and_hosts(api),
         "clear-predecessor.json": lambda: _clear_predecessor(api),
         "degraded-sessions.json": lambda: _degraded_sessions(api),
+        "phase5-usage-builds.json": lambda: _usage_and_builds(api),
         "phase3-agents.json": phase3_support.build_now,
     }
     unknown = [name for name in only if name not in builders]

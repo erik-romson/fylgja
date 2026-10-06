@@ -17,6 +17,9 @@ thread for every request and reads nothing else.
   state fills ``branch``, ``dirty``, ``ahead``, ``behind``, ``last_commit_at``, ``pr`` (absent
   when the branch has none) and ``build`` (§4.7), whose ``freshness`` is judged against the poll
   interval stored with it (:func:`fylgja.core.freshness.freshness`).
+* **Tokens, cost and quota** (WP5.4, §4.7): a session's ``tokens``, ``cost_usd`` and ``context_pct``
+  come from its stored activity interval, and ``usage`` from the stored provider rows joined with
+  what the daemon remembers of their observation (:mod:`fylgja.api.now_usage`).
 * **Todos** (WP4.1): the open and next items of the live view fill ``workspaces[].todos``,
   ``sessions[].todos`` and ``projects[].todos`` by scope; ``next`` items come first. An entry
   with no todos has no ``todos`` field.
@@ -53,6 +56,7 @@ from fylgja.api.now_models import (
     Window,
     Workspace,
 )
+from fylgja.api.now_usage import build_tokens, build_usage
 from fylgja.collectors.base import Capability
 from fylgja.collectors.registry import Origin
 from fylgja.core.context_items import ContextEntry
@@ -266,6 +270,7 @@ def _session(
     extras: SessionExtras | None,
     placement: Placement | None,
     todos: list[Todo] | None = None,
+    now: datetime | None = None,
 ) -> Session:
     one_liner: str | None = None
     rule: OneLinerRule | None = None
@@ -299,6 +304,9 @@ def _session(
         facts=None if extras is None else _facts(extras.facts),
         one_liner=one_liner,
         one_liner_from=rule,
+        tokens=None if now is None else build_tokens(activity, row.last_seen, now),
+        cost_usd=None if activity is None else activity.cost_usd,
+        context_pct=None if activity is None else activity.context_pct,
         pipeline=row.title if activity is not None and activity.stage else None,
         stage=None if activity is None else _stage(activity.stage),
         todos=todos,
@@ -551,6 +559,7 @@ def build_now(state: StateView) -> Now:
             state.sessions.get(key),
             state.placements.get(key),
             _todos_of(todos, "session", key),
+            state.generated_at,
         )
         built.append((row, activity, session))
 
@@ -607,6 +616,7 @@ def build_now(state: StateView) -> Now:
         workspaces=workspaces,
         sessions=_nested([session for _, _, session in built]) if show_sessions else None,
         projects=projects,
+        usage=build_usage(live.usage, state.usage, available, state.generated_at),
         collectors=collectors,
         degraded=sorted({c.name for c in state.collectors if c.degraded}),
     )

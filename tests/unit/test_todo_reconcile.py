@@ -377,7 +377,9 @@ async def test_the_first_read_of_a_missing_file_is_an_empty_list(rig: Rig) -> No
     assert rig.collector.emissions == 1
     report = await rig.collector.doctor()
     assert report.state is HealthState.OK
-    assert report.detail == "1 projects; 0 TODO.md files with 0 tasks"
+    assert report.detail == (
+        "1 projects; 0 TODO.md files with 0 tasks; usage: no data yet (CodexBar not asked yet)"
+    )
 
 
 async def test_an_unchanged_file_is_not_read_again(rig: Rig) -> None:
@@ -431,7 +433,9 @@ async def test_a_store_that_cannot_be_read_emits_nothing(
     broken = isolated_env / "broken.db"
     broken.write_bytes(b"not a database" * 100)
     collector = _collector(store, FakeFS(), database=broken)
-    assert (await collector.doctor()).detail == "not polled yet"
+    assert (await collector.doctor()).detail == (
+        "not polled yet; usage: no data yet (CodexBar not asked yet)"
+    )
     with caplog.at_level(logging.INFO):
         assert collector.poll() == 0
         assert collector.poll() == 0
