@@ -97,6 +97,7 @@
       "sessions": []
     }
   ],
+  "waiting": [],
   "collectors": [
     {
       "name": "agents",

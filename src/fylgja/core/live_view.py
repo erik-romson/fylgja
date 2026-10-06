@@ -224,6 +224,13 @@ class LiveView:
         self._notify(update)
         return update
 
+    def touch(self) -> None:
+        """Announce a change of something ``/now`` shows that the store does not hold (the window
+        context items, the projects touched today): the version increments, subscribers get an
+        update with no row changes."""
+        self._version += 1
+        self._notify(LiveUpdate(self._version, ()))
+
     def rebuild(self, connection: sqlite3.Connection) -> LiveUpdate | None:
         """Replace the whole model with what the store holds (run at start)."""
         loaded = load_changes(connection)

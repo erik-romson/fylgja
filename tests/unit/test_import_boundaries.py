@@ -55,6 +55,7 @@ MODULES = [
     "fylgja.collectors.appcontext",
     "fylgja.collectors.appcontext.titles",
     "fylgja.core.context_items",
+    "fylgja.core.waiting",
     "fylgja.collectors.todo_lists",
     "fylgja.core.todo_import",
     "fylgja.core.system",

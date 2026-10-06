@@ -20,6 +20,9 @@ thread for every request and reads nothing else.
 * **Tokens, cost and quota** (WP5.4, §4.7): a session's ``tokens``, ``cost_usd`` and ``context_pct``
   come from its stored activity interval, and ``usage`` from the stored provider rows joined with
   what the daemon remembers of their observation (:mod:`fylgja.api.now_usage`).
+* **Waiting-on-me** (WP6.1): ``waiting[]`` is :func:`fylgja.core.waiting.waiting_on_me` over the
+  shown sessions, the stored projects, the window context items and the projects touched today,
+  most urgent first. It is present (possibly empty) while any of those sections is shown.
 * **Todos** (WP4.1): the open and next items of the live view fill ``workspaces[].todos``,
   ``sessions[].todos`` and ``projects[].todos`` by scope; ``next`` items come first. An entry
   with no todos has no ``todos`` field.
@@ -53,6 +56,7 @@ from fylgja.api.now_models import (
     SessionState,
     Stage,
     Todo,
+    Waiting,
     Window,
     Workspace,
 )
@@ -65,6 +69,7 @@ from fylgja.core.freshness import freshness
 from fylgja.core.labels import EMPTY_LABEL, effective_label, project_name
 from fylgja.core.one_liner import WorkspaceSession, session_one_liner, workspace_one_liner
 from fylgja.core.resolver import Placement, ProjectPlacement
+from fylgja.core.waiting import waiting_on_me
 from fylgja.models import SessionActivity
 from fylgja.models import Stage as ActivityStage
 from fylgja.store.rows import (
@@ -184,6 +189,17 @@ def _context_index(
         if summary:
             summaries[window_id] = summary
     return items, summaries
+
+
+def _available_contexts(
+    contexts: Mapping[str, Sequence[ContextEntry]], available: set[str]
+) -> dict[str, list[ContextEntry]]:
+    """The context entries of available collectors, by window id."""
+    shown = {
+        window_id: [entry for entry in entries if entry.source in available]
+        for window_id, entries in contexts.items()
+    }
+    return {window_id: entries for window_id, entries in shown.items() if entries}
 
 
 def _state(value: str | None) -> SessionState | None:
@@ -602,6 +618,26 @@ def build_now(state: StateView) -> Now:
             for path, keys in sorted(members.items())
         ]
 
+    waiting: list[Waiting] | None = None
+    if show_sessions or show_windows or show_projects:
+        waiting = [
+            Waiting(
+                kind=entry.kind,
+                target=entry.target,
+                target_kind=entry.target_kind,
+                reason=entry.reason,
+                since=entry.since,
+            )
+            for entry in waiting_on_me(
+                now=state.generated_at,
+                sessions=session_rows,
+                activity=live.activity,
+                projects=live.projects.values() if show_projects else (),
+                contexts=_available_contexts(state.contexts, available) if show_windows else None,
+                touched=state.touched,
+            )
+        ]
+
     collectors = [collector_info(c) for c in state.collectors]
     return Now(
         generated_at=state.generated_at,
@@ -616,6 +652,7 @@ def build_now(state: StateView) -> Now:
         workspaces=workspaces,
         sessions=_nested([session for _, _, session in built]) if show_sessions else None,
         projects=projects,
+        waiting=waiting,
         usage=build_usage(live.usage, state.usage, available, state.generated_at),
         collectors=collectors,
         degraded=sorted({c.name for c in state.collectors if c.degraded}),

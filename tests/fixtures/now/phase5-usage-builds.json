@@ -290,6 +290,15 @@
     "observed_at": "2026-10-05T12:00:00Z",
     "freshness": "fresh"
   },
+  "waiting": [
+    {
+      "kind": "build_failed",
+      "target": "/work/alpha",
+      "target_kind": "project",
+      "reason": "build failed on repo",
+      "since": "2025-06-01T10:00:00Z"
+    }
+  ],
   "collectors": [
     {
       "name": "agents",

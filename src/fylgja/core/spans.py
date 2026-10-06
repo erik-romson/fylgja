@@ -60,6 +60,7 @@ __all__ = [
     "Target",
     "Total",
     "focus_time_by_project",
+    "last_focus_by_project",
     "recover_stale",
     "summarize",
 ]
@@ -493,4 +494,18 @@ def focus_time_by_project(
         per_workspace[clipped.workspace] = (
             per_workspace.get(clipped.workspace, 0.0) + clipped.seconds
         )
+    return found
+
+
+def last_focus_by_project(spans: Iterable[Span], now: datetime) -> dict[str, datetime]:
+    """When each project last had the person's focus: the end of its latest span, or ``now`` while
+    a span is open. A span without a project says nothing and is left out (waiting-on-me's
+    "touched today")."""
+    found: dict[str, datetime] = {}
+    for span in spans:
+        if span.project_path is None:
+            continue
+        last = now if span.ended_at is None else span.ended_at
+        if span.project_path not in found or last > found[span.project_path]:
+            found[span.project_path] = last
     return found

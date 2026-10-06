@@ -344,6 +344,15 @@
       "updated_at": "2026-10-05T12:00:00Z"
     }
   ],
+  "waiting": [
+    {
+      "kind": "input",
+      "target": "norn:plan_with_review@59c2c9:7",
+      "target_kind": "session",
+      "reason": "waiting for input: agent question",
+      "since": "2026-10-05T12:00:00Z"
+    }
+  ],
   "collectors": [
     {
       "name": "claude",

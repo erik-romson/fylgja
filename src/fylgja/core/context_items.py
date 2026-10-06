@@ -17,8 +17,8 @@ Nothing in this module knows a collector's name: any plugin may attach context t
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Final
 
@@ -59,6 +59,12 @@ class ContextMemory:
 
     def __init__(self) -> None:
         self._items: dict[tuple[str, str], ContextEntry] = {}
+        self.on_change: Callable[[], None] | None = None
+        """Called after an item appeared, changed (its observation time aside) or was withdrawn."""
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change()
 
     def observe(self, record: Record) -> None:
         if isinstance(record, ContextItemEvent):
@@ -74,7 +80,8 @@ class ContextMemory:
             return
         slot = (window_id, key)
         if payload.data.get("gone") is True:
-            self._items.pop(slot, None)
+            if self._items.pop(slot, None) is not None:
+                self._changed()
             return
         fields = payload.data.get("fields")
         unread = payload.data.get("unread")
@@ -84,7 +91,8 @@ class ContextMemory:
             or len({w for w, _ in self._items}) >= MAX_WINDOWS
         ):
             return
-        self._items[slot] = ContextEntry(
+        previous = self._items.get(slot)
+        entry = ContextEntry(
             window_id=window_id,
             key=key,
             source=source,
@@ -97,6 +105,9 @@ class ContextMemory:
             tier=tier if isinstance(tier, int) and not isinstance(tier, bool) else 0,
             observed_at=observed_at,
         )
+        self._items[slot] = entry
+        if previous is None or replace(previous, observed_at=observed_at) != entry:
+            self._changed()
 
     def forget_window(self, window_id: str) -> None:
         for slot in [slot for slot in self._items if slot[0] == window_id]:

@@ -168,6 +168,8 @@ class StateView:
     """The context items of each open window (WP5.3), by window id."""
     usage: UsageMeta = field(default_factory=UsageMeta)
     """When each usage row was last observed and why an attempt failed (§4.7)."""
+    touched: Mapping[str, datetime] = field(default_factory=dict)
+    """When each project last had focus, by project path (focus spans of the last day; WP6.1)."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -394,6 +396,8 @@ class Daemon:
         )
         """Focus spans (WP5.2): derived from focus, idle and lock events, written by the writer."""
         self.resolver.on_ids_changed = self._mark_dirty
+        self.contexts.on_change = self.view.touch
+        self._touched: dict[str, datetime] = {}
         self.gate = IngestGate(
             _Tap(
                 self.writer,
@@ -623,7 +627,16 @@ class Daemon:
         now = self.clock.now()
         since = now - timedelta(days=1)
         found = await asyncio.to_thread(self._read_spans, since, now)
+        self._set_touched(spans.last_focus_by_project(found, now))
         return spans.focus_time_by_project(found, since, now, now)
+
+    def _set_touched(self, touched: dict[str, datetime]) -> None:
+        """Remember when each project last had focus; a project newly touched changes what
+        waiting-on-me shows, so clients are told."""
+        newly = touched.keys() - self._touched.keys()
+        self._touched = touched
+        if newly:
+            self.view.touch()
 
     def _read_spans(self, since: datetime, until: datetime) -> list[spans.Span]:
         connection = db.connect_reader(self.writer.database)
@@ -709,6 +722,14 @@ class Daemon:
         """The ``collectors list`` rows (WP1.2): registry metadata with live health."""
         return list_collectors(self.config, registry=self.registry, health=self.health_reports())
 
+    def _touched_now(self) -> dict[str, datetime]:
+        """The projects' last focus, with the project of the open focus span as of now."""
+        touched = dict(self._touched)
+        open_span = self.spans.tracker.open_span
+        if open_span is not None and open_span.project_path is not None:
+            touched[open_span.project_path] = self.clock.now()
+        return touched
+
     def state(self) -> StateView:
         """What ``/now`` is built from. Call it on the event loop thread."""
         snapshot = self.view.snapshot()
@@ -725,6 +746,7 @@ class Daemon:
             else {name: label.text for name, label in resolution.labels.items()},
             contexts=self.contexts.by_window(snapshot.windows.keys()),
             usage=self.usage.meta(),
+            touched=self._touched_now(),
         )
 
 

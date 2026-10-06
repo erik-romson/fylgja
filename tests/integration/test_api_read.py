@@ -57,7 +57,7 @@ FACTS: dict[str, Any] = {
     "tasks": [{"status": "in_progress", "content": "fix the build"}],
 }
 
-LATER_TOP = ("usage", "presence", "waiting", "next", "next_list_id")
+LATER_TOP = ("usage", "presence", "next", "next_list_id")
 LATER_SESSION = ("tokens", "cost_usd", "context_pct", "pipeline", "todos", "story", "children")
 LATER_WORKSPACE = ("todos", "story")
 LATER_PROJECT = ("pr", "build", "todos", "dirty_count")
@@ -171,6 +171,7 @@ async def test_now_never_carries_null_and_later_fields_are_absent(daemon: Daemon
     assert list(nulls(now)) == []
     for name in LATER_TOP:
         assert name not in now
+    assert now["waiting"] == []  # filled by waiting-on-me (WP6.1): present, and nothing waits
     assert "context" not in now["focused"]
     for item in now["sessions"]:
         assert not set(LATER_SESSION) & set(item), item["key"]
