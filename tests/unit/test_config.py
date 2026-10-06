@@ -35,6 +35,7 @@ def test_defaults_load_without_a_user_file() -> None:
     assert config.collectors == {
         "aerospace": {"enabled": True, "snapshot_interval_seconds": 30},
         "claude": {"enabled": True, "ignore_cwd": ["CodexBar/ClaudeProbe"]},
+        "codex": {"enabled": True},
     }
 
 

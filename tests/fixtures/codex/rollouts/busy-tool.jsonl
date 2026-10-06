@@ -1,0 +1,8 @@
+{"timestamp":"2026-10-06T09:10:00.000Z","type":"session_meta","payload":{"id":"019d0000-0000-7000-8000-000000000002","cwd":"/work/example/web-app","cli_version":"0.154.0","source":"cli","git":{"branch":"feature/login"}}}
+{"timestamp":"2026-10-06T09:10:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1","model_context_window":258400}}
+{"timestamp":"2026-10-06T09:10:01.100Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"Done."}}
+{"timestamp":"2026-10-06T09:11:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2","model_context_window":258400}}
+{"timestamp":"2026-10-06T09:11:00.100Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"019d0000-0000-7000-8000-000000000002","turn_id":"turn-2","item":{"type":"UserMessage","id":"item-1","content":[{"type":"text","text":"Fix the failing login test","text_elements":[]}]}}}
+{"timestamp":"2026-10-06T09:11:02.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pytest tests/test_login.py -x\n\",\"workdir\":\"/work/example/web-app\",\"yield_time_ms\":1000}","call_id":"call_a"}}
+{"timestamp":"2026-10-06T09:11:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_a","output":"1 failed"}}
+{"timestamp":"2026-10-06T09:11:04.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pytest tests/test_login.py -x --lf\",\"workdir\":\"/work/example/web-app\"}","call_id":"call_b"}}

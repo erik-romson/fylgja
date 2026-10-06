@@ -39,6 +39,7 @@ MODULES = [
     "fylgja.collectors.claude.inbox",
     "fylgja.collectors.claude.normalize",
     "fylgja.collectors.claude.statusline",
+    "fylgja.collectors.codex",
     "fylgja.core.system",
     "fylgja.core.daemon",
     "fylgja.api",

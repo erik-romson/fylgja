@@ -9,7 +9,8 @@
    input;
 2. ``stage``: a norn stage, "<pipeline> · <stage> (<index>/<total>)", or "<pipeline> <status>"
    once the run has finished (the pipeline is the activity's ``title``);
-3. ``tool``: working (``working`` or ``running_tool``) with a current tool, "<tool> <target>";
+3. ``tool``: working (``working``, ``running_tool`` or Codex's ``busy``) with a current tool,
+   "<tool> <target>";
 4. ``task``: working with an open task, the task text;
 5. ``title_prompt``: the title, ": " and the last prompt;
 6. ``title_reply``: the title, ": " and the first sentence of the last reply (either one alone
@@ -79,8 +80,8 @@ TERMINAL_STATES: Final = frozenset(
 WAITING_STATES: Final = frozenset({"waiting", "waiting_permission", "waiting_input"})
 """Session states that wait on the person: the registry's ``waiting`` and the hook states."""
 
-WORKING_STATES: Final = frozenset({"working", "running_tool"})
-"""Session states in which the agent is at work: the registry's and the hook's."""
+WORKING_STATES: Final = frozenset({"working", "running_tool", "busy"})
+"""Session states in which the agent is at work: the registry's, the hooks' and Codex's ``busy``."""
 
 _WHITESPACE: Final = re.compile(r"\s+")
 _CONTROL: Final = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")

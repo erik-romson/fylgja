@@ -1,0 +1,16 @@
+p41001
+fcwd
+n/work/example/api-service
+f0
+n/dev/ttys004
+f3
+n/work/example/codex-home/sessions/2026/10/06/rollout-2026-10-06T09-00-00-019d0000-0000-7000-8000-000000000001.jsonl
+f4
+n/work/example/codex-home/state_5.sqlite
+p41002
+fcwd
+n/work/example/web-app
+f0
+n/dev/ttys005
+f7
+n/work/example/codex-home/sessions/2026/10/06/rollout-2026-10-06T09-10-00-019d0000-0000-7000-8000-000000000002.jsonl

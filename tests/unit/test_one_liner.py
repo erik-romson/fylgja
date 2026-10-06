@@ -464,6 +464,60 @@ def test_claude_probe_session_one_liner_is_capped() -> None:
     assert len(text) <= MAX_CHARS
 
 
+# --------------------------------------------------------------------------------------------
+# The Codex rules over the sanitized state rows and rollouts (WP3.1)
+# --------------------------------------------------------------------------------------------
+
+
+def _codex(number: int, rollout: str | None) -> tuple[str, str]:
+    from codex_support import ROLLOUT_FIXTURES, rows_fixture, thread_id
+
+    from fylgja.collectors.codex import parse as codex_parse
+
+    row = next(r for r in rows_fixture()["threads"] if r["id"] == thread_id(number))
+    facts = None
+    if rollout is not None:
+        lines = (ROLLOUT_FIXTURES / rollout).read_bytes().split(b"\n")
+        facts = codex_parse.analyze_rollout(lines)
+    return session_one_liner(codex_parse.activity_of(codex_parse.thread_row(row), facts))
+
+
+@pytest.mark.parametrize(
+    ("number", "rollout", "expected"),
+    [
+        # Idle, and the generated title is just the start of the prompt: the prompt alone.
+        (1, "idle.jsonl", ("Add pagination to the orders endpoint", "title_prompt")),
+        # Busy with a function call that has no output yet: rule 3, the current call.
+        (2, "busy-tool.jsonl", ("exec_command pytest tests/test_login.py -x --lf", "tool")),
+        # A pending apply_patch names the file it touches.
+        (3, "busy-patch.jsonl", ("apply_patch src/helpers.py", "tool")),
+        # An aborted turn is idle: no current call, the last prompt shows.
+        (4, "aborted.jsonl", ("Summarize the changelog", "title_prompt")),
+        # No turn yet: only the title.
+        (6, "fresh.jsonl", ("Sub-agent thread", "title_reply")),
+        # No rollout readable: the title still says what the thread is.
+        (2, None, ("Login test failure", "title_reply")),
+    ],
+)
+def test_codex_one_liner_goldens(
+    number: int, rollout: str | None, expected: tuple[str, str]
+) -> None:
+    assert _codex(number, rollout) == expected
+
+
+def test_codex_busy_without_a_current_call_shows_title_and_prompt() -> None:
+    activity = SessionActivity(state="busy", title="Login test failure", last_prompt="Fix it")
+    assert session_one_liner(activity) == ("Login test failure: Fix it", "title_prompt")
+
+
+def test_codex_busy_is_a_working_state_and_idle_hides_the_call() -> None:
+    assert "busy" in one_liner.WORKING_STATES
+    busy = SessionActivity(state="busy", current_tool="exec_command", current_target="ls")
+    assert session_one_liner(busy) == ("exec_command ls", "tool")
+    idle = busy.model_copy(update={"state": "idle"})
+    assert session_one_liner(idle) == (EMPTY, "none")
+
+
 def test_every_fixture_session_gets_a_non_empty_line_in_every_state() -> None:
     paths_ = [LIDSKJALV, *sorted(RATATOSK.glob("*/*.jsonl")), *sorted(CLAUDE_TRANSCRIPTS.glob("*"))]
     for path in paths_:

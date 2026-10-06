@@ -84,3 +84,8 @@ enabled = true
 # cwd is always added. A relative entry matches its path components anywhere in the cwd; an
 # absolute entry matches that directory and everything below it.
 ignore_cwd = ["CodexBar/ClaudeProbe"]
+
+[collectors.codex]
+enabled = true
+# Running Codex CLI processes, read from `pgrep`/`lsof`, the state database (read-only) and the rollout
+# tail. Optional hooks and `notify` are off by default: see docs/collectors/codex.md.
