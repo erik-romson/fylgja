@@ -27,6 +27,7 @@ from fylgja.store.rows import (
     ProjectRow,
     SessionRow,
     StoreRow,
+    TodoRow,
     UsageRow,
     WindowRow,
     WorkspaceRow,
@@ -47,9 +48,13 @@ __all__ = [
     "end_missing_sessions",
     "ensure_session",
     "get_session",
+    "get_todo",
     "get_workspace",
     "insert_event",
+    "insert_todo",
     "latest_focus",
+    "list_todos",
+    "load_active_todos",
     "load_health",
     "load_live_sessions",
     "load_open_activity",
@@ -62,8 +67,10 @@ __all__ = [
     "put_health",
     "put_usage",
     "put_window",
+    "soft_delete_todo",
     "unfocus_other_workspaces",
     "update_session_from_activity",
+    "update_todo",
     "upsert_build",
     "upsert_project",
     "upsert_session",
@@ -971,6 +978,133 @@ def put_health(
 
 def load_health(connection: sqlite3.Connection) -> list[HealthRow]:
     return [HealthRow.from_db(row) for row in connection.execute(SELECT_HEALTH)]
+
+
+# --------------------------------------------------------------------------------------------
+# todos
+# --------------------------------------------------------------------------------------------
+
+_TODO_COLUMNS: Final = (
+    "id, scope_kind, scope_ref, text, status, created_at, done_at, source, source_ref, link, "
+    "updated_at"
+)
+
+INSERT_TODO: Final = """
+INSERT INTO todos (id, scope_kind, scope_ref, text, status, created_at, done_at, source,
+                   source_ref, link, updated_at)
+VALUES (:id, :scope_kind, :scope_ref, :text, :status, :created_at, :done_at, :source,
+        :source_ref, :link, :updated_at)
+"""
+
+SELECT_TODO: Final = f"SELECT {_TODO_COLUMNS} FROM todos WHERE id = ? AND deleted_at IS NULL"
+
+UPDATE_TODO: Final = """
+UPDATE todos SET text = :text, status = :status, done_at = :done_at, updated_at = :updated_at
+WHERE id = :id AND deleted_at IS NULL
+"""
+
+SOFT_DELETE_TODO: Final = """
+UPDATE todos SET deleted_at = :at, deleted_reason = 'user', updated_at = :at
+WHERE id = :id AND deleted_at IS NULL
+"""
+
+SELECT_ACTIVE_TODOS: Final = (
+    f"SELECT {_TODO_COLUMNS} FROM todos WHERE deleted_at IS NULL AND status IN ('open', 'next') "
+    "ORDER BY created_at, rowid"
+)
+
+
+def insert_todo(
+    connection: sqlite3.Connection,
+    *,
+    todo_id: str,
+    scope_kind: str | None,
+    scope_ref: str | None,
+    text: str,
+    status: str,
+    created_at: str,
+    done_at: str | None,
+    source: str,
+    source_ref: str | None,
+    link: str | None,
+) -> TodoRow:
+    connection.execute(
+        INSERT_TODO,
+        {
+            "id": todo_id,
+            "scope_kind": scope_kind,
+            "scope_ref": scope_ref,
+            "text": text,
+            "status": status,
+            "created_at": created_at,
+            "done_at": done_at,
+            "source": source,
+            "source_ref": source_ref,
+            "link": link,
+            "updated_at": created_at,
+        },
+    )
+    row = get_todo(connection, todo_id)
+    if row is None:  # pragma: no cover - the insert above just wrote it
+        raise RuntimeError("todo vanished after insert")
+    return row
+
+
+def get_todo(connection: sqlite3.Connection, todo_id: str) -> TodoRow | None:
+    """The todo, or ``None`` when it does not exist or was deleted."""
+    found = connection.execute(SELECT_TODO, (todo_id,)).fetchone()
+    return None if found is None else TodoRow.from_db(found)
+
+
+def update_todo(
+    connection: sqlite3.Connection,
+    *,
+    todo_id: str,
+    text: str,
+    status: str,
+    done_at: str | None,
+    at: str,
+) -> TodoRow | None:
+    connection.execute(
+        UPDATE_TODO,
+        {"id": todo_id, "text": text, "status": status, "done_at": done_at, "updated_at": at},
+    )
+    return get_todo(connection, todo_id)
+
+
+def soft_delete_todo(connection: sqlite3.Connection, *, todo_id: str, at: str) -> bool:
+    """Mark the todo deleted by the user; ``False`` when there is nothing to delete."""
+    return connection.execute(SOFT_DELETE_TODO, {"id": todo_id, "at": at}).rowcount > 0
+
+
+def load_active_todos(connection: sqlite3.Connection) -> list[TodoRow]:
+    """The open and next todos that are not deleted."""
+    return [TodoRow.from_db(row) for row in connection.execute(SELECT_ACTIVE_TODOS)]
+
+
+def list_todos(
+    connection: sqlite3.Connection,
+    *,
+    scope_kind: str | None = None,
+    scope_ref: str | None = None,
+    statuses: Collection[str] = (),
+) -> list[TodoRow]:
+    """Todos that are not deleted, oldest first, optionally of one scope and some statuses."""
+    clauses = ["deleted_at IS NULL"]
+    params: list[str] = []
+    if scope_kind is not None:
+        clauses.append("scope_kind = ?")
+        params.append(scope_kind)
+    if scope_ref is not None:
+        clauses.append("scope_ref = ?")
+        params.append(scope_ref)
+    if statuses:
+        ordered = sorted(statuses)
+        clauses.append(f"status IN ({', '.join('?' for _ in ordered)})")
+        params.extend(ordered)
+    where = " AND ".join(clauses)
+    sql = f"SELECT {_TODO_COLUMNS} FROM todos WHERE {where} ORDER BY created_at, rowid"
+    return [TodoRow.from_db(row) for row in connection.execute(sql, params)]
 
 
 # --------------------------------------------------------------------------------------------

@@ -17,7 +17,8 @@ Data flows **registry → supervisor → ingest gate → writer → state engine
   sessions, windows or workspaces schedules a resolver refresh, which writes the placements and
   inferred labels back through the writer;
 * the API reads :meth:`Daemon.state` and never touches SQLite. Its one write besides the
-  resolver's is a message receipt (:attr:`Daemon.messages`), which also goes through the writer.
+  resolver's are a message receipt (:attr:`Daemon.messages`) and the todo writes
+  (:attr:`Daemon.todos`), which also go through the writer.
 
 **Start and stop order.** Sinks start before sources, so nothing a collector emits is lost or
 applied out of order: the writer (the database is opened and migrated), then the live view (rebuilt
@@ -63,6 +64,7 @@ from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolv
 from fylgja.core.retention import MaintenanceJob
 from fylgja.core.sessions import SessionStateEngine
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
+from fylgja.core.todos import TodoService
 from fylgja.core.writer import Writer, WriterClosed, session_key, split_session_key
 from fylgja.messaging.service import MessageService, WriterReceipts
 from fylgja.models import (
@@ -407,6 +409,13 @@ class Daemon:
         )
         """The opt-in message action (WP3.6); ``[actions.message] enabled = false`` by default.
         It reads the live session registry itself, right before each send."""
+        self.todos = TodoService(
+            self.writer,
+            self.view,
+            clock=self.clock,
+            privacy=PrivacyFilter.from_config(config.privacy),
+        )
+        """Fylgja's own todos (WP4.1); every write goes through the writer."""
 
         self._resolution: Resolution | None = None
         self._dirty = asyncio.Event()

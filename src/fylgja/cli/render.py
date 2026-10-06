@@ -16,6 +16,7 @@ __all__ = [
     "render_collectors",
     "render_now",
     "render_sessions",
+    "render_todos",
     "render_workspace",
     "render_workspaces",
 ]
@@ -206,3 +207,31 @@ def render_now(now: Row, width: int = DEFAULT_WIDTH) -> str:
     if isinstance(degraded, list) and degraded:
         parts += ["", "degraded: " + ", ".join(str(d) for d in degraded)]
     return "\n".join(parts).lstrip("\n")
+
+
+def _scope(todo: Row) -> str:
+    kind, ref = todo.get("scope_kind"), todo.get("scope_ref")
+    if not kind or not ref:
+        return _DASH
+    if kind == "workspace":
+        return f"ws {ref}"
+    if kind == "project":
+        return f"project {_name(str(ref))}"
+    return f"session {str(ref).partition(':')[2] or ref}"[:32]
+
+
+def render_todos(todos: Sequence[Row], width: int = DEFAULT_WIDTH) -> str:
+    """One row per todo: the first 8 characters of the id (enough for ``todo done``), the status,
+    the scope and the text."""
+    if not todos:
+        return "no todos"
+    rows = [
+        [
+            str(t.get("id", "?"))[:8],
+            str(t.get("status", "?")),
+            _scope(t),
+            str(t.get("text", "")),
+        ]
+        for t in todos
+    ]
+    return table(["ID", "STATUS", "SCOPE", "TODO"], rows, width)

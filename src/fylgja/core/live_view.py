@@ -1,8 +1,8 @@
 """The live view: the daemon's in-memory current model (``PLAN-final-plan.md`` §3.1).
 
 It holds the open windows, the present workspaces, the live sessions and their current activity,
-the projects, provider usage, the latest focus and collector health. ``/now`` is built from it, and
-SSE publishes its change notifications.
+the projects, provider usage, the open and next todos, the latest focus and collector health.
+``/now`` is built from it, and SSE publishes its change notifications.
 
 * It changes only through :meth:`LiveView.apply`, which the writer calls with the changes of each
   committed transaction (so it never shows anything that is not in SQLite), and through
@@ -31,6 +31,7 @@ from fylgja.store.rows import (
     ProjectRow,
     SessionRow,
     StoreRow,
+    TodoRow,
     UsageRow,
     WindowRow,
     WorkspaceRow,
@@ -60,6 +61,7 @@ class Collection(StrEnum):
     USAGE = "usage"
     FOCUS = "focus"
     COLLECTORS = "collectors"
+    TODOS = "todos"
 
 
 ROW_TYPES: Final[Mapping[Collection, type[StoreRow]]] = MappingProxyType(
@@ -72,6 +74,7 @@ ROW_TYPES: Final[Mapping[Collection, type[StoreRow]]] = MappingProxyType(
         Collection.USAGE: UsageRow,
         Collection.FOCUS: FocusRow,
         Collection.COLLECTORS: HealthRow,
+        Collection.TODOS: TodoRow,
     }
 )
 """The row type each collection holds."""
@@ -120,6 +123,7 @@ class LiveSnapshot:
     projects: Mapping[str, ProjectRow]
     usage: Mapping[str, UsageRow]
     collectors: Mapping[str, HealthRow]
+    todos: Mapping[str, TodoRow]
     focused: FocusRow | None
 
 
@@ -172,6 +176,11 @@ class LiveView:
         return cast(Mapping[str, HealthRow], self.table(Collection.COLLECTORS))
 
     @property
+    def todos(self) -> Mapping[str, TodoRow]:
+        """The open and next todos that are not deleted, by id."""
+        return cast(Mapping[str, TodoRow], self.table(Collection.TODOS))
+
+    @property
     def focused(self) -> FocusRow | None:
         row = self._tables[Collection.FOCUS].get(FOCUS_KEY)
         return cast(FocusRow | None, row)
@@ -189,6 +198,7 @@ class LiveView:
             projects=copy(Collection.PROJECTS, ProjectRow),
             usage=copy(Collection.USAGE, UsageRow),
             collectors=copy(Collection.COLLECTORS, HealthRow),
+            todos=copy(Collection.TODOS, TodoRow),
             focused=self.focused,
         )
 
@@ -266,6 +276,7 @@ def load_changes(connection: sqlite3.Connection) -> list[Change]:
     changes += [Change(Collection.PROJECTS, r.path, r) for r in queries.load_projects(connection)]
     changes += [Change(Collection.USAGE, r.key, r) for r in queries.load_open_usage(connection)]
     changes += [Change(Collection.COLLECTORS, r.name, r) for r in queries.load_health(connection)]
+    changes += [Change(Collection.TODOS, r.id, r) for r in queries.load_active_todos(connection)]
     focus = queries.latest_focus(connection)
     if focus is not None:
         changes.append(Change(Collection.FOCUS, FOCUS_KEY, focus))

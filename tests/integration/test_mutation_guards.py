@@ -126,6 +126,34 @@ def test_the_focus_routes_are_enumerated() -> None:
     assert ("POST", "/focus/session/{key}") in ROUTES
 
 
+def test_the_todo_write_routes_are_enumerated() -> None:
+    """WP4.1: every one is checked by ``test_every_mutating_route_is_guarded`` below."""
+    assert ("POST", "/todos") in ROUTES
+    assert ("PATCH", "/todos/{todo_id}") in ROUTES
+    assert ("DELETE", "/todos/{todo_id}") in ROUTES
+    assert not any(method == "GET" for method, _ in ROUTES)
+    assert body_limit(_filled("/todos")) == BODY_LIMIT
+
+
+async def test_the_real_todo_routes_are_guarded_before_they_validate(daemon: Daemon) -> None:
+    """Nothing is created, changed or deleted by a request the guard refuses."""
+    created = await daemon.todos.add("guarded", scope_kind="workspace", scope_ref="1")
+    path = f"/todos/{created.id}"
+    body = b'{"text": "intruder", "ws": "1"}'
+    async with _client(create_app(daemon, secret=SECRET)) as http:
+        assert (await http.post("/todos", content=body)).status_code == 401
+        assert (await http.patch(path, content=b'{"status": "done"}')).status_code == 401
+        assert (await http.request("DELETE", path, content=b"{}")).status_code == 401
+        foreign = _valid(Origin="http://evil.example")
+        assert (await http.post("/todos", headers=foreign, content=body)).status_code == 403
+        assert (await http.get("/todos")).status_code == 200
+        passed = await http.post("/todos", headers=_valid(), content=body)
+        assert passed.status_code == 201  # past the guard, then created
+    todos = await daemon.todos.list_todos()
+    assert [t.text for t in todos] == ["guarded", "intruder"]
+    assert todos[0].status == "open"
+
+
 def test_the_message_route_is_enumerated_with_the_64_kib_limit() -> None:
     assert ("POST", "/sessions/{key}/message") in ROUTES
     assert body_limit(_filled("/sessions/{key}/message")) == MESSAGE_BODY_LIMIT

@@ -3,8 +3,9 @@
 ``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions`` and
 ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from it, prints a
 table or, with ``--json``, the JSON, and exits **3** with a clear message when the daemon is down.
-``session message`` posts to the daemon too: it asks first unless ``--yes`` is given and exits 0
-only when the message was submitted.
+``todo add|done|rm|ls`` talk to the daemon as well (writes send the bearer secret; ``add`` without a
+scope uses the focused workspace). ``session message`` posts to the daemon too: it asks first
+unless ``--yes`` is given and exits 0 only when the message was submitted.
 ``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``,
 ``secret``) run locally (the A7 exceptions): doctor checks the setup and changes nothing, and the
 installers print a diff and write only with ``--apply`` (``secret`` writes at once and prints
@@ -17,7 +18,9 @@ Exit codes: 0 success, 1 the daemon answered with an error (or the item does not
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import urllib.parse
 from collections.abc import Callable
 from typing import Annotated, Any, NoReturn
 
@@ -44,6 +47,12 @@ session_app = typer.Typer(
     help="Act on one live agent session.", no_args_is_help=True, pretty_exceptions_enable=False
 )
 app.add_typer(session_app, name="session")
+todo_app = typer.Typer(
+    help="Fylgja's own todos, per workspace, project or session.",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
+app.add_typer(todo_app, name="todo")
 install_app = typer.Typer(
     help="Install Fylgja's configuration into ~/dotfiles and its launchd agent. "
     "Without --apply every command only prints what it would change.",
@@ -213,6 +222,149 @@ def session_message(
         lambda: f"{state}: {receipt.get('detail', '')}\nmessage id: {receipt.get('message_id')}",
     )
     raise typer.Exit(0 if state in SENT_STATES else client.EXIT_API_ERROR)
+
+
+# --- todos ------------------------------------------------------------------------------------
+
+WsOption = Annotated[str | None, typer.Option("--ws", help="A workspace name.")]
+ProjectOption = Annotated[
+    str | None, typer.Option("--project", help="A project path, or its name when unique.")
+]
+SessionOption = Annotated[
+    str | None,
+    typer.Option("--session", help="A session key, a native session id or a unique prefix."),
+]
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def _write(method: str, path: str, body: Any = None) -> Any:
+    """Send a guarded write to the daemon, or leave with the failure's exit code and message."""
+    try:
+        return client.send_json(method, path, body)
+    except client.DaemonDown as exc:
+        _fail(
+            f"daemon not running ({exc.reason}) at {exc.url}; start it with `fylgja serve` "
+            "or `fylgja install launchd --apply`",
+            client.EXIT_DAEMON_DOWN,
+        )
+    except client.ApiError as exc:
+        _fail(str(exc), client.EXIT_API_ERROR)
+    except Exception as exc:
+        from fylgja.config import ConfigError
+
+        if isinstance(exc, ConfigError):
+            _fail(str(exc), EXIT_CONFIG)
+        raise
+
+
+def _project_path(given: str) -> str:
+    """``given`` as a project path: an absolute path as it is, else the one live project whose
+    name or last path segment equals it."""
+    if given.startswith("/"):
+        return given
+    projects = [p for p in _fetch("/projects") if isinstance(p, dict) and p.get("path")]
+    paths_found = {
+        str(p["path"])
+        for p in projects
+        if given in (p.get("name"), str(p["path"]).rstrip("/").rsplit("/", 1)[-1])
+    }
+    if not paths_found:
+        _fail(f"no live project is called {given!r} (give its path)", client.EXIT_API_ERROR)
+    if len(paths_found) > 1:
+        _fail(f"{given!r} names {len(paths_found)} projects; give the path", client.EXIT_API_ERROR)
+    return paths_found.pop()
+
+
+def _scope_query(ws: str | None, project: str | None, session: str | None) -> dict[str, str]:
+    """The scope flags as the API's ``ws``, ``project`` or ``session`` field; at most one."""
+    if sum(value is not None for value in (ws, project, session)) > 1:
+        _fail("give at most one of --ws, --project and --session", EXIT_CONFIG)
+    if ws is not None:
+        return {"ws": ws}
+    if project is not None:
+        return {"project": _project_path(project)}
+    if session is not None:
+        return {"session": _session_key(session)}
+    return {}
+
+
+def _todo_id(given: str) -> str:
+    """``given`` as a todo id: a full id as it is, else the one todo whose id starts with it."""
+    if _UUID.match(given):
+        return given
+    todos = _fetch("/todos")
+    ids = sorted({str(t.get("id")) for t in todos if isinstance(t, dict) and t.get("id")})
+    matches = [i for i in ids if given and i.startswith(given.lower())]
+    if not matches:
+        _fail(f"no todo has an id starting with {given!r} (see `fylgja todo ls`)", 1)
+    if len(matches) > 1:
+        _fail(f"{given!r} matches {len(matches)} todos; give more of the id", 1)
+    return matches[0]
+
+
+@todo_app.command("add")
+def todo_add(
+    text: Annotated[str, typer.Argument(help="What to do.")],
+    ws: WsOption = None,
+    project: ProjectOption = None,
+    session: SessionOption = None,
+    next_: Annotated[
+        bool, typer.Option("--next", help="Mark it `next` instead of `open`.")
+    ] = False,
+    as_json: JsonOption = False,
+) -> None:
+    """Add a todo and print its id. Without --ws, --project or --session it belongs to the
+    focused workspace."""
+    body: dict[str, Any] = {"text": text, **_scope_query(ws, project, session)}
+    if next_:
+        body["status"] = "next"
+    todo = _write("POST", "/todos", body)
+    if not isinstance(todo, dict) or not todo.get("id"):
+        _fail("/todos: the daemon's answer is not a todo", client.EXIT_API_ERROR)
+    _show(todo, as_json, lambda: str(todo["id"]))
+
+
+def _change(
+    given: str, method: str, body: Any, as_json: bool, verb: str
+) -> None:  # shared by done and rm
+    todo_id = _todo_id(given)
+    answer = _write(method, f"/todos/{client.quote(todo_id)}", body)
+    _show(answer if answer is not None else {"id": todo_id}, as_json, lambda: f"{verb} {todo_id}")
+
+
+@todo_app.command("done")
+def todo_done(
+    todo: Annotated[str, typer.Argument(metavar="ID", help="A todo id or a unique prefix.")],
+    as_json: JsonOption = False,
+) -> None:
+    """Mark a todo done (doing it again changes nothing)."""
+    _change(todo, "PATCH", {"status": "done"}, as_json, "done")
+
+
+@todo_app.command("rm")
+def todo_rm(
+    todo: Annotated[str, typer.Argument(metavar="ID", help="A todo id or a unique prefix.")],
+    as_json: JsonOption = False,
+) -> None:
+    """Delete a todo (it is kept, hidden, and never listed again)."""
+    _change(todo, "DELETE", None, as_json, "removed")
+
+
+@todo_app.command("ls")
+def todo_ls(
+    ws: WsOption = None,
+    project: ProjectOption = None,
+    session: SessionOption = None,
+    all_: Annotated[bool, typer.Option("--all", help="Include done todos.")] = False,
+    as_json: JsonOption = False,
+) -> None:
+    """List open and next todos, of one scope when given."""
+    query = _scope_query(ws, project, session)
+    if not all_:
+        query["status"] = "open,next"
+    path = "/todos" + (f"?{urllib.parse.urlencode(query)}" if query else "")
+    todos = _fetch(path)
+    _show(todos, as_json, lambda: render.render_todos(todos, _width()))
 
 
 @app.command()

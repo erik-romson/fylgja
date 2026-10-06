@@ -14,6 +14,9 @@ thread for every request and reads nothing else.
   natural order (``2`` before ``10``). Each carries its effective label and the §4.6 workspace
   one-liner.
 * **Projects** are the projects of the live sessions, ordered by path.
+* **Todos** (WP4.1): the open and next items of the live view fill ``workspaces[].todos``,
+  ``sessions[].todos`` and ``projects[].todos`` by scope; ``next`` items come first. An entry
+  with no todos has no ``todos`` field.
 
 Titles, names and prompt text arrive redacted (the ingest gate ran before the store); nothing here
 logs them.
@@ -23,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic import ValidationError
 
@@ -39,6 +42,7 @@ from fylgja.api.now_models import (
     Session,
     SessionState,
     Stage,
+    Todo,
     Window,
     Workspace,
 )
@@ -55,16 +59,24 @@ from fylgja.store.rows import (
     FocusRow,
     ProjectRow,
     SessionRow,
+    TodoRow,
     WindowRow,
     WorkspaceRow,
 )
 
-__all__ = ["build_now", "collector_info", "natural_key"]
+__all__ = ["build_now", "collector_info", "natural_key", "todo_model"]
 
 logger = logging.getLogger("fylgja.api.now")
 
 _STATES: Final[Mapping[str, SessionState]] = {state.value: state for state in SessionState}
 _FACT_FIELDS: Final = frozenset(Facts.model_fields)
+_TODO_STATUSES: Final[Mapping[str, Literal["open", "next", "done"]]] = {
+    "open": "open",
+    "next": "next",
+    "done": "done",
+}
+_TODO_SHOWN: Final = frozenset({"open", "next"})
+"""The statuses ``/now`` shows (a done todo is not on the picture)."""
 
 
 def natural_key(name: str) -> tuple[int, int, str, str]:
@@ -81,6 +93,44 @@ def _window_key(window: WindowRow) -> tuple[int, int, str, str]:
 # --------------------------------------------------------------------------------------------
 # Pieces
 # --------------------------------------------------------------------------------------------
+
+
+TodoIndex = Mapping[tuple[str, str], list[Todo]]
+"""Todos by ``(scope_kind, scope_ref)``."""
+
+
+def todo_model(row: TodoRow) -> Todo:
+    """The ``/now`` model of a stored todo."""
+    return Todo(
+        id=row.id,
+        text=row.text,
+        status=_TODO_STATUSES[row.status],
+        scope_kind=row.scope_kind,
+        scope_ref=row.scope_ref,
+        source=row.source,
+        source_ref=row.source_ref,
+        link=row.link,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        done_at=row.done_at,
+    )
+
+
+def _todo_index(rows: Iterable[TodoRow]) -> TodoIndex:
+    """Open and next todos grouped by scope; ``next`` first, then oldest first (the sort is
+    stable, so todos created in the same instant keep the order they were added in)."""
+    ordered = sorted(
+        (r for r in rows if r.status in _TODO_SHOWN and r.scope_kind and r.scope_ref),
+        key=lambda r: (r.status != "next", r.created_at),
+    )
+    index: dict[tuple[str, str], list[Todo]] = {}
+    for row in ordered:
+        index.setdefault((str(row.scope_kind), str(row.scope_ref)), []).append(todo_model(row))
+    return index
+
+
+def _todos_of(index: TodoIndex, kind: str, ref: str) -> list[Todo] | None:
+    return index.get((kind, ref)) or None
 
 
 def _state(value: str | None) -> SessionState | None:
@@ -166,6 +216,7 @@ def _session(
     activity: ActivityRow | None,
     extras: SessionExtras | None,
     placement: Placement | None,
+    todos: list[Todo] | None = None,
 ) -> Session:
     one_liner: str | None = None
     rule: OneLinerRule | None = None
@@ -201,6 +252,7 @@ def _session(
         one_liner_from=rule,
         pipeline=row.title if activity is not None and activity.stage else None,
         stage=None if activity is None else _stage(activity.stage),
+        todos=todos,
         first_seen=row.first_seen,
         last_seen=row.last_seen,
     )
@@ -251,6 +303,7 @@ def _workspace(
     windows: Sequence[WindowRow],
     sessions: Sequence[tuple[SessionRow, ActivityRow | None, Session]],
     focus: FocusRow | None,
+    todos: list[Todo] | None = None,
 ) -> Workspace:
     inferred = (None if row is None else row.inferred_label) or inferred_fallback
     if inferred == EMPTY_LABEL:
@@ -289,6 +342,7 @@ def _workspace(
         ],
         projects=sorted({s.project_path for s, _, _ in sessions if s.project_path}),
         sessions=[built.key for _, _, built in sessions],
+        todos=todos,
     )
 
 
@@ -297,6 +351,7 @@ def _project(
     row: ProjectRow | None,
     placement: ProjectPlacement | None,
     sessions: Sequence[str],
+    todos: list[Todo] | None = None,
 ) -> Project:
     repo_name = None if row is None else row.repo_name
     group = None if row is None else row.group_name
@@ -317,6 +372,7 @@ def _project(
         ahead=None if row is None else row.ahead,
         behind=None if row is None else row.behind,
         last_commit_at=None if row is None else row.last_commit_at,
+        todos=todos,
         updated_at=None if row is None else row.updated_at,
     )
 
@@ -357,6 +413,7 @@ def build_now(state: StateView) -> Now:
     show_sessions = Capability.SESSIONS in capabilities
     show_projects = show_sessions or Capability.PROJECT_STATE in capabilities
 
+    todos = _todo_index(live.todos.values())
     windows = (
         sorted((w for w in live.windows.values() if w.source in available), key=_window_key)
         if show_windows
@@ -377,7 +434,13 @@ def build_now(state: StateView) -> Now:
     for row in session_rows:
         key = row.session_key
         activity = live.activity.get(key)
-        session = _session(row, activity, state.sessions.get(key), state.placements.get(key))
+        session = _session(
+            row,
+            activity,
+            state.sessions.get(key),
+            state.placements.get(key),
+            _todos_of(todos, "session", key),
+        )
         built.append((row, activity, session))
 
     workspaces: list[Workspace] | None = None
@@ -394,6 +457,7 @@ def build_now(state: StateView) -> Now:
                 [w for w in windows if w.workspace == name],
                 [item for item in built if item[0].workspace == name],
                 focus,
+                _todos_of(todos, "workspace", name),
             )
             for name in sorted(names, key=natural_key)
         ]
@@ -405,7 +469,13 @@ def build_now(state: StateView) -> Now:
             if row.project_path:
                 members.setdefault(row.project_path, []).append(row.session_key)
         projects = [
-            _project(path, live.projects.get(path), state.projects.get(path), keys)
+            _project(
+                path,
+                live.projects.get(path),
+                state.projects.get(path),
+                keys,
+                _todos_of(todos, "project", path),
+            )
             for path, keys in sorted(members.items())
         ]
 

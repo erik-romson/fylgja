@@ -7,9 +7,9 @@ shutdown; a daemon the caller already started is left to the caller.
 * Every route is behind :class:`~fylgja.api.security.HostGuard`; no CORS middleware exists. Every
   request with a mutating method is also behind :class:`~fylgja.api.security.MutationGuard`
   (bearer, Origin, JSON content type, body limit), whichever route it addresses.
-* The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/collectors``,
-  ``/health`` and the ``/events`` change stream) need no authentication. The interactive docs and
-  the OpenAPI document are off.
+* The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/todos``,
+  ``/collectors``, ``/health`` and the ``/events`` change stream) need no authentication. The
+  interactive docs and the OpenAPI document are off.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
 
 :func:`server_config` is the Uvicorn configuration ``fylgja serve`` runs with: it binds
@@ -33,6 +33,7 @@ from fylgja.api.routes import (
     now,
     projects,
     sessions,
+    todos,
     workspaces,
 )
 from fylgja.api.security import HostGuard, MutationGuard, load_secret
@@ -51,6 +52,7 @@ _ROUTERS = (
     health.router,
     focus.router,
     messages.router,
+    todos.router,
     sse.router,
 )
 

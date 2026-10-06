@@ -23,6 +23,7 @@ __all__ = [
     "ProjectRow",
     "SessionRow",
     "StoreRow",
+    "TodoRow",
     "UsageRow",
     "WindowRow",
     "WorkspaceRow",
@@ -221,3 +222,22 @@ class UsageRow(StoreRow):
     @property
     def key(self) -> str:
         return f"{self.collector}:{self.provider}:{self.window}"
+
+
+@dataclass(frozen=True)
+class TodoRow(StoreRow):
+    """One ``todos`` row that is not deleted."""
+
+    id: str
+    scope_kind: str | None
+    scope_ref: str | None
+    text: str
+    status: str
+    created_at: datetime
+    done_at: datetime | None
+    source: str
+    source_ref: str | None
+    link: str | None
+    updated_at: datetime
+
+    _times = frozenset({"created_at", "done_at", "updated_at"})
