@@ -927,6 +927,53 @@ async def test_sessions_merge_end_and_reopen(writer: Writer, db_path: Path, view
     assert "claude:a" not in view.sessions
 
 
+async def test_an_event_of_another_source_links_a_session_without_taking_it_over(
+    writer: Writer, db_path: Path, view: LiveView
+) -> None:
+    """norn nests the agent sessions it drives: its event sets ``parent_key`` and nothing else."""
+    listing = SessionSnapshot(
+        source="claude",
+        entity_id="registry",
+        observed_at=at(0),
+        complete=True,
+        items=(
+            SnapshotItem(
+                entity_id="claude:a",
+                payload=SessionPayload(kind="claude", native_id="a", pid=100, cwd="/w"),
+            ),
+        ),
+    )
+    await emit_all(writer, listing)
+    link = SessionEvent(
+        source="norn",
+        entity_id="claude:a",
+        observed_at=at(1),
+        payload=SessionPayload(kind="claude", native_id="a", parent_key="norn:p@000000:1"),
+    )
+    await emit_all(writer, link)
+    row = view.sessions["claude:a"]
+    assert (row.parent_key, row.source, row.pid, row.cwd) == (
+        "norn:p@000000:1",
+        "claude",
+        100,
+        "/w",
+    )
+    await emit_all(writer, listing.model_copy(update={"observed_at": at(2), "dedup_key": ""}))
+    again = view.sessions["claude:a"]  # the registry's next listing keeps the link
+    assert (again.parent_key, again.source) == ("norn:p@000000:1", "claude")
+    # an event for a session nobody else listed creates it, owned by the linking source
+    alone = link.model_copy(
+        update={
+            "entity_id": "claude:b",
+            "observed_at": at(3),
+            "dedup_key": "",
+            "payload": SessionPayload(kind="claude", native_id="b", parent_key="norn:p@000000:1"),
+        }
+    )
+    await emit_all(writer, alone)
+    assert view.sessions["claude:b"].source == "norn"
+
+
 async def test_session_activity_intervals(writer: Writer, db_path: Path, view: LiveView) -> None:
     def activity(seconds: float, **fields: Any) -> SessionActivityEvent:
         return SessionActivityEvent(

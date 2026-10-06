@@ -73,9 +73,10 @@ RULES: Final = ("waiting", "stage", "tool", "task", "title_prompt", "title_reply
 """The rule names, in the order §4.6 tries them; ``one_liner_from`` is one of these."""
 
 TERMINAL_STATES: Final = frozenset(
-    {"done", "finished", "succeeded", "failed", "cancelled", "aborted"}
+    {"done", "finished", "succeeded", "passed", "failed", "cancelled", "aborted", "stale"}
 )
-"""Run states (norn) that end rule 2's stage line."""
+"""Run states (norn) that end rule 2's stage line: a finished run (``passed``, ``failed``,
+``cancelled``) and a ``stale`` one, whose last stage says nothing about what it is doing now."""
 
 WAITING_STATES: Final = frozenset({"waiting", "waiting_permission", "waiting_input"})
 """Session states that wait on the person: the registry's ``waiting`` and the hook states."""

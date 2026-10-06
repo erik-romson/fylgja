@@ -13,6 +13,12 @@
 * **commits** it with ``emit_committed`` and **only then** unlinks the file (delete-after-commit).
   Files go to the sink in batches, so the writer groups them into few transactions, while a file
   is unlinked only after *its own* commit has resolved;
+* **hands the envelope to a consumer** instead, when the inbox's owner keeps more than the A5
+  allowlist (the norn collector, whose events are run state and not hook events): the validated
+  envelope goes to ``consumer`` and the file is removed once it returned; the consumer raising
+  :class:`~fylgja.collectors.claude.normalize.EnvelopeError` quarantines the file.
+  ``read_in_thread`` false reads the files on the event loop: the consumer's inbox holds a few
+  small envelopes, and the state then changes at deterministic points of the loop;
 * **skips ignored working directories**: an event whose ``cwd`` matches ``ignore_cwd`` (the
   registry's list: CodexBar's probe, Fylgja's own summarizer) is removed without an event, so such a
   session never exists through its hooks either;
@@ -43,7 +49,12 @@ from pathlib import Path
 from typing import Final
 
 from fylgja.collectors.base import Clock, RecordSink
-from fylgja.collectors.claude.normalize import EnvelopeError, normalize, parse_envelope
+from fylgja.collectors.claude.normalize import (
+    Envelope,
+    EnvelopeError,
+    normalize,
+    parse_envelope,
+)
 from fylgja.collectors.claude.parse import cwd_ignored
 from fylgja.models import HookEvent
 
@@ -65,8 +76,13 @@ READ_WORKERS: Final = 8
 ENVELOPE_NAME: Final = re.compile(r"[0-9]+-[0-9a-f-]{36}\.json")
 _TMP_PREFIX: Final = ".tmp-"
 
+_Consumer = Callable[[Envelope], None]
 _Unlink = Callable[[Path], None]
 _Rename = Callable[[Path, Path], None]
+
+
+class _Consumed:
+    """What :meth:`InboxDrainer._load` returns for an envelope the consumer took."""
 
 
 def kqueue_available() -> bool:
@@ -156,6 +172,8 @@ class InboxDrainer:
         batch_size: int = BATCH_SIZE,
         use_kqueue: bool | None = None,
         ignore_cwd: tuple[str, ...] = (),
+        consumer: _Consumer | None = None,
+        read_in_thread: bool = True,
         unlink: _Unlink | None = None,
         rename: _Rename | None = None,
     ) -> None:
@@ -169,6 +187,8 @@ class InboxDrainer:
         self._source = source
         self._kind = kind
         self._ignore_cwd = ignore_cwd
+        self._consumer = consumer
+        self._threaded = read_in_thread
         self._poll = poll_interval
         self._batch = batch_size
         self._want_kqueue = kqueue_available() if use_kqueue is None else use_kqueue
@@ -238,15 +258,24 @@ class InboxDrainer:
     async def _batch_of(self, names: list[str]) -> DrainResult:
         result = DrainResult()
         pending: list[tuple[str, HookEvent]] = []
+        consumed: list[Path] = []
         files = [self._directory / name for name in names]
         # Opening a freshly written file can cost a millisecond on a busy machine, so the files
         # of a batch are read in parallel.
-        contents = await asyncio.to_thread(_read_many, files)
+        contents = (
+            await asyncio.to_thread(_read_many, files) if self._threaded else _read_each(files)
+        )
         for path, content in zip(files, contents, strict=True):
             event = self._load(path, content, result)
-            if event is not None:
+            if isinstance(event, _Consumed):
+                consumed.append(path)
+            elif event is not None:
                 pending.append((path.name, event))
+        for path in consumed:
+            self._remove(path, result)
         if not pending:
+            if consumed and not result.failed:
+                self._set_failure(None)
             return result
         # Submitted in name order; the writer keeps that order and commits them in few transactions.
         outcomes = await asyncio.gather(
@@ -274,8 +303,12 @@ class InboxDrainer:
 
     def _load(
         self, path: Path, content: bytes | None | OSError, result: DrainResult
-    ) -> HookEvent | None:
-        """The event of one file, or ``None`` after the file was quarantined or skipped."""
+    ) -> HookEvent | _Consumed | None:
+        """The event of one file, or ``None`` after the file was quarantined or skipped.
+
+        A :class:`_Consumed` says the envelope went to the consumer and the file is only left to
+        remove.
+        """
         if isinstance(content, OSError):
             if isinstance(content, FileNotFoundError):
                 return None  # another pass removed it
@@ -291,7 +324,13 @@ class InboxDrainer:
             self._quarantine_file(path, "envelope too large", result)
             return None
         try:
-            event = normalize(parse_envelope(content), source=self._source, kind=self._kind)
+            envelope = parse_envelope(content)
+            if self._consumer is not None:
+                if envelope.source != self._source:
+                    raise EnvelopeError("source does not match the inbox")
+                self._consumer(envelope)
+                return _Consumed()
+            event = normalize(envelope, source=self._source, kind=self._kind)
         except EnvelopeError as exc:
             self._quarantine_file(path, str(exc), result)
             return None
@@ -427,6 +466,17 @@ class InboxDrainer:
                 await self._wait()
         finally:
             self._close_watch()
+
+
+def _read_each(paths: list[Path]) -> list[bytes | None | OSError]:
+    """Read ``paths`` one after the other on the calling thread (a few small files)."""
+    contents: list[bytes | None | OSError] = []
+    for path in paths:
+        try:
+            contents.append(_read_regular(path))
+        except OSError as exc:
+            contents.append(exc)
+    return contents
 
 
 def _read_many(paths: list[Path]) -> list[bytes | None | OSError]:

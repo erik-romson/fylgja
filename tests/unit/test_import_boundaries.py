@@ -41,6 +41,7 @@ MODULES = [
     "fylgja.collectors.claude.statusline",
     "fylgja.collectors.codex",
     "fylgja.collectors.opencode",
+    "fylgja.collectors.norn",
     "fylgja.core.system",
     "fylgja.core.daemon",
     "fylgja.api",

@@ -37,6 +37,7 @@ def test_defaults_load_without_a_user_file() -> None:
         "claude": {"enabled": True, "ignore_cwd": ["CodexBar/ClaudeProbe"]},
         "codex": {"enabled": True},
         "opencode": {"enabled": True},
+        "norn": {"enabled": True, "roots": ["~/projects"], "max_depth": 3},
     }
 
 

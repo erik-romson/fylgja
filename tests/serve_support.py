@@ -36,7 +36,8 @@ def write_config(port: int, extra: str = "") -> None:
         "[collectors.aerospace]\nenabled = false\n"
         "[collectors.claude]\nenabled = false\n"
         "[collectors.codex]\nenabled = false\n"
-        "[collectors.opencode]\nenabled = false\n" + extra,
+        "[collectors.opencode]\nenabled = false\n"
+        "[collectors.norn]\nenabled = false\n" + extra,
         encoding="utf-8",
     )
 

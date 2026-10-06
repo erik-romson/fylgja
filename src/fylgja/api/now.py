@@ -199,10 +199,33 @@ def _session(
         facts=None if extras is None else _facts(extras.facts),
         one_liner=one_liner,
         one_liner_from=rule,
+        pipeline=row.title if activity is not None and activity.stage else None,
         stage=None if activity is None else _stage(activity.stage),
         first_seen=row.first_seen,
         last_seen=row.last_seen,
     )
+
+
+def _nested(sessions: Sequence[Session]) -> list[Session]:
+    """The top-level sessions, with every session whose ``parent_key`` names another listed
+    session moved into that session's ``children[]`` (norn runs and the agent sessions they drive).
+
+    A session whose parent is not listed (an ended run) stays a top-level session.
+    """
+    present = {s.key for s in sessions}
+    children: dict[str, list[Session]] = {}
+    for session in sessions:
+        parent = session.parent_key
+        if parent is not None and parent != session.key and parent in present:
+            children.setdefault(parent, []).append(session)
+    nested = {s.key for group in children.values() for s in group}
+    return [
+        session.model_copy(update={"children": children[session.key]})
+        if session.key in children
+        else session
+        for session in sessions
+        if session.key not in nested
+    ]
 
 
 def _focused(
@@ -393,7 +416,7 @@ def build_now(state: StateView) -> Now:
         if focus is None
         else _focused(focus, {w.window_id: w for w in windows}, session_rows),
         workspaces=workspaces,
-        sessions=[session for _, _, session in built] if show_sessions else None,
+        sessions=_nested([session for _, _, session in built]) if show_sessions else None,
         projects=projects,
         collectors=collectors,
         degraded=sorted({c.name for c in state.collectors if c.degraded}),

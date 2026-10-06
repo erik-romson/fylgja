@@ -751,3 +751,37 @@ async def test_a_crashing_loop_is_logged_and_restarted_without_stopping_the_othe
         await asyncio.wait({task}, timeout=5)
     errors = [r.getMessage() for r in caplog.records if "statusline loop failed" in r.getMessage()]
     assert errors == ["claude statusline loop failed: RuntimeError"], "logged once, kind only"
+
+
+async def test_a_consumer_takes_the_envelope_and_the_file_is_removed_afterwards(
+    stack: Stack,
+) -> None:
+    seen: list[Any] = []
+    put(stack, "Stop")
+    put(stack, "Notification")
+    drainer = stack.drainer(consumer=seen.append, read_in_thread=False)
+    result = await drainer.drain()
+    assert (result.committed, result.quarantined) == (2, 0)
+    assert [e.event_arg for e in seen] == ["Stop", "Notification"]
+    assert left(stack) == []
+    assert stack.rows() == []  # nothing was committed as a hook event
+
+
+async def test_a_consumer_that_refuses_an_envelope_quarantines_the_file(stack: Stack) -> None:
+    from fylgja.collectors.claude.normalize import EnvelopeError
+
+    def refuse(envelope: Any) -> None:
+        raise EnvelopeError("no run id")
+
+    path = put(stack, "Stop")
+    result = await stack.drainer(consumer=refuse).drain()
+    assert (result.committed, result.quarantined) == (0, 1)
+    assert (stack.inbox / "quarantine" / path.name).exists()
+
+
+async def test_a_consumer_never_sees_an_envelope_of_another_source(stack: Stack) -> None:
+    seen: list[Any] = []
+    path = put(stack, "Stop")
+    result = await stack.drainer(consumer=seen.append, source="norn", kind="norn").drain()
+    assert (seen, result.quarantined) == ([], 1)
+    assert (stack.inbox / "quarantine" / path.name).exists()

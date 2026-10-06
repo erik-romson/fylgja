@@ -19,6 +19,7 @@ aerospace = "fylgja.collectors.aerospace:plugin"
 claude = "fylgja.collectors.claude:plugin"
 codex = "fylgja.collectors.codex:plugin"
 opencode = "fylgja.collectors.opencode:plugin"
+norn = "fylgja.collectors.norn:plugin"
 
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8"]

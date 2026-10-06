@@ -898,3 +898,60 @@ async def test_the_stored_one_liner_is_redacted_capped_and_follows_the_title() -
     assert lines[2] == "Fix: x"
     assert lines[3] == "Renamed: x"  # only the title changed, yet a new interval was opened
     assert all(SECRET not in str(value) for row in history for value in tuple(row))
+
+
+# --------------------------------------------------------------------------------------------
+# The norn rules (rule 2) over the activity the collector builds from the inbox fixtures (WP3.3)
+# --------------------------------------------------------------------------------------------
+
+
+def _norn(scenario: str, until: str | None, *, advance: float = 0.0) -> tuple[str, str]:
+    from norn_support import INBOX_NOW, SUBSCRIBER_PID, Rig, deliver, index_of
+
+    async def run() -> SessionActivity:
+        rig = Rig(start=INBOX_NOW, alive={SUBSCRIBER_PID})
+        stop = None if until is None else index_of(scenario, until) + 1
+        deliver(rig.inbox_dir, scenario, stop=stop)
+        await rig.drain()
+        await rig.clock.advance(advance)
+        await rig.poll()
+        records = [r for r in rig.sink.records if r.entity_kind.value == "session_activity"]
+        (item,) = records[-1].items  # type: ignore[union-attr]
+        return item.payload  # type: ignore[no-any-return]
+
+    return session_one_liner(asyncio.run(run()))
+
+
+@pytest.mark.parametrize(
+    ("scenario", "until", "advance", "expected"),
+    [
+        # a running stage, with its position
+        ("lifecycle", "TurnEvent", 6, ("plan_with_review · draft plan (2/5)", "stage")),
+        # a run waiting for input beats the stage line (rule 1)
+        ("lifecycle", "WaitingInput", 40, ("Waiting for input: agent question", "waiting")),
+        # finished runs
+        ("lifecycle", None, 100, ("plan_with_review passed", "stage")),
+        ("failed", None, 10, ("plan_with_review failed", "stage")),
+        ("cancelled", None, 10, ("plan_with_review cancelled", "stage")),
+        # a paused run is still on its stage, without a total (norn did not say)
+        ("cancelled", "RunPaused", 6, ("plan_with_review · draft plan", "stage")),
+        # a heartbeat that stopped without a finish event
+        ("lifecycle", "Heartbeat", 30 + 91, ("plan_with_review stale", "stage")),
+    ],
+)
+def test_norn_one_liner_goldens(
+    scenario: str, until: str | None, advance: float, expected: tuple[str, str]
+) -> None:
+    assert _norn(scenario, until, advance=advance) == expected
+
+
+def test_a_run_without_a_stage_name_still_says_how_it_ended() -> None:
+    assert session_one_liner(SessionActivity(state="passed", title="p", stage=Stage())) == (
+        "p passed",
+        "stage",
+    )
+    assert session_one_liner(SessionActivity(state="stale", title="p", stage=Stage(name="x"))) == (
+        "p stale",
+        "stage",
+    )
+    assert {"passed", "stale"} <= one_liner.TERMINAL_STATES

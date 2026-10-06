@@ -1,0 +1,14 @@
+{
+  "schema": "fylgja.hook/1",
+  "id": "e24cfb7e-bd69-5a23-b2d0-1036e3cd6375",
+  "received_at_ns": 1791208861000000000,
+  "source": "norn",
+  "event_arg": "TurnEvent",
+  "ppid": 51200,
+  "env": {
+    "TERM_PROGRAM": "ghostty"
+  },
+  "payload_text": "{\"event\":\"TurnEvent\",\"pipeline\":\"plan_with_review\",\"state_key\":\"/Users/user/projects/example/plan_with_review\",\"history_run_id\":7,\"run_id\":\"5f0c2b1e-7d3a-4a52-9b86-0d1f6c1d7e01\",\"pid\":51234,\"cwd\":\"/Users/user/projects/example\",\"stage\":\"review\",\"session_id\":\"00000000-0000-4000-8000-00000000a002\"}",
+  "truncated": false,
+  "fylgja_version": "norn-fylgja-subscriber/1"
+}

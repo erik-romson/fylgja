@@ -95,3 +95,12 @@ enabled = true
 # Running OpenCode processes (`pgrep`/`lsof`) joined to the sessions in opencode.db, read-only. The
 # optional TypeScript plugin (fylgja.ts, copied by hand) only wakes the poll sooner: see
 # docs/collectors/opencode.md.
+
+[collectors.norn]
+enabled = true
+# norn pipeline runs. The inbox (`hook-inbox/norn/`) is drained whenever it exists: norn's own
+# `fylgja` event subscriber writes run events and a heartbeat there. The file scan (norn's
+# `*.history` and `*.runs/` next to a state key) covers runs started without it, walking `roots`
+# to `max_depth`. See docs/collectors/norn.md.
+roots = ["~/projects"]
+max_depth = 3

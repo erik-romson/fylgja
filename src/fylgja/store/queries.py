@@ -404,7 +404,7 @@ VALUES
      :host_kind, :host_ref, :parent_key, :predecessor_key, :remote_url, :first_seen, :last_seen,
      :ended_at)
 ON CONFLICT (session_key) DO UPDATE SET
-    source = excluded.source,
+    source = CASE WHEN :listed THEN excluded.source ELSE sessions.source END,
     pid = coalesce(excluded.pid, sessions.pid),
     process_key = coalesce(excluded.process_key, sessions.process_key),
     cwd = coalesce(excluded.cwd, sessions.cwd),
