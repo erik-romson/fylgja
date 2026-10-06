@@ -9,8 +9,10 @@ shutdown; a daemon the caller already started is left to the caller.
   (bearer, Origin, JSON content type, body limit), whichever route it addresses.
 * ``GET /`` serves the minimal page with the secret in a ``<meta>`` tag (WP4.4).
 * The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/todos``,
-  ``/collectors``, ``/health``, ``/history``, ``/next`` and the ``/events`` change stream) need no
-  authentication. The interactive docs and the OpenAPI document are off.
+  ``/collectors``, ``/health``, ``/history``, ``/next``, ``GET /summaries/{scope}/{ref}`` and the
+  ``/events`` change stream) need no authentication. The interactive docs and the OpenAPI
+  document are off.
+* A finished summary job publishes ``summary.ready`` (``{scope, ref, state}``) on ``/events``.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
 
 :func:`server_config` is the Uvicorn configuration ``fylgja serve`` runs with: it binds
@@ -19,7 +21,8 @@ shutdown; a daemon the caller already started is left to the caller.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import weakref
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -36,6 +39,7 @@ from fylgja.api.routes import (
     page,
     projects,
     sessions,
+    summaries,
     todos,
     workspaces,
 )
@@ -61,6 +65,7 @@ _ROUTERS = (
     focus.router,
     messages.router,
     next_routes.router,
+    summaries.router,
     todos.router,
     sse.router,
 )
@@ -79,6 +84,7 @@ def create_app(
     services = daemon if daemon is not None else Daemon(load_config() if config is None else config)
 
     events = sse.EventHub(services.view)
+    services.summaries.add_listener(_summary_ready(events))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -114,6 +120,19 @@ def create_app(
     )
     app.add_middleware(HostGuard, port=services.config.api.port)
     return app
+
+
+def _summary_ready(events: sse.EventHub) -> Callable[[str, str, str], None]:
+    """The listener that publishes ``summary.ready`` on ``events`` for as long as the hub (and
+    so its app) exists; the daemon may outlive an app."""
+    hub = weakref.ref(events)
+
+    def publish(scope: str, ref: str, state: str) -> None:
+        found = hub()
+        if found is not None:
+            found.publish("summary.ready", {"scope": scope, "ref": ref, "state": state})
+
+    return publish
 
 
 def server_config(app: FastAPI, config: Config) -> uvicorn.Config:

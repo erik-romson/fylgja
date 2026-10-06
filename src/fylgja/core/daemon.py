@@ -18,7 +18,9 @@ Data flows **registry → supervisor → ingest gate → writer → state engine
   inferred labels back through the writer;
 * the API reads :meth:`Daemon.state` and never touches SQLite. Its one write besides the
   resolver's are a message receipt (:attr:`Daemon.messages`) and the todo writes
-  (:attr:`Daemon.todos`), which also go through the writer.
+  (:attr:`Daemon.todos`), which also go through the writer;
+* the **summary service** (:attr:`Daemon.summaries`, WP8.1) is the only part that calls a model.
+  It is off by default; its results go through the writer too.
 
 **Start and stop order.** Sinks start before sources, so nothing a collector emits is lost or
 applied out of order: the writer (the database is opened and migrated), then the live view (rebuilt
@@ -66,6 +68,7 @@ from fylgja.core.project_roots import ProjectLocator
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolver
 from fylgja.core.retention import MaintenanceJob
 from fylgja.core.sessions import SessionStateEngine
+from fylgja.core.summaries import SummaryRunner, SummaryService
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.core.todos import TodoService
 from fylgja.core.usage_view import UsageMemory, UsageMeta
@@ -177,6 +180,9 @@ class StateView:
     next_lists: NextLists | None = None
     """Where the ranked "what next" lists get their ids and are logged (WP6.2). The one stateful
     part of the view: without it ``/now`` has no ``next[]``."""
+    summaries: SummaryService | None = None
+    """The cached summaries (WP8.1): ``sessions[].story`` and ``workspaces[].story`` come from
+    here while summaries are enabled."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -341,8 +347,8 @@ class Daemon:
 
     Every seam can be replaced: ``entry_points`` (the registry's source), ``clock``, ``database``,
     ``fs`` and ``runner`` (what the resolver and host adapters read with), ``host_loader``,
-    ``policy`` and ``rng`` (the supervisor's backoff), and the resolver's ``resolve_debounce`` and
-    the ``tick`` interval.
+    ``policy`` and ``rng`` (the supervisor's backoff), the resolver's ``resolve_debounce``, the
+    ``tick`` interval and the ``summary_runner`` (the model call of the summary service).
     """
 
     def __init__(
@@ -360,6 +366,7 @@ class Daemon:
         rng: RandomSource | None = None,
         resolve_debounce: float = RESOLVE_DEBOUNCE,
         tick: float = MAINTENANCE_TICK,
+        summary_runner: SummaryRunner | None = None,
     ) -> None:
         self.config = config
         self.clock: Clock = SystemClock() if clock is None else clock
@@ -457,6 +464,16 @@ class Daemon:
         """Manual workspace labels (WP4.2); every write goes through the writer."""
         self.next_lists = NextLists(self.writer, clock=self.clock)
         """The ranked "what next" lists: ids, ``suggestions_log`` and feedback (WP6.2)."""
+        self.summaries = SummaryService(
+            self.writer,
+            config.summaries,
+            clock=self.clock,
+            runner=summary_runner,
+            privacy=PrivacyFilter.from_config(config.privacy),
+            on_change=self.view.touch,
+        )
+        """Session and workspace summaries by a local model (WP8.1); off unless
+        ``[summaries] enabled = true``. The only place a model is called."""
 
         self._resolution: Resolution | None = None
         self._dirty = asyncio.Event()
@@ -498,6 +515,7 @@ class Daemon:
             now = self.clock.now()
             await self.writer.execute(lambda tx: spans.recover_stale(tx, now))
             self._rebuild_view()
+            await self.summaries.load()
             self.session_state.seed(
                 (row.session_key, row.source, row.state, row.state_since, row.waiting_reason)
                 for row in self.view.sessions.values()
@@ -544,6 +562,7 @@ class Daemon:
                 self._unsubscribe()
                 self._unsubscribe = None
             self.lifecycle.append("stop:state_engine")
+        await self.summaries.stop()  # a running model call is killed, nothing more is queued
         if "start:writer" in self.lifecycle:
             self.spans.stop(self.clock.now())  # the open span ends with the daemon
             await self.writer.stop()
@@ -768,6 +787,7 @@ class Daemon:
             touched=self._touched_now(),
             focus_today=self._focus_today,
             next_lists=self.next_lists,
+            summaries=self.summaries,
         )
 
 

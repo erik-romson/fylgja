@@ -207,6 +207,29 @@ async def test_the_real_label_routes_are_guarded_before_they_validate(daemon: Da
         assert passed.json()["label"] == "intruder"
 
 
+def test_the_summary_route_is_enumerated() -> None:
+    """WP8.1: checked by ``test_every_mutating_route_is_guarded`` below; the ``GET`` is a read."""
+    assert ("POST", "/summaries/{scope}/{ref}") in ROUTES
+    assert not any(path.startswith("/summaries") and method == "GET" for method, path in ROUTES)
+    assert body_limit(_filled("/summaries/{scope}/{ref}")) == BODY_LIMIT
+
+
+async def test_the_real_summary_route_is_guarded_before_it_is_disabled(daemon: Daemon) -> None:
+    """The guard answers first; only a request that passes it learns that summaries are off, and
+    nothing is ever queued."""
+    path = "/summaries/workspace/1"
+    async with _client(create_app(daemon, secret=SECRET)) as http:
+        assert (await http.post(path, content=b"{}")).status_code == 401
+        foreign = _valid(Origin="http://evil.example")
+        assert (await http.post(path, headers=foreign, content=b"{}")).status_code == 403
+        assert (await http.get(path)).status_code == 200  # the read needs nothing
+        passed = await http.post(path, headers=_valid(), content=b"{}")
+        assert passed.status_code == 409  # past the guard, then disabled
+        assert passed.json() == {"scope": "workspace", "ref": "1", "state": "disabled"}
+    assert not daemon.summaries.pending("workspace", "1")
+    assert daemon.summaries.calls == 0
+
+
 def test_the_message_route_is_enumerated_with_the_64_kib_limit() -> None:
     assert ("POST", "/sessions/{key}/message") in ROUTES
     assert body_limit(_filled("/sessions/{key}/message")) == MESSAGE_BODY_LIMIT

@@ -26,6 +26,7 @@ __all__ = [
     "SpanRow",
     "StoreRow",
     "SuggestionRow",
+    "SummaryRow",
     "TodoRow",
     "UsageRow",
     "WindowRow",
@@ -316,3 +317,19 @@ class SuggestionRow(StoreRow):
     acted_at: datetime | None
 
     _times = frozenset({"generated_at", "feedback_at", "acted_at"})
+
+
+@dataclass(frozen=True)
+class SummaryRow(StoreRow):
+    """One ``summaries`` row: one part (``arc``, ``now`` or ``text``) of a cached summary."""
+
+    scope_kind: str
+    scope_ref: str
+    kind: str
+    text: str | None
+    input_digest: str | None
+    model: str | None
+    generated_at: datetime | None
+    error_kind: str | None
+
+    _times = frozenset({"generated_at"})

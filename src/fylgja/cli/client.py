@@ -3,16 +3,22 @@
 Stdlib ``urllib`` only. Short timeouts, JSON decoding, and two failures the commands tell apart:
 :class:`DaemonDown` (connection refused, unreachable or timed out: exit code 3) and
 :class:`ApiError` (the daemon answered, but not with usable JSON or a success status: exit code 1).
+
+:func:`open_events` follows the ``/events`` change stream (``http.client``), so a command can wait
+for an event such as ``summary.ready`` (``fylgja story``).
 """
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import json
 import socket
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable, Iterator
 from typing import Any, Final
 
 from fylgja import paths
@@ -24,8 +30,10 @@ __all__ = [
     "TIMEOUT",
     "ApiError",
     "DaemonDown",
+    "EventStream",
     "base_url",
     "get_json",
+    "open_events",
     "read_secret",
     "send_json",
 ]
@@ -165,3 +173,120 @@ def send_json(
 def quote(segment: str) -> str:
     """A path segment, percent-encoded."""
     return urllib.parse.quote(segment, safe="")
+
+
+# --------------------------------------------------------------------------------------------
+# The change stream
+# --------------------------------------------------------------------------------------------
+
+
+def _event_data(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+class EventStream:
+    """An open ``GET /events`` stream. Close it when done (:meth:`close` is idempotent)."""
+
+    def __init__(
+        self, connection: http.client.HTTPConnection, response: http.client.HTTPResponse
+    ) -> None:
+        self._connection = connection
+        self._response = response
+        self._closed = False
+
+    def events(self) -> Iterator[tuple[str, Any]]:
+        """``(event name, data)`` of each frame as it arrives; comments are skipped and the data
+        is decoded from JSON when it is JSON. Ends with the stream."""
+        name = "message"
+        data: list[str] = []
+        while True:
+            raw = self._response.readline()
+            if not raw:
+                return
+            line = raw.decode("utf-8", "replace").rstrip("\r\n")
+            if not line:
+                if data:
+                    yield name, _event_data("\n".join(data))
+                name, data = "message", []
+                continue
+            if line.startswith(":"):
+                continue
+            field, _, value = line.partition(":")
+            value = value.removeprefix(" ")
+            if field == "event":
+                name = value
+            elif field == "data":
+                data.append(value)
+
+    def wait_for(self, match: Callable[[str, Any], bool], timeout: float) -> Any | None:
+        """The data of the first event ``match`` accepts within ``timeout`` seconds, else ``None``
+        (also when the stream ends first). The stream is read in a background thread and is
+        closed afterwards."""
+        found: list[Any] = []
+        done = threading.Event()
+
+        def read() -> None:
+            try:
+                for name, data in self.events():
+                    if match(name, data):
+                        found.append(data)
+                        return
+            except (OSError, ValueError, AttributeError, http.client.HTTPException):
+                return  # the stream was closed under the reader
+            finally:
+                done.set()
+
+        reader = threading.Thread(target=read, name="fylgja-events", daemon=True)
+        reader.start()
+        done.wait(timeout)
+        self._shutdown()
+        reader.join(2.0)
+        self.close()
+        return found[0] if found else None
+
+    def _shutdown(self) -> None:
+        """Wake a reader blocked on the socket: the stream ends for it."""
+        sock = self._connection.sock
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._shutdown()
+        with contextlib.suppress(OSError, http.client.HTTPException):
+            self._response.close()
+        self._connection.close()
+
+
+def open_events(*, url: str | None = None, timeout: float | None = None) -> EventStream:
+    """Open ``GET <url>/events``. Raises :class:`DaemonDown` when nothing answers and
+    :class:`ApiError` when the daemon refuses the stream. Reads then block until a frame arrives
+    (the daemon sends a heartbeat every 15 s)."""
+    root = base_url() if url is None else url
+    parts = urllib.parse.urlsplit(root)
+    connection = http.client.HTTPConnection(
+        parts.hostname or LOOPBACK,
+        parts.port or DEFAULT_PORT,
+        timeout=TIMEOUT if timeout is None else timeout,
+    )
+    try:
+        connection.request("GET", "/events", headers={"Accept": "text/event-stream"})
+        response = connection.getresponse()
+    except OSError as exc:
+        connection.close()
+        raise DaemonDown(root, _reason(exc)) from exc
+    except http.client.HTTPException as exc:
+        connection.close()
+        raise ApiError(f"/events: malformed answer from the daemon ({type(exc).__name__})") from exc
+    if response.status != 200:
+        connection.close()
+        raise ApiError(f"/events: the daemon answered {response.status} {response.reason}")
+    if connection.sock is not None:
+        connection.sock.settimeout(None)
+    return EventStream(connection, response)

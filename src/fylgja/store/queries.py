@@ -30,6 +30,7 @@ from fylgja.store.rows import (
     SpanRow,
     StoreRow,
     SuggestionRow,
+    SummaryRow,
     TodoRow,
     UsageRow,
     WindowRow,
@@ -75,12 +76,14 @@ __all__ = [
     "load_open_windows",
     "load_spans",
     "load_suggestions",
+    "load_summaries",
     "load_worked_on",
     "load_open_workspaces",
     "load_projects",
     "optimize",
     "put_activity",
     "put_health",
+    "put_summaries",
     "put_usage",
     "rate_suggestion",
     "put_window",
@@ -1558,3 +1561,38 @@ def rate_suggestion(
 ) -> None:
     """Record ``rating`` (``good`` or ``bad``) on one logged item; a second rating replaces it."""
     connection.execute(RATE_SUGGESTION, {"id": suggestion_id, "rating": rating, "at": at})
+
+
+# --------------------------------------------------------------------------------------------
+# summaries
+# --------------------------------------------------------------------------------------------
+
+_SUMMARY_COLUMNS: Final = (
+    "scope_kind, scope_ref, kind, text, input_digest, model, generated_at, error_kind"
+)
+
+PUT_SUMMARY: Final = """
+INSERT INTO summaries (scope_kind, scope_ref, kind, text, input_digest, model, generated_at,
+                       error_kind)
+VALUES (:scope_kind, :scope_ref, :kind, :text, :input_digest, :model, :generated_at, :error_kind)
+ON CONFLICT (scope_kind, scope_ref, kind) DO UPDATE SET
+    text = excluded.text,
+    input_digest = excluded.input_digest,
+    model = excluded.model,
+    generated_at = excluded.generated_at,
+    error_kind = excluded.error_kind
+"""
+
+SELECT_SUMMARIES: Final = (
+    f"SELECT {_SUMMARY_COLUMNS} FROM summaries ORDER BY scope_kind, scope_ref, kind"
+)
+
+
+def put_summaries(connection: sqlite3.Connection, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Store the rows of one summary (one per ``kind``), replacing what that scope held."""
+    connection.executemany(PUT_SUMMARY, rows)
+
+
+def load_summaries(connection: sqlite3.Connection) -> list[SummaryRow]:
+    """Every stored summary row, grouped by scope."""
+    return [SummaryRow.from_db(row) for row in connection.execute(SELECT_SUMMARIES)]

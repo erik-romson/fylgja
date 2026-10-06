@@ -10,6 +10,9 @@ remembers its ``list_id`` in the state directory and posts to the daemon).
 scope uses the focused workspace). ``label ws`` sets or clears a manual workspace label.
 ``session message`` posts to the daemon too: it asks first
 unless ``--yes`` is given and exits 0 only when the message was submitted.
+``story session <key>`` and ``story ws <n>`` ask the daemon for a summary (WP8.1): they post the
+request, wait for ``summary.ready`` on ``/events`` (up to 60 s), then fetch and print it. The model
+call runs in the daemon, never here.
 ``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``,
 ``keybinding``, ``skill``, ``secret``) run locally (the A7 exceptions): doctor checks the setup
 and changes nothing, and the installers print a diff and write only with ``--apply`` (``secret``
@@ -67,6 +70,13 @@ label_app = typer.Typer(
     pretty_exceptions_enable=False,
 )
 app.add_typer(label_app, name="label")
+story_app = typer.Typer(
+    help="Summaries written by a local model in the daemon "
+    "(off unless [summaries] enabled = true).",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
+app.add_typer(story_app, name="story")
 install_app = typer.Typer(
     help="Install Fylgja's configuration into ~/dotfiles and its launchd agent. "
     "Without --apply every command only prints what it would change.",
@@ -354,6 +364,113 @@ def session_message(
         lambda: f"{state}: {receipt.get('detail', '')}\nmessage id: {receipt.get('message_id')}",
     )
     raise typer.Exit(0 if state in SENT_STATES else client.EXIT_API_ERROR)
+
+
+# --- stories ----------------------------------------------------------------------------------
+
+STORY_WAIT: float = 60.0
+"""Seconds ``fylgja story`` waits for ``summary.ready`` by default."""
+STORY_DISABLED = (
+    "summaries are disabled: set [summaries] enabled = true in config.toml and restart the daemon"
+)
+WaitOption = Annotated[
+    float,
+    typer.Option("--wait", min=0, metavar="SECONDS", help="How long to wait for the summary."),
+]
+
+
+def _ready_for(scope: str, ref: str) -> Callable[[str, Any], bool]:
+    def match(name: str, data: Any) -> bool:
+        return (
+            name == "summary.ready"
+            and isinstance(data, dict)
+            and data.get("scope") == scope
+            and data.get("ref") == ref
+        )
+
+    return match
+
+
+def _down(exc: client.DaemonDown) -> NoReturn:
+    _fail(
+        f"daemon not running ({exc.reason}) at {exc.url}; start it with `fylgja serve` "
+        "or `fylgja install launchd --apply`",
+        client.EXIT_DAEMON_DOWN,
+    )
+
+
+def _request_story(scope: str, ref: str, wait: float) -> dict[str, Any]:
+    """Post the request with the change stream already open (so ``summary.ready`` cannot be
+    missed), wait for it when the summary is being written, then fetch it."""
+    path = f"/summaries/{scope}/{client.quote(ref)}"
+    try:
+        stream = client.open_events()
+    except client.DaemonDown as exc:
+        _down(exc)
+    except client.ApiError as exc:
+        _fail(str(exc), client.EXIT_API_ERROR)
+    try:
+        try:
+            answer = client.send_json("POST", path)
+        except client.DaemonDown as exc:
+            _down(exc)
+        except client.ApiError as exc:
+            _fail(STORY_DISABLED if exc.status == 409 else str(exc), client.EXIT_API_ERROR)
+        if isinstance(answer, dict) and answer.get("state") == "pending":
+            stream.wait_for(_ready_for(scope, ref), wait)
+            answer = _fetch(path)
+    finally:
+        stream.close()
+    if not isinstance(answer, dict):
+        _fail(f"{path}: the daemon's answer is not a summary", client.EXIT_API_ERROR)
+    return answer
+
+
+def _story(scope: str, ref: str, wait: float, as_json: bool) -> None:
+    answer = _request_story(scope, ref, wait)
+    state = answer.get("state")
+    if state == "pending":
+        _fail(
+            f"no summary after {wait:g} s; it is still being written, run the command again later",
+            client.EXIT_API_ERROR,
+        )
+    if state == "disabled":
+        _fail(STORY_DISABLED, client.EXIT_API_ERROR)
+    _show(answer, as_json, lambda: render.render_story(answer, _width()))
+    if state == "failed":
+        raise typer.Exit(client.EXIT_API_ERROR)
+
+
+@story_app.command("session")
+def story_session(
+    session: Annotated[
+        str,
+        typer.Argument(
+            metavar="KEY", help="A session key (kind:id), a native session id or a unique prefix."
+        ),
+    ],
+    wait: WaitOption = STORY_WAIT,
+    as_json: JsonOption = False,
+) -> None:
+    """ARC and NOW of a live agent session: what it has been about, and what it is doing now.
+
+    Exits 0 with a summary, 1 when summaries are disabled, the summary failed or it did not
+    arrive within --wait seconds, and 3 when the daemon is not running.
+    """
+    _story("session", _session_key(session), wait, as_json)
+
+
+@story_app.command("ws")
+def story_ws(
+    name: Annotated[str, typer.Argument(metavar="N", help="The workspace name.")],
+    wait: WaitOption = STORY_WAIT,
+    as_json: JsonOption = False,
+) -> None:
+    """One short paragraph on what a workspace is for and what is going on in it.
+
+    Exits like `fylgja story session`.
+    """
+    _story("workspace", name, wait, as_json)
 
 
 # --- todos ------------------------------------------------------------------------------------

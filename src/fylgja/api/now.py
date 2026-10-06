@@ -31,6 +31,9 @@ thread for every request and reads nothing else.
 * **Todos** (WP4.1): the open and next items of the live view fill ``workspaces[].todos``,
   ``sessions[].todos`` and ``projects[].todos`` by scope; ``next`` items come first. An entry
   with no todos has no ``todos`` field.
+* **Stories** (WP8.1): while summaries are enabled, a session or workspace with a cached summary
+  carries it as ``story``, its state judged against the entry's current inputs
+  (:mod:`fylgja.api.summary_inputs`). Nothing is generated here.
 
 Titles, names and prompt text arrive redacted (the ingest gate ran before the store); nothing here
 logs them.
@@ -67,6 +70,7 @@ from fylgja.api.now_models import (
     Workspace,
 )
 from fylgja.api.now_usage import build_tokens, build_usage
+from fylgja.api.summary_inputs import with_session_story, with_workspace_story
 from fylgja.collectors.base import Capability
 from fylgja.collectors.registry import Origin
 from fylgja.core.context_items import ContextEntry
@@ -593,6 +597,7 @@ def build_now(state: StateView) -> Now:
         if show_sessions
         else []
     )
+    stories = state.summaries if state.summaries is not None and state.summaries.enabled else None
     built: list[tuple[SessionRow, ActivityRow | None, Session]] = []
     for row in session_rows:
         key = row.session_key
@@ -605,7 +610,7 @@ def build_now(state: StateView) -> Now:
             _todos_of(todos, "session", key),
             state.generated_at,
         )
-        built.append((row, activity, session))
+        built.append((row, activity, with_session_story(stories, session)))
 
     workspaces: list[Workspace] | None = None
     if show_windows:
@@ -613,17 +618,22 @@ def build_now(state: StateView) -> Now:
         names = set(rows)
         names.update(w.workspace for w in windows if w.workspace)
         names.update(s.workspace for s in session_rows if s.workspace)
+        by_key = {session.key: session for _, _, session in built}
         workspaces = [
-            _workspace(
-                name,
-                rows.get(name),
-                state.labels.get(name),
-                [w for w in windows if w.workspace == name],
-                [item for item in built if item[0].workspace == name],
-                focus,
-                _todos_of(todos, "workspace", name),
-                contexts,
-                summaries,
+            with_workspace_story(
+                stories,
+                _workspace(
+                    name,
+                    rows.get(name),
+                    state.labels.get(name),
+                    [w for w in windows if w.workspace == name],
+                    [item for item in built if item[0].workspace == name],
+                    focus,
+                    _todos_of(todos, "workspace", name),
+                    contexts,
+                    summaries,
+                ),
+                by_key,
             )
             for name in sorted(names, key=natural_key)
         ]

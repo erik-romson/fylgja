@@ -8,6 +8,7 @@ first, and a cell that does not fit ends in ``…``.
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Final
@@ -19,6 +20,7 @@ __all__ = [
     "render_next",
     "render_now",
     "render_sessions",
+    "render_story",
     "render_todos",
     "render_workspace",
     "render_workspaces",
@@ -353,3 +355,30 @@ def render_history(history: Row, width: int = DEFAULT_WIDTH, *, spans: bool = Tr
     if history.get("spans_truncated"):
         parts += ["", "the span list is cut short; the totals cover every span"]
     return "\n".join(parts)
+
+
+_STORY_NOTES: Final = {
+    "stale": "stale: the inputs changed since; it is rewritten at most once per TTL",
+    "failed": "the latest attempt failed",
+    "pending": "being written",
+}
+
+
+def render_story(summary: Row, width: int = DEFAULT_WIDTH) -> str:
+    """A summary (``/summaries/{scope}/{ref}``): ARC and NOW, or the paragraph, wrapped to
+    ``width``, then its state and the time it describes."""
+    room = max(width, 20)
+    lines: list[str] = []
+    for label, key in (("ARC", "arc"), ("NOW", "now")):
+        if summary.get(key):
+            lines.append(textwrap.fill(f"{label}: {summary[key]}", room, subsequent_indent="     "))
+    if summary.get("text"):
+        lines.append(textwrap.fill(str(summary["text"]), room))
+    state = str(summary.get("state", _DASH))
+    note = _STORY_NOTES.get(state)
+    if state == "failed" and summary.get("error_kind"):
+        note = f"{note} ({summary['error_kind']})"
+    stamp = summary.get("generated_at")
+    when = f", as of {_local(stamp, '%Y-%m-%d %H:%M')}" if stamp else ""
+    lines.append(f"[{state}{when}]" + (f" {note}" if note else ""))
+    return "\n".join(lines)
