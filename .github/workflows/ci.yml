@@ -40,3 +40,15 @@ jobs:
         run: >-
           uv run --frozen pytest -m "not live" --cov=fylgja --cov-branch
           --cov-report=term-missing --cov-fail-under=85
+
+  independence:
+    name: independence (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: ">=0.7.19,<0.8"
+          python-version: "3.13"
+      - name: Lidskjalv independence suite and runbook dry-run
+        run: sh scripts/independence_check.sh
