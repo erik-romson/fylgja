@@ -7,12 +7,31 @@
 <title>Fylgja</title>
 <style>
   :root { color-scheme: light dark; font-family: -apple-system, system-ui, sans-serif; }
-  body { margin: 0 auto; max-width: 42rem; padding: 1.5rem 1rem; }
-  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  body { margin: 0 auto; max-width: 72rem; padding: 1rem; }
+  h1 { font-size: 1.25rem; margin: 0 0 .75rem; }
+  h2 { font-size: 1rem; margin: 1.25rem 0 .5rem; }
+  button { font-size: 1rem; padding: .4rem .8rem; }
+  #status { min-height: 1.25rem; color: #b00020; margin: 0 0 .5rem; }
+  #next-strip { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+  #next-strip li { border: 1px solid rgba(128, 128, 128, .5); border-radius: .5rem; padding: .4rem .7rem;
+    cursor: pointer; max-width: 22rem; overflow-wrap: anywhere; }
+  #next-strip li.top { border-color: #c77700; border-width: 2px; }
+  #next-strip .kind { font-size: .75rem; opacity: .65; display: block; }
+  #workspace-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: .75rem; }
+  .card { border: 1px solid rgba(128, 128, 128, .4); border-radius: .6rem; padding: .7rem .8rem; cursor: pointer; }
+  .card.focused { border-color: #1a73e8; border-width: 2px; }
+  .card h3 { margin: 0; font-size: 1rem; display: flex; justify-content: space-between; gap: .5rem; }
+  .card .oneliner { margin: .2rem 0 .5rem; opacity: .8; overflow-wrap: anywhere; }
+  .card ul { list-style: none; margin: .25rem 0 0; padding: 0; }
+  .card li { padding: .15rem 0; overflow-wrap: anywhere; }
+  .card .part { font-size: .75rem; text-transform: uppercase; opacity: .55; margin-top: .5rem; }
+  .session { cursor: pointer; border-radius: .3rem; padding: .2rem .3rem; }
+  .session.waiting { background: rgba(199, 119, 0, .22); font-weight: 600; }
+  .state { font-size: .8rem; opacity: .75; margin-right: .4rem; }
+  .muted { opacity: .65; font-size: .85rem; }
+  .bad { color: #b00020; }
   form { display: flex; gap: .5rem; margin-bottom: .75rem; }
   #todo-input { flex: 1; padding: .5rem; font-size: 1rem; }
-  button { font-size: 1rem; padding: .4rem .8rem; }
-  #status { min-height: 1.25rem; color: #b00020; margin: 0 0 .75rem; }
   #todo-list { list-style: none; margin: 0; padding: 0; }
   #todo-list li { display: flex; align-items: baseline; gap: .6rem; padding: .35rem 0;
     border-bottom: 1px solid rgba(128, 128, 128, .25); }
@@ -23,13 +42,16 @@
 </style>
 </head>
 <body>
-<h1>Fylgja todos</h1>
+<h1>Fylgja</h1>
+<p id="status" role="status"></p>
+<ul id="next-strip" aria-label="What next"></ul>
+<div id="workspace-cards"></div>
+<h2>Todos</h2>
 <form id="todo-form" autocomplete="off">
   <input id="todo-input" type="text" maxlength="500" placeholder="What next? (focused workspace)"
          aria-label="New todo" autofocus>
   <button id="todo-add" type="submit">Add</button>
 </form>
-<p id="status" role="status"></p>
 <ul id="todo-list"></ul>
 <script>
 "use strict";
@@ -37,7 +59,17 @@ const secret = document.querySelector('meta[name="fylgja-secret"]').content;
 const list = document.getElementById("todo-list");
 const input = document.getElementById("todo-input");
 const statusLine = document.getElementById("status");
+const strip = document.getElementById("next-strip");
+const cards = document.getElementById("workspace-cards");
 const OPEN = "status=open,next";
+const WAITING = ["waiting", "waiting_permission", "waiting_input", "turn_done"];
+const MAX_SESSIONS = 6;
+const MAX_CONTEXT = 3;
+const MAX_TODOS = 4;
+
+// What the last /now said, for the clicks that look a target up.
+let current = { workspaces: [], sessions: [], projects: [] };
+let openTodos = [];
 
 function say(message) { statusLine.textContent = message || ""; }
 
@@ -57,6 +89,153 @@ async function call(method, path, body) {
   }
   return data;
 }
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) { node.className = className; }
+  if (text !== undefined && text !== null) { node.textContent = text; }
+  return node;
+}
+
+// ---- focus ----
+
+async function focusPath(path) {
+  try {
+    await call("POST", path, {});
+    say("");
+  } catch (error) {
+    say("Cannot focus: " + error.message);
+  }
+}
+
+function focusWindow(id) { return focusPath("/focus/window/" + encodeURIComponent(id)); }
+function focusSession(key) { return focusPath("/focus/session/" + encodeURIComponent(key)); }
+
+function windowOf(w) {
+  const wins = w.windows || [];
+  const here = wins.find((win) => win.focused) || wins[0];
+  return here ? here.id : null;
+}
+
+function focusWorkspace(name) {
+  const target = (current.workspaces || []).find((w) => w.name === name);
+  const id = target ? windowOf(target) : null;
+  if (id === null) { say("Nothing to focus in workspace " + name); return Promise.resolve(); }
+  return focusWindow(id);
+}
+
+// ---- the "next" strip ----
+
+function nextAction(n) {
+  const key = n.target_ref;
+  if ((current.sessions || []).some((s) => s.key === key)) { return () => focusSession(key); }
+  const p = (current.projects || []).find((p) => p.path === key);
+  if (p && p.workspace) { return () => focusWorkspace(p.workspace); }
+  for (const w of current.workspaces || []) {
+    if ((w.windows || []).some((win) => win.id === key)) { return () => focusWindow(key); }
+    if (w.name === key) { return () => focusWorkspace(key); }
+  }
+  const todo = openTodos.find((t) => t.id === key);
+  if (todo && todo.scope_kind === "workspace") { return () => focusWorkspace(todo.scope_ref); }
+  return null;
+}
+
+function renderNext(items) {
+  const entries = (items || []).map((n) => {
+    const li = el("li", n.rank === 1 ? "top" : "");
+    li.id = "next-" + n.rank;
+    li.append(el("span", "kind", n.kind), el("span", "", n.reason));
+    const action = nextAction(n);
+    if (action) { li.addEventListener("click", action); } else { li.style.cursor = "default"; }
+    return li;
+  });
+  if (entries.length === 0) {
+    entries.push(el("li", "muted", "Nothing waiting for you"));
+  }
+  strip.replaceChildren(...entries);
+}
+
+// ---- workspace cards ----
+
+function label(w) { return w.label || w.inferred_label || ""; }
+
+function projectLine(p) {
+  const line = el("li", "project");
+  const parts = [p.name || p.path];
+  if (p.branch) { parts.push(p.branch); }
+  if (p.dirty) { parts.push("dirty"); }
+  if (p.pr && p.pr.number) { parts.push("PR #" + p.pr.number + (p.pr.checks ? " " + p.pr.checks : "")); }
+  line.textContent = parts.join(" · ");
+  if (p.build && p.build.state) {
+    const build = el("span", p.build.state === "failed" ? "state bad" : "state", " build " + p.build.state);
+    line.append(build);
+  }
+  return line;
+}
+
+function sessionLine(s) {
+  const li = el("li", WAITING.includes(s.state) ? "session waiting" : "session");
+  li.id = "session-" + s.key;
+  li.append(el("span", "state", s.state || "unknown"));
+  li.append(el("span", "", s.one_liner || s.title || s.name || s.kind));
+  li.addEventListener("click", (event) => { event.stopPropagation(); focusSession(s.key); });
+  return li;
+}
+
+function contextLine(c) {
+  const li = el("li", "context", c.title || c.kind);
+  if (c.unread) { li.prepend(el("span", "state", "unread")); }
+  return li;
+}
+
+function todoLine(todo) {
+  return el("li", todo.status === "next" ? "todo next" : "todo", todo.text);
+}
+
+function section(card, title, lines) {
+  if (lines.length === 0) { return; }
+  const ul = el("ul");
+  ul.append(...lines);
+  card.append(el("div", "part", title), ul);
+}
+
+function workspaceCard(w, sessions, projects) {
+  const card = el("div", w.focused ? "card focused" : "card");
+  card.id = "card-" + w.name;
+  const title = el("h3");
+  title.append(el("span", "", w.name + (label(w) ? " " + label(w) : "")));
+  title.append(el("span", "muted", (w.windows || []).length + " windows"));
+  card.append(title);
+  if (w.one_liner) { card.append(el("p", "oneliner", w.one_liner)); }
+  const mine = (w.sessions || []).map((key) => sessions.get(key)).filter(Boolean);
+  mine.sort((a, b) => WAITING.includes(b.state) - WAITING.includes(a.state));
+  const where = (w.projects || []).map((path) => projects.get(path)).filter(Boolean);
+  const context = (w.windows || []).flatMap((win) => win.context || []);
+  section(card, "Projects", where.map(projectLine));
+  section(card, "Sessions", mine.slice(0, MAX_SESSIONS).map(sessionLine));
+  section(card, "Context", context.slice(0, MAX_CONTEXT).map(contextLine));
+  section(card, "Todos", (w.todos || []).slice(0, MAX_TODOS).map(todoLine));
+  const id = windowOf(w);
+  if (id !== null) { card.addEventListener("click", () => focusWindow(id)); }
+  return card;
+}
+
+function busy(w) {
+  return (w.windows || []).length + (w.sessions || []).length + (w.todos || []).length > 0;
+}
+
+function renderCards(now) {
+  const sessions = new Map();
+  const walk = (items) => (items || []).forEach((s) => { sessions.set(s.key, s); walk(s.children); });
+  walk(now.sessions);
+  const projects = new Map((now.projects || []).map((p) => [p.path, p]));
+  const shown = (now.workspaces || []).filter(busy);
+  const nodes = shown.map((w) => workspaceCard(w, sessions, projects));
+  if (nodes.length === 0) { nodes.push(el("p", "muted", "No workspace has anything in it")); }
+  cards.replaceChildren(...nodes);
+}
+
+// ---- todos (step 36) ----
 
 function scopeOf(todo) {
   if (!todo.scope_kind) { return ""; }
@@ -109,15 +288,52 @@ function render(todos, workspace) {
   list.replaceChildren(...items);
 }
 
-async function refresh() {
+// ---- data ----
+
+function focusedName(now) {
+  const flagged = ((now && now.workspaces) || []).find((w) => w.focused);
+  return (now && now.focused && now.focused.workspace) || (flagged ? flagged.name : null);
+}
+
+async function refreshTodos(now) {
   try {
-    const [now, todos] = await Promise.all([call("GET", "/now"), call("GET", "/todos?" + OPEN)]);
-    const flagged = ((now && now.workspaces) || []).find((w) => w.focused);
-    const workspace = (now && now.focused && now.focused.workspace) || (flagged ? flagged.name : null);
-    render(Array.isArray(todos) ? todos : [], workspace);
-    say("");
+    const todos = await call("GET", "/todos?" + OPEN);
+    openTodos = Array.isArray(todos) ? todos : [];
+    render(openTodos, focusedName(now));
   } catch (error) {
     say("Cannot load: " + error.message);
+  }
+}
+
+async function refreshNext() {
+  try {
+    const answer = await call("GET", "/next");
+    renderNext(answer && Array.isArray(answer.items) ? answer.items : []);
+  } catch (_) { /* the strip keeps what /now gave it */ }
+}
+
+let running = false;
+let again = false;
+
+async function refresh() {
+  if (running) { again = true; return; }
+  running = true;
+  try {
+    do {
+      again = false;
+      try {
+        const now = await call("GET", "/now");
+        current = now || current;
+        renderCards(now || {});
+        renderNext((now && now.next) || []);
+        say("");
+        await Promise.all([refreshTodos(now), refreshNext()]);
+      } catch (error) {
+        say("Cannot load: " + error.message);
+      }
+    } while (again);
+  } finally {
+    running = false;
   }
 }
 
@@ -145,8 +361,27 @@ document.getElementById("todo-form").addEventListener("submit", async (event) =>
   await refresh();
 });
 
+// ---- live updates: SSE, reconnecting with a backoff ----
+
+let delay = 1000;
+let source = null;
+
+function connect() {
+  if (source) { source.close(); }
+  source = new EventSource("/events");
+  source.addEventListener("open", () => { delay = 1000; refresh(); });
+  source.addEventListener("now.changed", () => { refresh(); });
+  source.addEventListener("error", () => {
+    if (source.readyState === EventSource.CLOSED) {
+      source.close();
+      setTimeout(connect, delay);
+      delay = Math.min(delay * 2, 30000);
+    }
+  });
+}
+
 refresh();
-setInterval(() => { if (!document.hidden) { refresh(); } }, 5000);
+connect();
 </script>
 </body>
 </html>

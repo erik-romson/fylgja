@@ -1,6 +1,7 @@
-"""``GET /``: the minimal page (WP4.4, A19; ``PLAN-final-plan.md`` §4.2 "Secret").
+"""``GET /``: the navigator page (WP4.4, WP7.1, A19; ``PLAN-final-plan.md`` §4.2 "Secret").
 
-One static HTML file with plain JavaScript and no build step. The API secret goes into
+One static HTML file with plain JavaScript and no build step: the "next" strip, one card per
+workspace, live over ``/events``, with the todo entry of WP4.4. The API secret goes into
 ``<meta name="fylgja-secret">`` when the page is served, so the page can send the bearer on its
 writes. That is safe for the reasons §4.2 gives: the Host check turns away a foreign page (DNS
 rebinding) before this route runs, and no response carries a CORS header, so no other origin can
@@ -30,6 +31,7 @@ PLACEHOLDER: Final = "{{fylgja-secret}}"
 
 _HEADERS: Final = {
     "cache-control": "no-store",
+    "pragma": "no-cache",
     "content-security-policy": (
         "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
         "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
