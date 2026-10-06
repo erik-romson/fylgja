@@ -14,6 +14,9 @@ dangling hook commands in ``~/.claude/settings.json`` (R1), the A22 dotfiles lay
 hook installation (WP2.4): the executable, async registrations, the installed Claude version, the
 inbox (owner and mode, backlog age, ``dropped.count``), uncommitted dotfiles changes and, only when
 Lidskjalv's entries are present, an informational look at them that never affects health (A21).
+Last comes local messaging (WP3.6): whether it is on, and per live Claude session its version
+compatibility, socket safety and, in plain words, what it will do with a message ("messages to
+this session will be held for approval"). Doctor never sends a probe message.
 """
 
 from __future__ import annotations
@@ -54,10 +57,26 @@ from fylgja.cli.install import (
     supported_events,
 )
 from fylgja.collectors.base import CollectorPlugin, RecordSink
+from fylgja.collectors.claude import parse as registry_parse
+from fylgja.collectors.claude.adapter import PsFailure, ps_start_times
 from fylgja.collectors.context import build_context
 from fylgja.collectors.registry import EntryPointSource, RegisteredCollector, load_registry
 from fylgja.collectors.seams import ProcessRunner
 from fylgja.config import Config, ConfigError, load_config, parse_config
+from fylgja.core.system import LocalFileSystem
+from fylgja.messaging.claude import policy
+from fylgja.messaging.claude.encoders import default_encoder
+from fylgja.messaging.claude.encoders.v1 import SUPPORTED as FRAME_SUPPORT
+from fylgja.messaging.claude.messenger import registry_dir
+from fylgja.messaging.claude.resolve import (
+    PS,
+    Refusal,
+    check_socket,
+    default_roots,
+    parse_version,
+    read_rows,
+    version_gate,
+)
 from fylgja.models import HealthState, Record
 
 __all__ = [
@@ -76,6 +95,7 @@ __all__ = [
     "check_hooks_committed",
     "check_inbox",
     "check_lidskjalv_hooks",
+    "check_messaging",
     "check_plugins",
     "check_port",
     "command_targets",
@@ -1009,6 +1029,198 @@ def check_lidskjalv_hooks(
 
 
 # --------------------------------------------------------------------------------------------
+# Local messaging (WP3.6, A9, A14, R10)
+# --------------------------------------------------------------------------------------------
+
+PS_TIMEOUT: Final = 5.0
+_NEVER: Final = "doctor never sends a probe and never changes crossSessionInbound"
+
+
+def _protected(home: Path) -> list[Path]:
+    return [home / "Library" / "Containers", home / "Library" / "Group Containers"]
+
+
+async def _ps_args(runner: ProcessRunner, pids: Sequence[int]) -> dict[int, str] | None:
+    """``ps -o pid=,args=`` of ``pids``; ``None`` when ps cannot tell. The lines can hold other
+    tools' secrets: only :func:`policy.parse_flags` looks at them, and nothing is shown."""
+    argv = [PS, "-o", "pid=,args=", "-p", ",".join(str(pid) for pid in sorted(pids))]
+    try:
+        result = await runner.run(argv, timeout=PS_TIMEOUT)
+    except (OSError, TimeoutError):
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    return policy.parse_ps_args(result.stdout.decode("utf-8", errors="replace"))
+
+
+def _messaging_summary(config: Config, seen: str) -> Check:
+    """The ``messaging`` line; ``seen`` says what doctor found in the registry."""
+    settings = config.actions.message
+    encoder_ready = bool(FRAME_SUPPORT)
+    if not settings.enabled:
+        return Check(
+            "messaging",
+            Status.OK,
+            "off ([actions.message] enabled = false): Fylgja sends no messages and "
+            f"focus-and-copy is the action; {seen}; {_NEVER}",
+        )
+    if not encoder_ready:
+        return Check(
+            "messaging",
+            Status.WARN,
+            "on, but no message frame is supported (spike 0004: no-go), so every send reports "
+            f"unsupported and focus-and-copy is the action; {seen}; {_NEVER}",
+        )
+    return Check(  # pragma: no cover - needs a supported frame (spike 0004 is no-go)
+        "messaging",
+        Status.OK,
+        f"on, at most {settings.max_chars} characters per message; {seen}; {_NEVER}",
+    )
+
+
+def _check_registry(directory: Path, uid: int, layout: Layout) -> Check:
+    """The registry directory the rows come from: yours, and writable by nobody else."""
+    shown = layout.shown(directory)
+    try:
+        info = os.stat(directory)
+    except OSError as exc:
+        return Check("messaging:registry", Status.WARN, f"cannot read {shown}: {exc.strerror}")
+    mode = stat.S_IMODE(info.st_mode)
+    if info.st_uid != uid or mode & 0o022:
+        return Check(
+            "messaging:registry",
+            Status.WARN,
+            f"{shown} is owned by uid {info.st_uid} with mode {mode:04o}; another user could "
+            "plant a row, so messages may go nowhere you meant",
+        )
+    return Check("messaging:registry", Status.OK, f"{shown} is yours, mode {mode:04o}")
+
+
+def _session_check(
+    row: registry_parse.RegistryRow,
+    *,
+    flags: policy.ProcessFlags | None,
+    managed: policy.SettingsFile,
+    user: policy.SettingsFile,
+    roots: Sequence[str],
+    uid: int,
+    home: Path,
+    lstat: Callable[[str], os.stat_result],
+) -> Check:
+    version = parse_version(row.version)
+    shown_version = row.version or "unknown version"
+    protocol = "unknown" if row.peer_protocol is None else str(row.peer_protocol)
+    parts = [f"Claude {shown_version}, peer protocol {protocol}"]
+    status = Status.OK
+    try:
+        gated, peer = version_gate(row.version, row.peer_protocol)
+    except Refusal as refusal:
+        parts.append(f"sending unsupported ({refusal.kind}; A9 needs 2.1.224 or later)")
+    else:
+        if default_encoder().supports(gated, peer):  # pragma: no cover - no-go: never true
+            parts.append("version supported")
+        else:
+            parts.append("version passes the A9 gate, but no frame is supported (spike 0004)")
+    if row.messaging_socket_path is None:
+        parts.append("no inbox socket")
+    else:
+        try:
+            check_socket(
+                row.messaging_socket_path,
+                registry_path=row.messaging_socket_path,
+                roots=roots,
+                uid=uid,
+                lstat=lstat,
+            )
+        except Refusal as refusal:
+            status = Status.WARN
+            parts.append(f"socket refused ({refusal.kind}, A14)")
+        else:
+            parts.append("socket safe (A14)")
+    protected = _protected(home)
+    project = Path(row.cwd) / ".claude"
+    sources = policy.InboundSources(
+        managed=managed,
+        flag=policy.flag_settings(flags, protected, row.cwd),
+        user=user,
+        project=policy.read_settings_file(project / "settings.json", protected),
+        local=policy.read_settings_file(project / "settings.local.json", protected),
+    )
+    interactive = row.kind in (None, "interactive")
+    mode = policy.permission_mode(flags, sources, version=version, interactive=interactive)
+    effective = policy.effective_inbound(sources, version)
+    parts.append(policy.describe_inbound(effective, mode, expiry=policy.dialog_expiry(sources)))
+    return Check(f"messaging:{row.pid}", status, "; ".join(parts))
+
+
+async def check_messaging(
+    config: Config,
+    *,
+    layout: Layout | None = None,
+    runner: ProcessRunner | None = None,
+    registry: Path | None = None,
+    roots: Sequence[str] | None = None,
+    uid: int | None = None,
+    managed_settings: Path = policy.MANAGED_SETTINGS,
+    lstat: Callable[[str], os.stat_result] = os.lstat,
+) -> list[Check]:
+    """The message action (WP3.6): one summary, then one line per live Claude session with its
+    version compatibility (A9), its socket safety (A14) and what it will do with a message (R10).
+
+    Read-only: the registry rows (never ``*.key``), ``ps`` for start times and the four flags of
+    each session's command line, and the settings files. It sends no probe and changes nothing.
+    Without a process runner, liveness cannot be proven, so no session line is shown.
+    """
+    where = Layout.current() if layout is None else layout
+    owner = os.getuid() if uid is None else uid
+    allowed = tuple(default_roots(owner) if roots is None else roots)
+    directory = registry_dir(config) if registry is None else registry
+    rows = read_rows(LocalFileSystem(), directory)
+    if not rows:
+        return [_messaging_summary(config, "no Claude session in the registry")]
+    if runner is None:
+        return [_messaging_summary(config, "sessions not checked (no process runner)")]
+    pids = [row.pid for row in rows]
+    try:
+        starts = await ps_start_times(runner, PS, pids, timeout=PS_TIMEOUT)
+    except PsFailure as exc:
+        return [
+            _messaging_summary(config, "sessions not checked"),
+            Check("messaging:sessions", Status.WARN, f"liveness unknown: {exc.detail}"),
+        ]
+    live = [
+        row
+        for row in rows
+        if registry_parse.check_liveness(row, starts.get(row.pid)) is registry_parse.Liveness.LIVE
+        and row.proc_start is not None
+    ]
+    args = await _ps_args(runner, [row.pid for row in live]) if live else {}
+    protected = _protected(where.home)
+    managed = policy.read_settings_file(managed_settings, protected)
+    user = policy.read_settings_file(where.home / ".claude" / "settings.json", protected)
+    skipped = len(rows) - len(live)
+    seen = f"{len(live)} live Claude session(s)"
+    if skipped:
+        seen += f", {skipped} stale or unprovable row(s) ignored"
+    checks = [_messaging_summary(config, seen), _check_registry(directory, owner, where)]
+    for row in sorted(live, key=lambda r: r.pid):
+        flags = None if args is None or row.pid not in args else policy.parse_flags(args[row.pid])
+        checks.append(
+            _session_check(
+                row,
+                flags=flags,
+                managed=managed,
+                user=user,
+                roots=allowed,
+                uid=owner,
+                home=where.home,
+                lstat=lstat,
+            )
+        )
+    return checks
+
+
+# --------------------------------------------------------------------------------------------
 # Running and rendering
 # --------------------------------------------------------------------------------------------
 
@@ -1051,6 +1263,7 @@ async def run_doctor(
     lidskjalv = check_lidskjalv_hooks(settings, where)
     if lidskjalv is not None:
         checks.append(lidskjalv)
+    checks.extend(await check_messaging(config, layout=where, runner=runner))
     return checks
 
 

@@ -3,6 +3,8 @@
 ``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions`` and
 ``collectors list``) are HTTP clients of that daemon (A7): each fetches JSON from it, prints a
 table or, with ``--json``, the JSON, and exits **3** with a clear message when the daemon is down.
+``session message`` posts to the daemon too: it asks first unless ``--yes`` is given and exits 0
+only when the message was submitted.
 ``doctor`` and the ``install`` commands (``config``, ``launchd``, ``hooks``, ``statusline``,
 ``secret``) run locally (the A7 exceptions): doctor checks the setup and changes nothing, and the
 installers print a diff and write only with ``--apply`` (``secret`` writes at once and prints
@@ -38,6 +40,10 @@ collectors_app = typer.Typer(
     help="The collector plugins.", no_args_is_help=True, pretty_exceptions_enable=False
 )
 app.add_typer(collectors_app, name="collectors")
+session_app = typer.Typer(
+    help="Act on one live agent session.", no_args_is_help=True, pretty_exceptions_enable=False
+)
+app.add_typer(session_app, name="session")
 install_app = typer.Typer(
     help="Install Fylgja's configuration into ~/dotfiles and its launchd agent. "
     "Without --apply every command only prints what it would change.",
@@ -131,6 +137,82 @@ def collectors_list(as_json: JsonOption = False) -> None:
     """The collector plugins, their capabilities and their health."""
     payload = _fetch("/collectors")
     _show(payload, as_json, lambda: render.render_collectors(payload, _width()))
+
+
+def _walk(sessions: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    for session in sessions if isinstance(sessions, list) else []:
+        if isinstance(session, dict):
+            found.append(session)
+            found.extend(_walk(session.get("children")))
+    return found
+
+
+def _session_key(given: str) -> str:
+    """``given`` as a session key: a key as it is, else the one live session whose native id
+    equals or starts with it."""
+    if ":" in given:
+        return given
+    keys = [str(s.get("key")) for s in _walk(_fetch("/sessions")) if s.get("key")]
+    exact = [key for key in keys if key.partition(":")[2] == given]
+    matches = exact or [key for key in keys if key.partition(":")[2].startswith(given)]
+    if not matches:
+        _fail(f"no live session matches {given!r} (see `fylgja sessions`)", client.EXIT_API_ERROR)
+    if len(set(matches)) > 1:
+        _fail(
+            f"{given!r} matches {len(set(matches))} sessions; give more of the id or the full key",
+            client.EXIT_API_ERROR,
+        )
+    return matches[0]
+
+
+SENT_STATES = frozenset({"submitted", "observed-enqueued"})
+
+
+@session_app.command("message")
+def session_message(
+    session: Annotated[
+        str,
+        typer.Argument(
+            metavar="ID", help="A session key (kind:id), a native session id or a unique prefix."
+        ),
+    ],
+    text: Annotated[str, typer.Argument(help="The plain text to send.")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Send without asking first.")] = False,
+    as_json: JsonOption = False,
+) -> None:
+    """Send a short plain-text message to a live local session (off unless
+    [actions.message] enabled = true).
+
+    Asks first unless --yes is given. The message is written once and never retried, and the
+    receipt says only what Fylgja knows: "submitted" means written to the session's socket, not
+    delivered. Exits 0 when submitted, else 1 (3 when the daemon is down).
+    """
+    key = _session_key(session)
+    if not yes and not typer.confirm(
+        f"Send {len(text)} characters to {key}? It is written once and never retried",
+        default=False,
+    ):
+        _fail("not sent", client.EXIT_API_ERROR)
+    path = f"/sessions/{client.quote(key)}/message"
+    try:
+        receipt = client.send_json("POST", path, {"text": text})
+    except client.DaemonDown as exc:
+        _fail(
+            f"daemon not running ({exc.reason}) at {exc.url}; nothing was sent",
+            client.EXIT_DAEMON_DOWN,
+        )
+    except client.ApiError as exc:
+        _fail(f"{exc}; nothing was sent", client.EXIT_API_ERROR)
+    if not isinstance(receipt, dict):
+        _fail(f"{path}: the daemon's answer is not a receipt", client.EXIT_API_ERROR)
+    state = str(receipt.get("state"))
+    _show(
+        receipt,
+        as_json,
+        lambda: f"{state}: {receipt.get('detail', '')}\nmessage id: {receipt.get('message_id')}",
+    )
+    raise typer.Exit(0 if state in SENT_STATES else client.EXIT_API_ERROR)
 
 
 @app.command()

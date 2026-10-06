@@ -734,6 +734,7 @@ def test_run_doctor_combines_every_check_and_only_reads(fake_home: Layout) -> No
         "inbox:backlog",
         "inbox:dropped",
         "lidskjalv-hooks",
+        "messaging",
     ]
     assert exit_code(checks) == 0
     assert {path for path, _ in fetch.requests} == {"/health", "/collectors"}

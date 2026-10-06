@@ -53,6 +53,13 @@ MODULES = [
     "fylgja.cli.render",
     "fylgja.cli.install",
     "fylgja.cli.doctor",
+    "fylgja.messaging.service",
+    "fylgja.messaging.claude.resolve",
+    "fylgja.messaging.claude.transport",
+    "fylgja.messaging.claude.receipts",
+    "fylgja.messaging.claude.policy",
+    "fylgja.messaging.claude.messenger",
+    "fylgja.messaging.claude.encoders.v1",
     "fylgja.hook",
 ]
 

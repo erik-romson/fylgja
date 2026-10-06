@@ -25,7 +25,16 @@ import uvicorn
 from fastapi import FastAPI
 
 from fylgja.api import sse
-from fylgja.api.routes import collectors, focus, health, now, projects, sessions, workspaces
+from fylgja.api.routes import (
+    collectors,
+    focus,
+    health,
+    messages,
+    now,
+    projects,
+    sessions,
+    workspaces,
+)
 from fylgja.api.security import HostGuard, MutationGuard, load_secret
 from fylgja.config import LOOPBACK_HOST, Config, load_config
 from fylgja.core.daemon import Daemon
@@ -41,6 +50,7 @@ _ROUTERS = (
     collectors.router,
     health.router,
     focus.router,
+    messages.router,
     sse.router,
 )
 

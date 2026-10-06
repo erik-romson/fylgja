@@ -4,8 +4,8 @@ Every request with a mutating method needs a bearer secret, an allowed ``Origin`
 CLI), ``Content-Type: application/json`` and a body inside the size limit. Two groups of tests:
 
 * **route enumeration**: every mutating route registered on the real app is parametrized and must
-  show every rejection and accept a valid CLI request. The focus routes (WP3.5) are the first;
-  later steps fill the list without touching this file;
+  show every rejection and accept a valid CLI request. The focus routes (WP3.5) and the message
+  route (WP3.6, 64 KiB) are in it; later steps fill the list without touching this file;
 * **guard mechanics**: a test-only app with the same middleware and dummy mutating routes proves
   each rejection now.
 """
@@ -124,6 +124,24 @@ async def daemon() -> AsyncIterator[Daemon]:
 def test_the_focus_routes_are_enumerated() -> None:
     assert ("POST", "/focus/window/{window_id}") in ROUTES
     assert ("POST", "/focus/session/{key}") in ROUTES
+
+
+def test_the_message_route_is_enumerated_with_the_64_kib_limit() -> None:
+    assert ("POST", "/sessions/{key}/message") in ROUTES
+    assert body_limit(_filled("/sessions/{key}/message")) == MESSAGE_BODY_LIMIT
+
+
+async def test_the_real_message_route_is_guarded_before_it_is_disabled(daemon: Daemon) -> None:
+    """The guard answers first; only a request that passes it learns that messaging is off."""
+    async with _client(create_app(daemon, secret=SECRET)) as http:
+        path = "/sessions/claude:abc/message"
+        body = b'{"text": "hello"}'
+        assert (await http.post(path, content=body)).status_code == 401
+        assert (await http.post(path, headers=_valid(), content=b" " * 70_000)).status_code == 413
+        between = b'{"text": "' + b"x" * (BODY_LIMIT + 10) + b'"}'
+        passed = await http.post(path, headers=_valid(), content=between)
+        assert passed.status_code == 409  # inside 64 KiB: past the guard, then disabled
+        assert (await http.post(path, headers=_valid(), content=body)).status_code == 409
 
 
 @pytest.mark.parametrize(("method", "path"), ROUTES, ids=[f"{m} {p}" for m, p in ROUTES])

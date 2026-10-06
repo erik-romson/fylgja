@@ -98,6 +98,15 @@ def get_json(path: str, *, url: str | None = None, timeout: float | None = None)
         raise ApiError(f"{path}: the daemon's answer is not JSON") from exc
 
 
+def _detail(error: urllib.error.HTTPError) -> str:
+    """`` : <detail>`` from the daemon's JSON error body, or nothing (at most 300 characters)."""
+    try:
+        detail = json.loads(error.read(4096)).get("detail")
+    except (OSError, ValueError, AttributeError, http.client.HTTPException):
+        return ""
+    return f": {detail[:300]}" if isinstance(detail, str) and detail else ""
+
+
 def read_secret() -> str:
     """The API secret that mutating calls send as the bearer; :class:`ApiError` if there is none."""
     try:
@@ -138,7 +147,9 @@ def send_json(
         with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310 - loopback
             payload = response.read()
     except urllib.error.HTTPError as exc:
-        raise ApiError(f"{path}: the daemon answered {exc.code} {exc.reason}", exc.code) from exc
+        raise ApiError(
+            f"{path}: the daemon answered {exc.code} {exc.reason}{_detail(exc)}", exc.code
+        ) from exc
     except (urllib.error.URLError, OSError) as exc:
         raise DaemonDown(root, _reason(exc)) from exc
     except http.client.HTTPException as exc:

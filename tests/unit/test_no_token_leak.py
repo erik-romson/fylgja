@@ -11,6 +11,7 @@ its own checks. Use :data:`CANARIES`, :func:`canary_env` and :func:`assert_no_ca
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
@@ -22,11 +23,20 @@ from pathlib import Path
 
 import pytest
 from api_support import Dist, EntryPoint, client, config, no_hosts
+from claude_support import PsRunner
 from hook_support import all_bytes_under, clean_env, envelope_files, feed, run_hook
+from message_support import PID, SESSION, FakeInbox, LineEncoder, World, short_tmp, socket_dir
 
 from fylgja import hook, paths
+from fylgja.cli.doctor import check_messaging
+from fylgja.collectors.claude import adapter as claude_adapter
 from fylgja.collectors.claude import plugin as claude_plugin
+from fylgja.collectors.claude.adapter import Seams
 from fylgja.core.daemon import Daemon
+from fylgja.core.system import LocalFileSystem
+from fylgja.messaging.claude.receipts import ReceiptState
+from fylgja.messaging.claude.resolve import Resolver
+from fylgja.messaging.service import MessageService, WriterReceipts
 from fylgja.testing.fakes import FakeFS
 
 CANARIES = {
@@ -236,3 +246,158 @@ async def test_canaries_reach_no_log_spool_file_database_row_or_api_response(
     secret = BODY_SECRET.encode()
     assert not any(secret in blob for _, blob in [*_files(), *_db_dump(), *responses])
     assert secret not in log_text
+
+
+# -- messaging (step 31): the token and the key files never meet the message path ------------------
+
+MESSAGE_TEXT = "please check the deploy (message body 8e21)"
+
+
+class _KeyGuardFS(LocalFileSystem):
+    """The resolver's filesystem: fails the test on any attempt to read a ``*.key`` file."""
+
+    def __init__(self) -> None:
+        self.read: list[str] = []
+
+    def read_bytes(self, path: Path | str) -> bytes:
+        name = Path(path).name
+        assert not name.endswith(".key"), "a *.key file was opened"
+        self.read.append(name)
+        return super().read_bytes(path)
+
+
+def _message_world(registry: Path, socks: Path) -> tuple[World, _KeyGuardFS]:
+    world = World(registry, socks)
+    guard = _KeyGuardFS()
+    world.resolver = Resolver(
+        registry, fs=guard, start_time=world.starts, roots=(str(socks),), uid=os.getuid()
+    )
+    return world, guard
+
+
+async def test_no_messaging_token_reaches_the_collector_spool_database_logs_api_or_socket(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The daemon runs with the canary token in its own environment and a ``*.key`` file beside
+    the registry row. The Claude collector reads the row, the message goes out over a fake socket,
+    and the canary is in no log, file, database row, API answer or byte on the socket."""
+    caplog.set_level(logging.DEBUG)
+    for name, value in CANARIES.items():
+        monkeypatch.setenv(name, value)
+    token = CANARIES["CLAUDE_CODE_MESSAGING_TOKEN"]
+    registry = paths.data_dir().parent / "registry"
+    with short_tmp() as root:
+        socks = socket_dir(root)
+        world, guard = _message_world(registry, socks)
+        row = world.add()
+        (registry / f"{PID}.9c1f.key").write_text(token, encoding="utf-8")
+        ps = PsRunner()
+        ps.starts.update(world.starts.table)
+        monkeypatch.setattr(
+            claude_adapter, "default_seams", lambda: Seams(ps, claude_adapter.LocalFileSystem())
+        )
+        entry = EntryPoint(
+            "claude", "fylgja.collectors.claude:plugin", Dist("fylgja"), claude_plugin
+        )
+        daemon = Daemon(
+            config(
+                {
+                    "actions": {"message": {"enabled": True}},
+                    "collectors": {"claude": {"enabled": True, "registry_dir": str(registry)}},
+                }
+            ),
+            entry_points=lambda: [entry],
+            fs=FakeFS(),
+            host_loader=no_hosts,
+            home="/home/tester",
+        )
+        await daemon.start()
+        try:
+            daemon.messages = MessageService(
+                enabled=True,
+                max_chars=8000,
+                messengers={"claude": world.messenger(LineEncoder())},
+                receipts=WriterReceipts(daemon.writer),
+                clock=daemon.clock,
+            )
+            deadline = time.monotonic() + 20
+            while not daemon.view.sessions and time.monotonic() < deadline:  # noqa: ASYNC110
+                await asyncio.sleep(0.05)
+            assert daemon.view.sessions, "the Claude collector did not report the session"
+            responses: list[tuple[str, bytes]] = []
+            with FakeInbox(world.sock_path()) as inbox:
+                async with client(daemon) as http:
+                    secret_headers = {"Content-Type": "application/json"}
+                    reply = await http.post(
+                        f"/sessions/claude:{SESSION}/message",
+                        headers=secret_headers,
+                        json={"text": MESSAGE_TEXT},
+                    )
+                    responses.append(("POST unauthenticated", reply.content))
+                    receipt = await daemon.messages.send(f"claude:{SESSION}", MESSAGE_TEXT)
+                    for route in ("/now", "/sessions", f"/sessions/claude:{SESSION}"):
+                        responses.append((f"GET {route}", (await http.get(route)).content))
+                inbox.wait()
+            await daemon.writer.flush()
+        finally:
+            await daemon.stop()
+        doctor_checks = await check_messaging(
+            daemon.config,
+            runner=ps,
+            registry=registry,
+            roots=(str(socks),),
+            managed_settings=registry / "no-managed.json",
+        )
+    assert receipt.state is ReceiptState.SUBMITTED
+    assert row.exists()
+    assert guard.read
+    assert all(name.endswith(".json") for name in guard.read)
+    sent = b"".join(inbox.received)
+    assert MESSAGE_TEXT.encode() in sent  # the socket got the message ...
+    assert b'"auth"' not in sent  # ... and no auth line
+    log_text = "\n".join(f"{r.name} {r.getMessage()}" for r in caplog.records).encode()
+    doctor_text = "\n".join(c.detail for c in doctor_checks).encode()
+    assert_no_canary(
+        ("socket bytes", sent),
+        ("captured log", log_text),
+        ("doctor", doctor_text),
+        *responses,
+    )
+    files = [(name, data) for name, data in _files() if not name.endswith(".key")]
+    assert_no_canary(*files, *_db_dump())
+    # the text body went to the socket only: no receipt, row, log or answer holds it
+    body = MESSAGE_TEXT.encode()
+    assert not any(body in blob for _, blob in [*files, *_db_dump(), *responses])
+    assert body not in log_text
+
+
+_MESSAGING_SOURCES = Path(__file__).resolve().parents[2] / "src" / "fylgja" / "messaging"
+
+
+def _code_strings_and_names(tree: ast.AST) -> tuple[set[str], set[str]]:
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    strings = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    }
+    names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    names |= {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    return strings, names
+
+
+@pytest.mark.parametrize("source", sorted(_MESSAGING_SOURCES.rglob("*.py")), ids=lambda p: p.name)
+def test_the_messaging_code_never_touches_the_token_or_an_environment(source: Path) -> None:
+    strings, names = _code_strings_and_names(ast.parse(source.read_text(encoding="utf-8")))
+    assert not {"environ", "getenv", "putenv", "environb"} & names
+    assert not [s for s in strings if "MESSAGING_TOKEN" in s or s.endswith(".key")]
+    assert not [s for s in strings if '"auth"' in s or s == "auth"]
