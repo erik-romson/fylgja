@@ -30,14 +30,15 @@ def _factory(settings: BaseModel, context: CollectorContext) -> Collector:
         context,
         database=paths.database_file() if database is None else database,
         fs=adapter.default_fs(),
+        runner=adapter.default_runner(),
     )
 
 
 plugin = CollectorPlugin(
     name=NAME,
     api_major=COLLECTOR_API_MAJOR,
-    # TODOS: repo-root TODO.md files (WP4.3). Step 41 adds PROJECT_STATE.
-    capabilities=frozenset({Capability.TODOS}),
+    # TODOS: repo-root TODO.md files (WP4.3). PROJECT_STATE: git, PR and build per project (WP5.4).
+    capabilities=frozenset({Capability.TODOS, Capability.PROJECT_STATE}),
     config_model=ProjectSettings,
     factory=_factory,
 )

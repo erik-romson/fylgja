@@ -1,0 +1,18 @@
+{
+  "head_sha": "aaa111",
+  "state": "pass",
+  "url": "https://github.com/myorg/myrepo/actions/runs/100",
+  "workflows": [
+    {
+      "conclusion": "success",
+      "run_duration": 360,
+      "run_id": 100,
+      "run_started_at": 1748772000,
+      "state": "pass",
+      "status": "completed",
+      "typical_duration": 360,
+      "url": "https://github.com/myorg/myrepo/actions/runs/100",
+      "workflow": "ci.yml"
+    }
+  ]
+}

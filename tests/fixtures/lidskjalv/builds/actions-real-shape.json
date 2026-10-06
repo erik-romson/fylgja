@@ -1,0 +1,40 @@
+{
+  "head_sha": "2c53eee4a0ec03f62911d401bcf4befc2dfb00df",
+  "state": "fail",
+  "url": "https://github.com/example/repo/commit/2c53eee4a0ec03f62911d401bcf4befc2dfb00df/checks",
+  "workflows": [
+    {
+      "conclusion": "success",
+      "run_duration": 10,
+      "run_id": 37449883506,
+      "run_started_at": 1791282439,
+      "state": "pass",
+      "status": "completed",
+      "typical_duration": 11,
+      "url": "https://github.com/example/repo/actions/runs/37449883506",
+      "workflow": "workflow-1.yml"
+    },
+    {
+      "conclusion": "success",
+      "run_duration": 53,
+      "run_id": 37449883159,
+      "run_started_at": 1791282439,
+      "state": "pass",
+      "status": "completed",
+      "typical_duration": 57,
+      "url": "https://github.com/example/repo/actions/runs/37449883159",
+      "workflow": "workflow-2.yml"
+    },
+    {
+      "conclusion": "failure",
+      "run_duration": 12,
+      "run_id": 37449883490,
+      "run_started_at": 1791282439,
+      "state": "fail",
+      "status": "completed",
+      "typical_duration": null,
+      "url": "https://github.com/example/repo/actions/runs/37449883490",
+      "workflow": "workflow-3.yml"
+    }
+  ]
+}

@@ -271,6 +271,8 @@ class ProjectPayload(_Frozen):
     repo_root: str | None = None
     remote_url: str | None = None
     repo_name: str | None = None
+    group_name: str | None = None
+    """The draupnir workspace the clone belongs to."""
     branch: str | None = None
     dirty: bool | None = None
     ahead: int | None = None
@@ -300,6 +302,8 @@ class BuildPayload(_Frozen):
     url: str | None = None
     workflows: tuple[BuildWorkflow, ...] = ()
     error_kind: str | None = None
+    poll_interval_s: float | None = None
+    """The source's poll interval; ``/now`` judges the freshness of the section against it."""
 
 
 class UsagePayload(_Frozen):

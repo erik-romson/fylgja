@@ -1,0 +1,18 @@
+{
+  "head_sha": "fff666",
+  "state": "pass",
+  "url": "https://github.com/myorg/myrepo/actions/runs/601",
+  "workflows": [
+    {
+      "conclusion": "success",
+      "run_duration": 300,
+      "run_id": 601,
+      "run_started_at": 1748779200,
+      "state": "pass",
+      "status": "completed",
+      "typical_duration": 300,
+      "url": "https://github.com/myorg/myrepo/actions/runs/601",
+      "workflow": "ci.yml"
+    }
+  ]
+}

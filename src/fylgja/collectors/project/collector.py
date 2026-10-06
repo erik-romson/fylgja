@@ -14,22 +14,32 @@ Every ``poll_interval_seconds`` (5 s) the collector asks the store which project
   read of the file succeeds. A store that cannot be read emits nothing at all.
 
 A project the store no longer lists is simply not read any more: absence of a read is not an
-empty read. Step 41 adds the project state (git, PR, builds) to this collector.
+empty read.
+
+**Project state** (WP5.4) runs beside it, in a task of its own so that a slow ``gh`` never delays
+a ``TODO.md`` read: every tick the known projects and their activity (live sessions, focus) are
+read from the store and :class:`~fylgja.collectors.project.state.ProjectStateEngine` runs what is
+due: git for every project on the slow timer, the PR and the build for active projects. Its
+records are ``project`` and ``build`` events. A git failure degrades the collector; gh being
+absent, not authenticated or rate-limited does not (the build section says so, see
+:mod:`~fylgja.collectors.project.state`).
 
 Nothing is logged or exposed from task text or file paths: failures are short codes and counts.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from fylgja.collectors.base import CollectorContext
 from fylgja.collectors.project import adapter, parse
-from fylgja.collectors.seams import FileSystem
+from fylgja.collectors.project.state import ProjectStateEngine, StateSettings
+from fylgja.collectors.seams import FileSystem, ProcessRunner
 from fylgja.models import HealthReport, HealthState
 
 __all__ = ["PollStats", "ProjectCollector", "ProjectSettings"]
@@ -38,10 +48,8 @@ STORE_UNREADABLE: Final = "store_unreadable"
 POLL_FAILED: Final = "poll_failed"
 
 
-class ProjectSettings(BaseModel):
-    """``[collectors.project]``."""
-
-    model_config = ConfigDict(extra="forbid")
+class ProjectSettings(StateSettings):
+    """``[collectors.project]``: the ``TODO.md`` settings and, inherited, the project state's."""
 
     database: Path | None = None
     """The store the known projects are read from; default the daemon's own (read-only)."""
@@ -77,11 +85,19 @@ class ProjectCollector:
         *,
         database: Path,
         fs: FileSystem,
+        runner: ProcessRunner | None = None,
     ) -> None:
         self._settings = settings
         self._context = context
         self._database = database
         self._fs = fs
+        self._engine = ProjectStateEngine(
+            settings,
+            clock=context.clock,
+            runner=adapter.default_runner() if runner is None else runner,
+            fs=fs,
+        )
+        self._state_failure: str | None = None
         self._files: dict[str, _FileState] = {}
         self._failures: dict[str, str] = {}
         """Path of each ``TODO.md`` whose last read failed, with the failure code."""
@@ -91,6 +107,8 @@ class ProjectCollector:
         self.stats = PollStats()
         self.emissions = 0
         """Snapshots that reached the sink."""
+        self.state_emissions = 0
+        """Project and build records that reached the sink."""
 
     # -- one poll ---------------------------------------------------------------------------
 
@@ -169,19 +187,53 @@ class ProjectCollector:
 
     # -- loop -------------------------------------------------------------------------------
 
-    async def run(self) -> None:
-        """Poll until cancelled. An unexpected error is logged once and the loop goes on."""
+    async def poll_state(self) -> int:
+        """Run what is due of the project state once. Returns the records emitted."""
+        now = self._context.clock.now()
+        try:
+            projects = adapter.known_projects(self._database)
+            activity = adapter.read_activity(
+                self._database, now, self._settings.active_window_seconds
+            )
+        except adapter.StoreUnreadable:
+            return 0  # poll() reports the unreadable store
+        records = await self._engine.poll(projects, activity)
+        for record in records:
+            self._context.sink.emit(record)
+        self.state_emissions += len(records)
+        return len(records)
+
+    async def _run_state(self) -> None:
         while True:
             try:
-                self.poll()
+                await self.poll_state()
             except Exception as exc:
                 kind = type(exc).__name__
-                if self._loop_failure != kind:
-                    self._context.logger.error("project poll failed: %s", kind)
-                self._loop_failure = kind
+                if self._state_failure != kind:
+                    self._context.logger.error("project state poll failed: %s", kind)
+                self._state_failure = kind
             else:
-                self._loop_failure = None
+                self._state_failure = None
             await self._context.clock.sleep(self._settings.poll_interval_seconds)
+
+    async def run(self) -> None:
+        """Poll until cancelled. An unexpected error is logged once and the loop goes on."""
+        state = asyncio.create_task(self._run_state(), name="project-state")
+        try:
+            while True:
+                try:
+                    self.poll()
+                except Exception as exc:
+                    kind = type(exc).__name__
+                    if self._loop_failure != kind:
+                        self._context.logger.error("project poll failed: %s", kind)
+                    self._loop_failure = kind
+                else:
+                    self._loop_failure = None
+                await self._context.clock.sleep(self._settings.poll_interval_seconds)
+        finally:
+            state.cancel()
+            await asyncio.gather(state, return_exceptions=True)
 
     # -- health -----------------------------------------------------------------------------
 
@@ -202,6 +254,25 @@ class ProjectCollector:
                 error_kind=POLL_FAILED,
                 checked_at=now,
             )
+        if self._state_failure is not None:
+            return HealthReport(
+                state=HealthState.DEGRADED,
+                detail=f"the project state poll failed ({self._state_failure})",
+                error_kind=POLL_FAILED,
+                checked_at=now,
+            )
+        git = self._engine.git_failures
+        if git:
+            kinds = sorted(set(git.values()))
+            return HealthReport(
+                state=HealthState.DEGRADED,
+                detail=(
+                    f"git state could not be read for {len(git)} of {self.stats.projects} "
+                    f"projects ({', '.join(kinds)})"
+                ),
+                error_kind=kinds[0],
+                checked_at=now,
+            )
         if self._failures:
             kinds = sorted(set(self._failures.values()))
             return HealthReport(
@@ -219,4 +290,7 @@ class ProjectCollector:
             if self._polled
             else "not polled yet"
         )
+        issue = self._engine.gh_issue
+        if issue is not None:
+            detail += f"; gh unavailable ({issue})"
         return HealthReport(state=HealthState.OK, detail=detail, checked_at=now)

@@ -1,0 +1,18 @@
+{
+  "head_sha": "eee555",
+  "state": "pass",
+  "url": "https://github.com/myorg/myrepo/actions/runs/501",
+  "workflows": [
+    {
+      "conclusion": "success",
+      "run_duration": 300,
+      "run_id": 501,
+      "run_started_at": 1748772000,
+      "state": "pass",
+      "status": "completed",
+      "typical_duration": 300,
+      "url": "https://github.com/myorg/myrepo/actions/runs/501",
+      "workflow": "ci.yml"
+    }
+  ]
+}

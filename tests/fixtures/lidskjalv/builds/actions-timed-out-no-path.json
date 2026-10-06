@@ -1,0 +1,40 @@
+{
+  "head_sha": "hhh888",
+  "state": "fail",
+  "url": "https://github.com/example/repo/commit/hhh888/checks",
+  "workflows": [
+    {
+      "conclusion": "timed_out",
+      "run_duration": 1800,
+      "run_id": 801,
+      "run_started_at": 1748779200,
+      "state": "fail",
+      "status": "completed",
+      "typical_duration": null,
+      "url": "https://github.com/example/repo/actions/runs/801",
+      "workflow": "Dynamic"
+    },
+    {
+      "conclusion": "action_required",
+      "run_duration": 5,
+      "run_id": 802,
+      "run_started_at": 1748779200,
+      "state": "none",
+      "status": "completed",
+      "typical_duration": null,
+      "url": "https://github.com/example/repo/actions/runs/802",
+      "workflow": "other.yml"
+    },
+    {
+      "conclusion": null,
+      "run_duration": null,
+      "run_id": 803,
+      "run_started_at": 1748779210,
+      "state": "running",
+      "status": "queued",
+      "typical_duration": null,
+      "url": "https://github.com/example/repo/actions/runs/803",
+      "workflow": "queued.yml"
+    }
+  ]
+}

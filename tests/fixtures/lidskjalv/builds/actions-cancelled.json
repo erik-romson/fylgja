@@ -1,0 +1,29 @@
+{
+  "head_sha": "ggg777",
+  "state": "cancelled",
+  "url": "https://github.com/example/repo/commit/ggg777/checks",
+  "workflows": [
+    {
+      "conclusion": "cancelled",
+      "run_duration": 90,
+      "run_id": 702,
+      "run_started_at": 1748779200,
+      "state": "cancelled",
+      "status": "completed",
+      "typical_duration": 300,
+      "url": "https://github.com/example/repo/actions/runs/702",
+      "workflow": "ci.yml"
+    },
+    {
+      "conclusion": "success",
+      "run_duration": 120,
+      "run_id": 703,
+      "run_started_at": 1748779200,
+      "state": "pass",
+      "status": "completed",
+      "typical_duration": 120,
+      "url": "https://github.com/example/repo/actions/runs/703",
+      "workflow": "lint.yml"
+    }
+  ]
+}

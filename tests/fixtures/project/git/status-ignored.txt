@@ -1,0 +1,5 @@
+# branch.oid 5555555555555555555555555555555555555555
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -0
+! ignored.log

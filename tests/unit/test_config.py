@@ -38,7 +38,15 @@ def test_defaults_load_without_a_user_file() -> None:
         "codex": {"enabled": True},
         "opencode": {"enabled": True},
         "norn": {"enabled": True, "roots": ["~/projects"], "max_depth": 3},
-        "project": {"enabled": True, "poll_interval_seconds": 5},
+        "project": {
+            "enabled": True,
+            "poll_interval_seconds": 5,
+            "state_interval_seconds": 300,
+            "focus_refresh_seconds": 30,
+            "active_window_seconds": 3600,
+            "gh_calls_per_hour": 30,
+            "gh_pr_calls_per_hour": 120,
+        },
         "presence": {
             "enabled": True,
             "idle_threshold_seconds": 300,

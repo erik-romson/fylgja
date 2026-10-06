@@ -4,6 +4,11 @@ The known projects come from a real store built under the test's own directory (
 ``projects`` rows); their repo-root ``TODO.md`` files are real files there too. No repository,
 editor or daemon is needed.
 
+Project state (WP5.4) runs on the contract's process runner: ``git`` and ``gh`` are scripted, the
+store has a live session in the project, so the PR and the build are looked up as well. The working
+source thus emits ``todo``, ``project`` and ``build`` records. A ``git`` that is not installed is a
+broken source too: it emits no project state and reports ``degraded``.
+
 The broken sources are the failures WP4.3 names: a ``TODO.md`` that is not a file, one that is not
 UTF-8 text, one that cannot be read for lack of permission (skipped as root, who reads anyway), and
 a store that cannot be read. Each emits nothing for what failed and reports ``degraded``.
@@ -17,7 +22,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from project_support import api_response, script_git, script_pr, script_runs, store_with_activity
 
+from fylgja.collectors.project import adapter
 from fylgja.store import db, queries
 from fylgja.testing.contract import CollectorContract, ContractEnv, ContractSource
 
@@ -52,6 +59,11 @@ def _store(base: Path, roots: Sequence[Path]) -> Path:
     return path
 
 
+def _runner(env: ContractEnv) -> None:
+    """The collector's ``git`` and ``gh`` go through the contract's fake process runner."""
+    env.monkeypatch.setattr(adapter, "default_runner", lambda: env.process_runner)
+
+
 def _roots(base: Path) -> tuple[Path, Path]:
     """Two repository roots under ``base`` (each source has its own ``base``)."""
     app, other = base / "repos" / "app", base / "repos" / "other"
@@ -64,13 +76,33 @@ def _working(env: ContractEnv) -> Mapping[str, Any]:
     base = env.tmp_path / "working"
     app, other = _roots(base)
     (app / "TODO.md").write_text(TODO_MD, encoding="utf-8")  # `other` has no TODO.md
-    return {"database": str(_store(base, (app, other)))}
+    _runner(env)
+    script_git(env.process_runner, str(app))  # a GitHub remote: the PR and the build follow
+    script_git(env.process_runner, str(other), status="status-dirty-ahead-behind.txt", remote=None)
+    script_pr(env.process_runner)
+    script_runs(env.process_runner, stdout=api_response("api-200.txt"))
+    database = store_with_activity(
+        base / "store" / "fylgja.db",
+        env.clock.now(),
+        projects=[str(app), str(other)],
+        live=[str(app)],
+    )
+    return {"database": str(database)}
+
+
+def _git_missing(env: ContractEnv) -> Mapping[str, Any]:
+    base = env.tmp_path / "git-missing"
+    app, _ = _roots(base)
+    (app / "TODO.md").write_text(TODO_MD, encoding="utf-8")
+    _runner(env)  # nothing is scripted: ``git`` is not installed
+    return {"database": str(_store(base, (app,)))}
 
 
 def _not_a_file(env: ContractEnv) -> Mapping[str, Any]:
     base = env.tmp_path / "not-a-file"
     app, _ = _roots(base)
     (app / "TODO.md").mkdir(exist_ok=True)
+    _runner(env)
     return {"database": str(_store(base, (app,)))}
 
 
@@ -78,6 +110,7 @@ def _not_utf8(env: ContractEnv) -> Mapping[str, Any]:
     base = env.tmp_path / "not-utf8"
     app, _ = _roots(base)
     (app / "TODO.md").write_bytes(b"- [ ] caf\xe9\n")
+    _runner(env)
     return {"database": str(_store(base, (app,)))}
 
 
@@ -88,6 +121,7 @@ def _no_permission(env: ContractEnv) -> Mapping[str, Any]:
     if not target.exists():
         target.write_text(TODO_MD, encoding="utf-8")
         target.chmod(0)
+    _runner(env)
     return {"database": str(_store(base, (app,)))}
 
 
@@ -95,6 +129,7 @@ def _store_unreadable(env: ContractEnv) -> Mapping[str, Any]:
     path = env.tmp_path / "broken" / "fylgja.db"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"this is not a database" * 64)
+    _runner(env)
     return {"database": str(path)}
 
 
@@ -105,7 +140,9 @@ class TestProjectContract(CollectorContract):
 
     @pytest.fixture
     def working_source(self) -> ContractSource:
-        return ContractSource(label="a store with two projects, one TODO.md", arrange=_working)
+        return ContractSource(
+            label="two projects, one TODO.md, scripted git and gh", arrange=_working
+        )
 
     @pytest.fixture
     def broken_source(self) -> list[ContractSource]:
@@ -113,6 +150,7 @@ class TestProjectContract(CollectorContract):
             ContractSource(label="TODO.md is a directory", arrange=_not_a_file),
             ContractSource(label="TODO.md is not UTF-8", arrange=_not_utf8),
             ContractSource(label="store unreadable", arrange=_store_unreadable),
+            ContractSource(label="git is not installed", arrange=_git_missing),
         ]
         if os.geteuid() != 0:  # root reads a mode-000 file anyway
             sources.append(ContractSource(label="TODO.md not readable", arrange=_no_permission))

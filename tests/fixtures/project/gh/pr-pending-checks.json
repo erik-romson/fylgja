@@ -1,0 +1,27 @@
+{
+  "number": 78,
+  "reviewDecision": "REVIEW_REQUIRED",
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-01T09:05:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/9002",
+      "name": "lint",
+      "startedAt": "2026-10-01T09:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "0001-01-01T00:00:00Z",
+      "conclusion": "",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/9003",
+      "name": "build",
+      "startedAt": "2026-10-01T09:00:00Z",
+      "status": "IN_PROGRESS",
+      "workflowName": "CI"
+    }
+  ]
+}

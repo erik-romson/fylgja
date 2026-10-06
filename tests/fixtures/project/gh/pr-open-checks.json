@@ -1,0 +1,47 @@
+{
+  "number": 2542,
+  "state": "OPEN",
+  "reviewDecision": "",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "name": "check-1",
+      "workflowName": "CI",
+      "status": "COMPLETED",
+      "conclusion": "FAILURE",
+      "startedAt": "2026-10-06T10:24:24Z",
+      "completedAt": "2026-10-06T10:24:35Z",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/1"
+    },
+    {
+      "__typename": "CheckRun",
+      "name": "check-2",
+      "workflowName": "CI",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "startedAt": "2026-10-06T10:24:25Z",
+      "completedAt": "2026-10-06T10:25:19Z",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/2"
+    },
+    {
+      "__typename": "CheckRun",
+      "name": "check-3",
+      "workflowName": "CI",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "startedAt": "2026-10-06T10:24:24Z",
+      "completedAt": "2026-10-06T10:24:34Z",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/3"
+    },
+    {
+      "__typename": "CheckRun",
+      "name": "check-4",
+      "workflowName": "CI",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "startedAt": "2026-10-06T10:25:08Z",
+      "completedAt": "2026-10-06T10:25:10Z",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/4"
+    }
+  ]
+}

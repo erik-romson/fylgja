@@ -13,7 +13,10 @@ thread for every request and reads nothing else.
 * **Workspaces** are every present AeroSpace workspace plus any a window or session names, in
   natural order (``2`` before ``10``). Each carries its effective label and the §4.6 workspace
   one-liner.
-* **Projects** are the projects of the live sessions, ordered by path.
+* **Projects** are the projects of the live sessions, ordered by path. The project collector's
+  state fills ``branch``, ``dirty``, ``ahead``, ``behind``, ``last_commit_at``, ``pr`` (absent
+  when the branch has none) and ``build`` (§4.7), whose ``freshness`` is judged against the poll
+  interval stored with it (:func:`fylgja.core.freshness.freshness`).
 * **Todos** (WP4.1): the open and next items of the live view fill ``workspaces[].todos``,
   ``sessions[].todos`` and ``projects[].todos`` by scope; ``next`` items come first. An entry
   with no todos has no ``todos`` field.
@@ -26,11 +29,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime
 from typing import Any, Final, Literal
 
 from pydantic import ValidationError
 
 from fylgja.api.now_models import (
+    Build,
     CollectorInfo,
     ContextItem,
     Facts,
@@ -40,6 +45,7 @@ from fylgja.api.now_models import (
     Now,
     OneLinerRule,
     Project,
+    PullRequest,
     Session,
     SessionState,
     Stage,
@@ -51,6 +57,7 @@ from fylgja.collectors.base import Capability
 from fylgja.collectors.registry import Origin
 from fylgja.core.context_items import ContextEntry
 from fylgja.core.daemon import CollectorState, SessionExtras, StateView
+from fylgja.core.freshness import freshness
 from fylgja.core.labels import EMPTY_LABEL, effective_label, project_name
 from fylgja.core.one_liner import WorkspaceSession, session_one_liner, workspace_one_liner
 from fylgja.core.resolver import Placement, ProjectPlacement
@@ -402,12 +409,57 @@ def _workspace(
     )
 
 
+BUILD_SOURCE: Final = "gh"
+DEFAULT_POLL_SECONDS: Final = 300.0
+"""The poll interval a stored build falls back to when it carries none."""
+
+
+def _pull_request(row: ProjectRow | None) -> PullRequest | None:
+    """The PR of the branch; ``pr_number`` 0 is "looked up, there is none"."""
+    if row is None or not row.pr_number:
+        return None
+    return PullRequest(
+        number=row.pr_number,
+        state=row.pr_state or None,
+        review_decision=row.review_decision or None,
+    )
+
+
+def _build(row: ProjectRow | None, now: datetime) -> Build | None:
+    """§4.7: the stored fold with its freshness, or ``None`` before any observation."""
+    if row is None or row.build is None or row.build_observed_at is None:
+        return None
+    stored = row.build
+    interval = stored.get("poll_interval_s")
+    if isinstance(interval, bool) or not isinstance(interval, int | float) or interval <= 0:
+        interval = DEFAULT_POLL_SECONDS
+    try:
+        return Build.model_validate(
+            {
+                "state": stored.get("state", row.build_state),
+                "head_sha": stored.get("head_sha"),
+                "url": stored.get("url"),
+                "workflows": stored.get("workflows", []),
+                "source": BUILD_SOURCE,
+                "observed_at": row.build_observed_at,
+                "freshness": freshness(
+                    row.build_observed_at, now, float(interval), row.build_error_kind
+                ),
+                "error_kind": row.build_error_kind,
+            }
+        )
+    except (ValidationError, TypeError):
+        logger.warning("a stored build could not be read")
+        return None
+
+
 def _project(
     path: str,
     row: ProjectRow | None,
     placement: ProjectPlacement | None,
     sessions: Sequence[str],
     todos: list[Todo] | None = None,
+    now: datetime | None = None,
 ) -> Project:
     repo_name = None if row is None else row.repo_name
     group = None if row is None else row.group_name
@@ -427,6 +479,8 @@ def _project(
         dirty=None if row is None else row.dirty,
         ahead=None if row is None else row.ahead,
         behind=None if row is None else row.behind,
+        pr=_pull_request(row),
+        build=None if now is None else _build(row, now),
         last_commit_at=None if row is None else row.last_commit_at,
         todos=todos,
         updated_at=None if row is None else row.updated_at,
@@ -534,6 +588,7 @@ def build_now(state: StateView) -> Now:
                 state.projects.get(path),
                 keys,
                 _todos_of(todos, "project", path),
+                state.generated_at,
             )
             for path, keys in sorted(members.items())
         ]

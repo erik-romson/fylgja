@@ -1,0 +1,18 @@
+{
+  "head_sha": "ccc333",
+  "state": "running",
+  "url": "https://github.com/myorg/myrepo/actions/runs/303",
+  "workflows": [
+    {
+      "conclusion": null,
+      "run_duration": null,
+      "run_id": 303,
+      "run_started_at": 1748779200,
+      "state": "running",
+      "status": "in_progress",
+      "typical_duration": 480,
+      "url": "https://github.com/myorg/myrepo/actions/runs/303",
+      "workflow": "ci.yml"
+    }
+  ]
+}

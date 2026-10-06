@@ -15,21 +15,27 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fylgja.collectors.codex.adapter import LocalFileSystem
-from fylgja.collectors.seams import FileInfo, FileSystem
+from fylgja.collectors.seams import FileInfo, FileSystem, ProcessRunner
+from fylgja.core.system import SubprocessRunner
 from fylgja.store import db, queries
 
 __all__ = [
     "FileSignature",
     "KnownProject",
     "LocalFileSystem",
+    "ProjectActivity",
     "ReadFailed",
     "StoreUnreadable",
     "default_fs",
+    "default_runner",
     "known_projects",
+    "read_activity",
     "read_todo_md",
     "stat_todo_md",
 ]
@@ -73,6 +79,11 @@ class ReadFailed(Exception):
 def default_fs() -> FileSystem:
     """The real filesystem."""
     return LocalFileSystem()
+
+
+def default_runner() -> ProcessRunner:
+    """The real process runner, for ``git`` and ``gh``."""
+    return SubprocessRunner()
 
 
 def known_projects(database: Path) -> list[KnownProject]:
@@ -135,3 +146,59 @@ def read_todo_md(fs: FileSystem, path: str, before: FileSignature, *, max_bytes:
     if _signature(after) != before or len(data) != after.size:
         raise ReadFailed("todo_md_partial_read")
     return data
+
+
+@dataclass(frozen=True)
+class ProjectActivity:
+    """Which projects the user is working in, from the daemon's store (read-only).
+
+    A project is *active* when a live session is in it or it was focused within the window the
+    activity was read for (``PLAN-final-plan.md`` §4.7: the GitHub calls are made only for those).
+    """
+
+    live: frozenset[str] = frozenset()
+    """``projects.path`` of every project with a live session."""
+    last_focus: Mapping[str, datetime] = field(default_factory=dict)
+    """When each project was last focused within the window (an open span counts as now)."""
+    focused: str | None = None
+    """The project of the open focus span."""
+
+    def recency(self, path: str) -> datetime | None:
+        """The last time ``path`` was focused within the window, if it was."""
+        return self.last_focus.get(path)
+
+    def active(self, path: str) -> bool:
+        return path in self.live or path in self.last_focus
+
+
+def read_activity(database: Path, now: datetime, window_seconds: float) -> ProjectActivity:
+    """The live sessions and the focus spans of the last ``window_seconds``.
+
+    A store that does not exist yet has no activity. Raises :class:`StoreUnreadable`.
+    """
+    try:
+        if not database.exists():
+            return ProjectActivity()
+        connection = db.connect_reader(database)
+        try:
+            sessions = queries.load_live_sessions(connection)
+            spans = queries.load_spans(
+                connection,
+                since=db.to_db_time(now - timedelta(seconds=window_seconds)),
+                until=db.to_db_time(now + timedelta(seconds=1)),
+            )
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, KeyError, ValueError) as exc:
+        raise StoreUnreadable(f"store_{type(exc).__name__}") from exc
+    live = frozenset(row.project_path for row in sessions if row.project_path)
+    last: dict[str, datetime] = {}
+    focused: str | None = None
+    for span in spans:  # oldest first
+        if not span.project_path:
+            continue
+        seen = now if span.ended_at is None else span.ended_at
+        last[span.project_path] = max(seen, last.get(span.project_path, seen))
+        if span.ended_at is None:
+            focused = span.project_path
+    return ProjectActivity(live=live, last_focus=last, focused=focused)

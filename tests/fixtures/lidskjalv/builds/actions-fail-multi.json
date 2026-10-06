@@ -1,0 +1,29 @@
+{
+  "head_sha": "bbb222",
+  "state": "fail",
+  "url": "https://github.com/example/repo/commit/bbb222/checks",
+  "workflows": [
+    {
+      "conclusion": "failure",
+      "run_duration": 300,
+      "run_id": 201,
+      "run_started_at": 1748772000,
+      "state": "fail",
+      "status": "completed",
+      "typical_duration": null,
+      "url": "https://github.com/myorg/myrepo/actions/runs/201",
+      "workflow": "ci.yml"
+    },
+    {
+      "conclusion": "success",
+      "run_duration": 180,
+      "run_id": 202,
+      "run_started_at": 1748772000,
+      "state": "pass",
+      "status": "completed",
+      "typical_duration": 180,
+      "url": "https://github.com/myorg/myrepo/actions/runs/202",
+      "workflow": "lint.yml"
+    }
+  ]
+}

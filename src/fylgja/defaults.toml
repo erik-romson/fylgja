@@ -117,6 +117,16 @@ enabled = true
 # The repo-root TODO.md of every project the daemon knows (read-only, from its own store), imported
 # as read-only todos of that project and reconciled on every read. See docs/collectors/project.md.
 poll_interval_seconds = 5
+# Project state (WP5.4): git branch, dirty, ahead/behind and last commit time of every known project
+# every state_interval_seconds (sooner, after at least focus_refresh_seconds, when focus moves into
+# it); the PR and the GitHub Actions build only of a project with a live session or focus within
+# active_window_seconds. gh_calls_per_hour caps the actions-runs calls (a 304 counts too) and
+# gh_pr_calls_per_hour the `gh pr view` calls, each in any sixty minutes.
+state_interval_seconds = 300
+focus_refresh_seconds = 30
+active_window_seconds = 3600
+gh_calls_per_hour = 30
+gh_pr_calls_per_hour = 120
 
 [collectors.presence]
 enabled = true

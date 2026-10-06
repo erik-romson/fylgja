@@ -1,0 +1,30 @@
+{
+  "workflow_runs": [
+    {
+      "id": 201,
+      "head_sha": "bbb222",
+      "workflow_id": 1,
+      "run_number": 20,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/201",
+      "run_started_at": "2025-06-01T10:00:00Z",
+      "updated_at": "2025-06-01T10:05:00Z"
+    },
+    {
+      "id": 202,
+      "head_sha": "bbb222",
+      "workflow_id": 2,
+      "run_number": 15,
+      "name": "Lint",
+      "path": ".github/workflows/lint.yml",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/myorg/myrepo/actions/runs/202",
+      "run_started_at": "2025-06-01T10:00:00Z",
+      "updated_at": "2025-06-01T10:03:00Z"
+    }
+  ]
+}

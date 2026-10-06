@@ -1,0 +1,5 @@
+HTTP/2.0 304 Not Modified
+Etag: W/"0123456789abcdef0123456789abcdef"
+X-Ratelimit-Limit: 5000
+X-Ratelimit-Remaining: 4800
+

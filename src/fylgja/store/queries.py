@@ -795,14 +795,24 @@ ON CONFLICT (path) DO UPDATE SET
     remote_url = coalesce(excluded.remote_url, projects.remote_url),
     repo_name = coalesce(excluded.repo_name, projects.repo_name),
     group_name = coalesce(excluded.group_name, projects.group_name),
-    branch = coalesce(excluded.branch, projects.branch),
+    -- A git observation always says whether the tree is dirty, so one that carries `dirty` is
+    -- complete: a missing branch (detached HEAD), upstream (no ahead/behind) or commit time
+    -- (no commit yet) replaces what was stored. A PR observation likewise carries `pr_number`
+    -- (0: the branch has no PR). Any other observation leaves these columns alone.
+    branch = CASE WHEN excluded.dirty IS NOT NULL THEN excluded.branch
+                  ELSE coalesce(excluded.branch, projects.branch) END,
     dirty = coalesce(excluded.dirty, projects.dirty),
-    ahead = coalesce(excluded.ahead, projects.ahead),
-    behind = coalesce(excluded.behind, projects.behind),
+    ahead = CASE WHEN excluded.dirty IS NOT NULL THEN excluded.ahead
+                 ELSE coalesce(excluded.ahead, projects.ahead) END,
+    behind = CASE WHEN excluded.dirty IS NOT NULL THEN excluded.behind
+                  ELSE coalesce(excluded.behind, projects.behind) END,
     pr_number = coalesce(excluded.pr_number, projects.pr_number),
-    pr_state = coalesce(excluded.pr_state, projects.pr_state),
-    review_decision = coalesce(excluded.review_decision, projects.review_decision),
-    last_commit_at = coalesce(excluded.last_commit_at, projects.last_commit_at),
+    pr_state = CASE WHEN excluded.pr_number IS NOT NULL THEN excluded.pr_state
+                    ELSE coalesce(excluded.pr_state, projects.pr_state) END,
+    review_decision = CASE WHEN excluded.pr_number IS NOT NULL THEN excluded.review_decision
+                           ELSE coalesce(excluded.review_decision, projects.review_decision) END,
+    last_commit_at = CASE WHEN excluded.dirty IS NOT NULL THEN excluded.last_commit_at
+                          ELSE coalesce(excluded.last_commit_at, projects.last_commit_at) END,
     updated_at = excluded.updated_at
 WHERE excluded.updated_at >= projects.updated_at
 """

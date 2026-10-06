@@ -1,0 +1,27 @@
+{
+  "number": 79,
+  "reviewDecision": "CHANGES_REQUESTED",
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-01T09:05:00Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/9004",
+      "name": "build",
+      "startedAt": "2026-10-01T09:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-01T09:05:00Z",
+      "conclusion": "SKIPPED",
+      "detailsUrl": "https://github.com/example/repo/actions/runs/9005",
+      "name": "docs",
+      "startedAt": "2026-10-01T09:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "Docs"
+    }
+  ]
+}

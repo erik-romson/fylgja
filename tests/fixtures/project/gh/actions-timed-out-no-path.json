@@ -1,0 +1,44 @@
+{
+  "total_count": 3,
+  "workflow_runs": [
+    {
+      "id": 801,
+      "head_sha": "hhh888",
+      "workflow_id": 5,
+      "run_number": 3,
+      "name": "Dynamic",
+      "path": null,
+      "status": "completed",
+      "conclusion": "timed_out",
+      "html_url": "https://github.com/example/repo/actions/runs/801",
+      "run_started_at": "2025-06-01T12:00:00Z",
+      "updated_at": "2025-06-01T12:30:00Z"
+    },
+    {
+      "id": 802,
+      "head_sha": "hhh888",
+      "workflow_id": 6,
+      "run_number": 8,
+      "name": "Other",
+      "path": ".github/workflows/other.yml",
+      "status": "completed",
+      "conclusion": "action_required",
+      "html_url": "https://github.com/example/repo/actions/runs/802",
+      "run_started_at": "2025-06-01T12:00:00Z",
+      "updated_at": "2025-06-01T12:00:05Z"
+    },
+    {
+      "id": 803,
+      "head_sha": "hhh888",
+      "workflow_id": 7,
+      "run_number": 2,
+      "name": "Queued",
+      "path": ".github/workflows/queued.yml",
+      "status": "queued",
+      "conclusion": null,
+      "html_url": "https://github.com/example/repo/actions/runs/803",
+      "run_started_at": "2025-06-01T12:00:10Z",
+      "updated_at": "2025-06-01T12:00:10Z"
+    }
+  ]
+}
