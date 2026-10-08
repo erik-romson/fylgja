@@ -1,4 +1,4 @@
-"""Keeps docs/decisions/ in step with the amendment table in PLAN-final-plan.md section 2."""
+"""Keeps docs/decisions/ in step with the amendment table in docs/PLAN-final-plan.md section 2."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PLAN = REPO_ROOT / "PLAN-final-plan.md"
-DECISIONS = REPO_ROOT / "docs" / "decisions"
+DOCS = REPO_ROOT / "docs"
+PLAN = DOCS / "PLAN-final-plan.md"
+DECISIONS = DOCS / "decisions"
 
 HEADER_FIELDS = ("Status", "Amendment", "Amends", "Answers", "Relates to", "Date")
 SECTIONS = ("Context", "Decision", "Consequences")
