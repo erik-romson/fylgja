@@ -129,9 +129,40 @@ MAX_CHARS: Final = 600
 """The longest ARC, NOW or paragraph that is kept (Lidskjalv's ``LIDSKJALV_STORY_MAX``)."""
 GUARD_ENV: Final[Mapping[str, str]] = {"FYLGJA_SUMMARY": "1", "LIDSKJALV_TRACK_SUMMARY": "1"}
 """Set for every model call: the hooks of the spawned session exit at once."""
-_PARENT_MARKERS: Final = frozenset({"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
-"""Variables that mark the daemon's own parent as a Claude session (a daemon started from a
-terminal inside one); the model call is not that session, so they are not passed on."""
+_ENV_ALLOWED: Final = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "TERM",
+        "LANG",
+        "TZ",
+        paths.CONFIG_DIR_ENV,
+        paths.DATA_DIR_ENV,
+        paths.STATE_DIR_ENV,
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "ANTHROPIC_API_KEY",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "NODE_EXTRA_CA_CERTS",
+    }
+)
+_ENV_ALLOWED_PREFIXES: Final = ("LC_",)
+"""What a model call inherits from the daemon. An allowlist, so the messaging token, the cmux
+capability and the parent-session markers (``CLAUDECODE``, ``CLAUDE_CODE_ENTRYPOINT``) of a
+daemon started from a terminal inside a Claude session never reach the child. The Fylgja
+directory overrides do, so the child's hooks see the daemon's paths. Proxy variables are matched
+case-insensitively."""
 
 Key = tuple[str, str]
 _NEVER: Final = datetime.min.replace(tzinfo=UTC)
@@ -526,10 +557,13 @@ def claude_command(
     return found
 
 
+def _env_allowed(name: str) -> bool:
+    return name.upper() in _ENV_ALLOWED or name.startswith(_ENV_ALLOWED_PREFIXES)
+
+
 def summary_environment(base: Mapping[str, str]) -> dict[str, str]:
-    """The environment of a model call: ``base`` without the parent-session markers, plus
-    :data:`GUARD_ENV`."""
-    env = {name: value for name, value in base.items() if name not in _PARENT_MARKERS}
+    """The environment of a model call: the allowlisted part of ``base``, plus :data:`GUARD_ENV`."""
+    env = {name: value for name, value in base.items() if _env_allowed(name)}
     env.update(GUARD_ENV)
     return env
 

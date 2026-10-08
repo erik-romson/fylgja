@@ -627,9 +627,28 @@ def test_the_prompts_over_minimal_inputs() -> None:
     assert "  - codex: —" in sessions
 
 
-def test_the_summary_environment_sets_both_guards_and_drops_the_parent_markers() -> None:
-    env = summary_environment({"HOME": "/h", "CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"})
-    assert env == {"HOME": "/h", **GUARD_ENV}
+def test_the_summary_environment_passes_only_the_allowlist_and_sets_both_guards() -> None:
+    env = summary_environment(
+        {
+            "HOME": "/h",
+            "PATH": "/bin",
+            "LC_ALL": "C",
+            "https_proxy": "http://p",
+            "FYLGJA_STATE_DIR": "/s",
+            "CLAUDECODE": "1",
+            "CLAUDE_CODE_ENTRYPOINT": "cli",
+            "CLAUDE_CODE_MESSAGING_TOKEN": "secret",
+            "CMUX_SOCKET_CAPABILITY": "secret",
+        }
+    )
+    assert env == {
+        "HOME": "/h",
+        "PATH": "/bin",
+        "LC_ALL": "C",
+        "https_proxy": "http://p",
+        "FYLGJA_STATE_DIR": "/s",
+        **GUARD_ENV,
+    }
     assert GUARD_ENV == {"FYLGJA_SUMMARY": "1", "LIDSKJALV_TRACK_SUMMARY": "1"}
 
 
