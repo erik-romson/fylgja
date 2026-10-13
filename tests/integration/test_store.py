@@ -56,7 +56,7 @@ from fylgja.models import (
     WorkspaceSnapshot,
 )
 from fylgja.privacy import PrivacyFilter
-from fylgja.store import db
+from fylgja.store import db, queries
 from fylgja.store.db import Migration, MigrationError
 
 pytestmark = pytest.mark.timeout(20)
@@ -439,6 +439,46 @@ def test_reader_connections_are_read_only(db_path: Path) -> None:
             reader.execute("INSERT INTO workspaces (name) VALUES ('x')")
     finally:
         reader.close()
+
+
+def test_spans_before_a_moment_come_newest_first_and_complete_a_window_read(
+    db_path: Path,
+) -> None:
+    connection = db.open_store(db_path)
+    try:
+        for start, end in ((0, 60), (60, 120), (200, 300), (400, None)):
+            started = db.to_db_time(at(start))
+            queries.insert_open_span(
+                connection,
+                window_id="w",
+                workspace="1",
+                app_bundle_id=None,
+                title=None,
+                project_path=None,
+                session_key=None,
+                started_at=started,
+            )
+            if end is not None:
+                queries.close_open_span(
+                    connection,
+                    window_id="w",
+                    started_at=started,
+                    ended_at=db.to_db_time(at(end)),
+                    end_reason="focus",
+                    project_path=None,
+                    session_key=None,
+                )
+        before = queries.load_spans_before(connection, before=db.to_db_time(at(120)), limit=10)
+        assert [(r.started_at, r.ended_at) for r in before] == [(at(60), at(120)), (at(0), at(60))]
+        limited = queries.load_spans_before(connection, before=db.to_db_time(at(400)), limit=2)
+        assert [r.started_at for r in limited] == [at(200), at(60)]  # the open span never
+        after = queries.load_spans(
+            connection, since=db.to_db_time(at(120)), until=db.to_db_time(at(3600))
+        )
+        assert [r.started_at for r in after] == [at(200), at(400)]
+        assert after[-1].ended_at is None
+    finally:
+        connection.close()
 
 
 def test_stored_times_sort_as_text() -> None:

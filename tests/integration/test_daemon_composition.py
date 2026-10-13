@@ -14,6 +14,7 @@ import asyncio
 import logging
 import sqlite3
 import sys
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -208,6 +209,37 @@ async def test_the_live_view_is_rebuilt_from_the_store_on_start() -> None:
     finally:
         await second.stop()
     assert by_key(now["workspaces"], "name")["4"]["windows"][0]["title"] == "kept"
+
+
+async def test_the_span_window_is_loaded_at_start_and_fed_by_the_span_engine() -> None:
+    clock = FakeClock(T0)
+    first = make_daemon(windows_collector(), clock=clock)
+    assert first.span_window.apply in first.spans.listeners
+    assert first.spans.on_away == first.view.touch
+    await first.start()
+    assert first.span_window.loaded
+    first.sink("wm").emit(focus_event("wm", "5", "4", T0))
+    await first.settle()
+    assert [(s.window_id, s.ended_at) for s in first.span_window.view(T0)] == [("5", None)]
+    assert first.activity().working
+    await clock.advance(60)
+    await first.stop()  # the open span ends with the daemon
+
+    later = FakeClock(T0 + timedelta(minutes=5))
+    second = make_daemon(windows_collector(), clock=later)  # same per-test database
+    assert not second.span_window.loaded
+    assert second.span_window.view(later.now()) == ()
+    await second.start()
+    try:
+        held = second.span_window.view(later.now())
+        assert [(s.window_id, s.ended_at, s.end_reason) for s in held] == [
+            ("5", T0 + timedelta(seconds=60), "shutdown")
+        ]
+        activity = second.activity()
+        assert (activity.active_seconds, activity.working) == (60.0, False)
+    finally:
+        await second.stop()
+    assert second.lifecycle == START + STOP  # the load is part of the writer's start
 
 
 async def test_a_record_the_gate_rejects_never_reaches_now() -> None:

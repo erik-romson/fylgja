@@ -20,7 +20,10 @@ Data flows **registry → supervisor → ingest gate → writer → state engine
   resolver's are a message receipt (:attr:`Daemon.messages`) and the todo writes
   (:attr:`Daemon.todos`), which also go through the writer;
 * the **summary service** (:attr:`Daemon.summaries`, WP8.1) is the only part that calls a model.
-  It is off by default; its results go through the writer too.
+  It is off by default; its results go through the writer too;
+* the **span window** (:attr:`Daemon.span_window`) holds the focus spans of the last 14 days in
+  memory: read once at start, then fed by the span engine. :meth:`Daemon.activity` builds working
+  time from it (docs/decisions/0050).
 
 **Start and stop order.** Sinks start before sources, so nothing a collector emits is lost or
 applied out of order: the writer (the database is opened and migrated), then the live view (rebuilt
@@ -40,7 +43,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -58,6 +61,7 @@ from fylgja.collectors.seams import FileSystem, ProcessRunner
 from fylgja.collectors.supervisor import BackoffPolicy, CollectorHealth, RandomSource, Supervisor
 from fylgja.config import Config
 from fylgja.core import hosts, spans
+from fylgja.core.activity import Activity, build_activity
 from fylgja.core.context_items import ContextEntry, ContextMemory
 from fylgja.core.hosts import HostData
 from fylgja.core.ingest import IngestGate, PluginSink
@@ -68,6 +72,7 @@ from fylgja.core.project_roots import ProjectLocator
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolver
 from fylgja.core.retention import MaintenanceJob
 from fylgja.core.sessions import SessionStateEngine
+from fylgja.core.span_window import SpanWindow
 from fylgja.core.summaries import SummaryRunner, SummaryService
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.core.todos import TodoService
@@ -120,6 +125,9 @@ _ENGINE_TRIGGERS: Final = frozenset(
 """Live-view collections whose change makes the resolver refresh."""
 
 HostLoader = Callable[[], Awaitable[HostData]]
+
+_END_OF_TIME: Final = datetime.max.replace(tzinfo=UTC)
+"""The ``until`` of a read with no upper bound."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -414,6 +422,13 @@ class Daemon:
             idle_threshold_seconds=config.spans.idle_threshold_seconds,
         )
         """Focus spans (WP5.2): derived from focus, idle and lock events, written by the writer."""
+        self.span_window = SpanWindow(
+            session_break=timedelta(minutes=config.items.work_session_break_minutes)
+        )
+        """The focus spans of the last 14 days in memory, loaded at start and kept current from
+        the span engine (docs/decisions/0050)."""
+        self.spans.listeners.append(self.span_window.apply)
+        self.spans.on_away = self.view.touch  # clients refresh what "away" changes
         self.resolver.on_ids_changed = self._mark_dirty
         self.contexts.on_change = self.view.touch
         self._touched: dict[str, datetime] = {}
@@ -519,6 +534,9 @@ class Daemon:
             self.lifecycle.append("start:writer")
             now = self.clock.now()
             await self.writer.execute(lambda tx: spans.recover_stale(tx, now))
+            await self.span_window.load(
+                self._read_spans_since, now, read_before=self._read_spans_before
+            )
             self._rebuild_view()
             await self.summaries.load()
             self.session_state.seed(
@@ -700,6 +718,36 @@ class Daemon:
             )
         finally:
             connection.close()
+
+    def _read_spans_since(self, since: datetime) -> list[spans.Span]:
+        """The spans that ended after ``since`` or are still open (the span window's load)."""
+        connection = db.connect_reader(self.writer.database)
+        try:
+            return queries.load_spans(
+                connection, since=db.to_db_time(since), until=db.to_db_time(_END_OF_TIME)
+            )
+        finally:
+            connection.close()
+
+    def _read_spans_before(self, before: datetime, limit: int) -> list[spans.Span]:
+        """At most ``limit`` spans that ended at or before ``before``, newest first."""
+        connection = db.connect_reader(self.writer.database)
+        try:
+            return queries.load_spans_before(connection, before=db.to_db_time(before), limit=limit)
+        finally:
+            connection.close()
+
+    def activity(self) -> Activity:
+        """Working time as of now: work sessions, the away gap and active seconds, from the span
+        window (docs/decisions/0050). Reads nothing; call it on the event loop thread."""
+        now = self.clock.now()
+        return build_activity(
+            self.span_window.view(now),
+            now=now,
+            suspended=bool(self.spans.tracker.suspended),
+            idle_threshold=timedelta(seconds=self.config.spans.idle_threshold_seconds),
+            session_break=timedelta(minutes=self.config.items.work_session_break_minutes),
+        )
 
     def _read_history(self, since: datetime, until: datetime) -> spans.History:
         connection = db.connect_reader(self.writer.database)

@@ -26,6 +26,8 @@ tracker, attributes each span to a project and a session through ``attribute`` (
 placements) and queues the writes through the writer: a span is stored open when it starts and
 closed when it ends, so a daemon that dies mid-span leaves an open row. :func:`recover_stale`
 closes such a row at the last time the store observed anything, with ``end_reason = shutdown``.
+The engine also hands every action to its listeners (the daemon's span window,
+:mod:`fylgja.core.span_window`).
 
 **The summary** (:func:`summarize`) clips stored spans to a window and totals the seconds per
 workspace, per project and per app. :func:`focus_time_by_project` is the resolver's input for
@@ -34,6 +36,7 @@ project → workspace (``PLAN.md`` §3 rule 4).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -66,6 +69,8 @@ __all__ = [
     "recover_stale",
     "summarize",
 ]
+
+logger = logging.getLogger("fylgja.spans")
 
 Span = SpanRow
 """A stored span; ``ended_at`` is ``None`` while it is open."""
@@ -329,6 +334,10 @@ class SpanEngine:
     :meth:`observe` is an ingest-tap observer (call it on the event loop thread, after the record
     was queued, so a span job is queued behind the raw event). A record it does not understand is
     ignored.
+
+    Every action is also shown to the :attr:`listeners`, right after its write is queued (the
+    daemon's in-memory span window, docs/decisions/0050), and :attr:`on_away` is called when the
+    person goes away or comes back. A listener or callback that raises is logged and skipped.
     """
 
     def __init__(
@@ -342,17 +351,38 @@ class SpanEngine:
         self.tracker = SpanTracker(
             idle_threshold=timedelta(seconds=idle_threshold_seconds), attribute=attribute
         )
+        self.listeners: list[Callable[[Action], None]] = []
+        """Called with every action, after its write was queued."""
+        self.on_away: Callable[[], None] | None = None
+        """Called after idle or a lock starts or ends, and after the machine woke from sleep:
+        only on those transitions, never for a repeated state."""
 
     def _write(self, actions: Iterable[Action]) -> None:
         for action in actions:
             self._enqueue(_persist(action))
+            for listener in tuple(self.listeners):
+                try:
+                    listener(action)
+                except Exception:
+                    logger.exception("span listener failed")
+
+    def _away(self) -> None:
+        if self.on_away is None:
+            return
+        try:
+            self.on_away()
+        except Exception:
+            logger.exception("span away callback failed")
 
     def observe(self, record: Record) -> None:
         tracker = self.tracker
         if isinstance(record, FocusEvent):
             self._write(tracker.focus(record.observed_at, _target_of(record)))
         elif isinstance(record, PresenceEvent):
+            before = tracker.suspended
             self._write(self._presence(record))
+            if tracker.suspended != before:
+                self._away()
 
     def _presence(self, event: PresenceEvent) -> list[Action]:
         tracker = self.tracker
@@ -367,6 +397,7 @@ class SpanEngine:
     def gap(self, last_seen: datetime, resumed: datetime) -> None:
         """The machine slept between ``last_seen`` and ``resumed``: split the open span there."""
         self._write(self.tracker.gap(last_seen, resumed))
+        self._away()
 
     def private_focus(self, at: datetime) -> None:
         """Focus moved to a window the privacy filter ignores (an ignored app or title).

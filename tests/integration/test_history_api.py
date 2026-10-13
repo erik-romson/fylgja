@@ -44,7 +44,9 @@ from fylgja.cli import client as cli_client
 from fylgja.cli.app import app as cli
 from fylgja.cli.when import parse_when
 from fylgja.collectors.base import Capability
+from fylgja.core.activity import Away, WorkSession
 from fylgja.core.daemon import Daemon
+from fylgja.core.span_window import WINDOW as SPAN_WINDOW
 from fylgja.models import (
     ContextItemEvent,
     ContextItemPayload,
@@ -573,6 +575,60 @@ async def test_a_daemon_that_died_leaves_a_span_that_the_next_start_closes(
     assert [brief(s) for s in body["spans"]] == [
         ("100", "08:00", "08:45", "shutdown", 2700.0, False, False)
     ]
+
+
+async def test_the_span_window_matches_the_store_after_a_day_of_focus(daemon: Daemon) -> None:
+    wm, pres = daemon.sink("wm"), daemon.sink("pres")
+    pres.emit(pres_event(hm(11), "lock", "locked"))
+    pres.emit(pres_event(hm(11, 5), "lock", "active"))
+    wm.emit(focus_event("wm", "200", "4", hm(11, 10)))
+    wm.emit(focus_event("wm", "100", "3", hm(11, 10)))  # window 200 had no time: dropped
+    wm.emit(focus_event("wm", "200", "4", hm(11, 30)))
+    await daemon.settle()
+    now = daemon.clock.now()
+    held = daemon.span_window.view(now)
+    connection = db.connect_reader(daemon.writer.database)
+    try:
+        stored = queries.load_spans(
+            connection,
+            since=db.to_db_time(now - SPAN_WINDOW),
+            until=db.to_db_time(now + timedelta(days=1)),
+        )
+    finally:
+        connection.close()
+    assert held == tuple(stored)
+    assert [(s.window_id, s.started_at, s.end_reason) for s in held][3:] == [
+        ("100", hm(10, 40), "lock"),
+        ("100", hm(11, 5), "focus"),
+        ("100", hm(11, 10), "focus"),
+        ("200", hm(11, 30), None),
+    ]
+    assert held[0].project_path == "/work/alpha"
+
+
+async def test_working_time_comes_from_the_span_window_and_freezes_while_away(
+    daemon: Daemon,
+) -> None:
+    working = daemon.activity()
+    assert working.working
+    assert working.sessions == (WorkSession(hm(9), hm(12), 9900.0),)  # 15 idle minutes: one
+    assert working.current == working.sessions[0]
+    assert working.previous is None
+    assert working.away == Away(since=hm(9, 55), until=hm(10, 10))
+    assert working.active_since(hm(10, 40)) == 4800.0
+
+    daemon.sink("pres").emit(pres_event(hm(12), "idle", "idle"))  # idle since 11:55
+    await daemon.settle()
+    clock: Any = daemon.clock
+    await clock.advance(40 * 60)
+    away = daemon.activity()
+    assert not away.working
+    assert away.away == Away(since=hm(11, 55), until=None)
+    assert away.current is None  # 45 minutes away: past the session break
+    assert away.previous == WorkSession(hm(9), hm(11, 55), 9600.0)
+    assert away.active_since(hm(10, 40)) == 4500.0
+    await clock.advance(600)
+    assert daemon.activity().active_since(hm(10, 40)) == 4500.0  # nothing moves while away
 
 
 async def test_the_resolver_places_a_project_by_its_focus_time(daemon: Daemon) -> None:

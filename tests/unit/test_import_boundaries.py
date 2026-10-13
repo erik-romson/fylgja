@@ -36,6 +36,8 @@ MODULES = [
     "fylgja.core.sessions",
     "fylgja.core.focus",
     "fylgja.core.spans",
+    "fylgja.core.activity",
+    "fylgja.core.span_window",
     "fylgja.collectors.aerospace",
     "fylgja.collectors.claude",
     "fylgja.collectors.claude.inbox",

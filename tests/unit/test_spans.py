@@ -3,6 +3,7 @@ restart mid-span, zero-length spans dropped, and the summary and focus-time arit
 
 from __future__ import annotations
 
+import logging
 import random
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -417,6 +418,67 @@ def test_focus_in_an_ignored_window_ends_the_span_and_starts_none(rig: Rig) -> N
 def test_records_the_engine_does_not_know_are_ignored(rig: Rig) -> None:
     rig.engine.observe(focus_event(0, None))
     assert rig.rows() == []
+
+
+def test_the_engine_shows_every_action_to_its_listeners_after_queuing_it(rig: Rig) -> None:
+    seen: list[tuple[str, int]] = []
+    rig.engine.listeners.append(
+        lambda action: seen.append((type(action).__name__, len(rig.rows())))
+    )
+    rig.engine.observe(focus_event(0, "a"))
+    rig.engine.observe(focus_event(10, "b", "2"))
+    rig.engine.observe(focus_event(10, "c", "3"))  # b had no time: dropped
+    assert seen == [("Opened", 1), ("Closed", 1), ("Opened", 2), ("Dropped", 1), ("Opened", 2)]
+
+
+def test_a_listener_that_raises_is_logged_and_costs_nothing(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(action: Action) -> None:
+        raise RuntimeError("listener bug")
+
+    seen: list[Action] = []
+    rig.engine.listeners += [broken, seen.append]
+    with caplog.at_level(logging.ERROR, logger="fylgja.spans"):
+        rig.engine.observe(focus_event(0, "a"))
+        rig.engine.observe(focus_event(10, "b", "2"))
+    assert kinds(seen) == ["Opened", "Closed", "Opened"]
+    assert len(rig.rows()) == 2
+    assert caplog.text.count("span listener failed") == 3
+
+
+def test_on_away_is_called_on_idle_lock_and_sleep_transitions_only(rig: Rig) -> None:
+    reasons: list[str | None] = []
+    rig.engine.on_away = lambda: reasons.append(rig.rows()[-1][3])  # after the write
+    steps = [
+        (focus_event(0, "a"), 0),
+        (presence(12, "idle", "idle"), 1),
+        (presence(13, "idle", "idle"), 1),  # the same state again
+        (presence(14, "lock", "locked"), 2),
+        (presence(15, "lock", "locked"), 2),
+        (presence(16, "lock", "active"), 3),
+        (presence(17, "idle", "active"), 4),
+        (presence(18, "idle", "active"), 4),
+        (presence(19, "other", "active"), 4),
+        (focus_event(19, "b", "2"), 4),
+    ]
+    for record, calls in steps:
+        rig.engine.observe(record)
+        assert len(reasons) == calls
+    rig.engine.gap(at(20), at(80))
+    assert reasons == ["idle", "idle", "idle", None, None]
+
+
+def test_an_away_callback_that_raises_is_logged(rig: Rig, caplog: pytest.LogCaptureFixture) -> None:
+    def broken() -> None:
+        raise RuntimeError("callback bug")
+
+    rig.engine.on_away = broken
+    rig.engine.observe(focus_event(0, "a"))
+    with caplog.at_level(logging.ERROR, logger="fylgja.spans"):
+        rig.engine.observe(presence(10, "lock", "locked"))
+    assert "span away callback failed" in caplog.text
+    assert rig.rows()[0][3] == "lock"
 
 
 def test_a_daemon_that_died_mid_span_is_closed_at_the_last_observed_time(rig: Rig) -> None:

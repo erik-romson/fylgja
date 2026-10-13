@@ -21,6 +21,7 @@ from api_support import (
     BASE_URL,
     PORT,
     T0,
+    Synthetic,
     Win,
     activity_snapshot,
     focus_event,
@@ -42,9 +43,10 @@ from fylgja.api.sse import (
     EventHub,
     format_event,
 )
+from fylgja.collectors.base import Capability
 from fylgja.core.daemon import Daemon
 from fylgja.core.live_view import LiveView
-from fylgja.models import SessionActivity
+from fylgja.models import PresenceEvent, PresencePayload, SessionActivity
 from fylgja.testing.fakes import FakeClock
 
 pytestmark = pytest.mark.skipif(
@@ -235,6 +237,51 @@ async def test_focus_and_session_state_events(daemon: Daemon) -> None:
         assert ended[-1]["state"] is None
     finally:
         await stream.close()
+
+
+async def test_presence_transitions_send_one_now_changed_each_and_repeats_none() -> None:
+    """Going away and coming back changes working time, which the store does not project, so
+    the span engine touches the view (docs/decisions/0050): once per transition, never for a
+    repeated state."""
+    instance = make_daemon(windows_collector(), Synthetic("pres", frozenset({Capability.CONTEXT})))
+    await instance.start()
+    stream = await Stream(create_app(instance)).open()
+    try:
+        await instance.settle()
+        await asyncio.sleep(0.05)
+        _drain(stream)
+        before = instance.view.version
+        signals = [
+            ("idle", "idle"),  # away
+            ("idle", "idle"),  # the same again
+            ("lock", "locked"),  # locked as well
+            ("lock", "locked"),
+            ("lock", "active"),  # unlocked, still idle
+            ("idle", "active"),  # back
+            ("idle", "active"),
+        ]
+        for second, (entity, state) in enumerate(signals, start=1):
+            instance.sink("pres").emit(
+                PresenceEvent(
+                    source="pres",
+                    entity_id=entity,
+                    observed_at=T0 + timedelta(seconds=second),
+                    payload=PresencePayload(state=state),  # type: ignore[arg-type]
+                )
+            )
+            await instance.settle()
+        await asyncio.sleep(0.05)
+        changed = [data for name, data in _drain(stream) if name == "now.changed"]
+        assert [data["version"] for data in changed] == [
+            before + 1,
+            before + 2,
+            before + 3,
+            before + 4,
+        ]
+        assert instance.view.version == before + 4
+    finally:
+        await stream.close()
+        await instance.stop()
 
 
 def _drain(stream: Stream) -> list[tuple[str, dict[str, Any]]]:

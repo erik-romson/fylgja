@@ -78,6 +78,7 @@ __all__ = [
     "load_open_usage",
     "load_open_windows",
     "load_spans",
+    "load_spans_before",
     "load_suggestions",
     "load_summaries",
     "load_worked_on",
@@ -1351,6 +1352,15 @@ WHERE started_at < :until AND (ended_at IS NULL OR ended_at > :since)
 ORDER BY started_at, id
 """
 
+LOAD_SPANS_BEFORE: Final = """
+SELECT window_id, workspace, app_bundle_id, title, project_path, session_key,
+       started_at, ended_at, end_reason
+FROM focus_spans
+WHERE ended_at IS NOT NULL AND ended_at <= :before
+ORDER BY ended_at DESC, started_at DESC, id DESC
+LIMIT :limit
+"""
+
 LOAD_WORKED_ON: Final = """
 SELECT json_extract(payload, '$.data.project') AS project_path,
        COUNT(*) AS markers,
@@ -1457,6 +1467,16 @@ def load_spans(connection: sqlite3.Connection, *, since: str, until: str) -> lis
     return [
         SpanRow.from_db(row)
         for row in connection.execute(LOAD_SPANS, {"since": since, "until": until})
+    ]
+
+
+def load_spans_before(connection: sqlite3.Connection, *, before: str, limit: int) -> list[SpanRow]:
+    """At most ``limit`` closed spans that ended at or before ``before``, newest first: what the
+    span window reads when its 14 days hold no complete work session (docs/decisions/0050).
+    Together with :func:`load_spans` from ``since = before`` it covers every span once."""
+    return [
+        SpanRow.from_db(row)
+        for row in connection.execute(LOAD_SPANS_BEFORE, {"before": before, "limit": limit})
     ]
 
 
