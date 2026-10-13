@@ -20,7 +20,9 @@ the kinds of a window's context items, never from a collector name.
 **The answers** (``docs/api/items.md``). :func:`build_items_answer` turns a ranking
 (:class:`~fylgja.core.daemon.RankResult`) into ``fylgja.items/1``: ``q`` and ``limit`` apply after
 ranking (``total`` counts before both, ``shown`` after), the day groups, the Go targets, the
-``while_away`` block and the last work session are computed here, so a client only renders.
+``while_away`` block and the last work session are computed here, so a client only renders. The
+cached folder summaries (``story``, ``docs/decisions/0053``) are given to it; it never asks for
+one.
 :func:`build_rankers_answer` gives ``fylgja.rankers/1`` with the choices a client offers. Both are
 pure and log nothing.
 """
@@ -38,6 +40,7 @@ from fylgja.api.items_models import (
     DayGroup,
     ItemPlace,
     Items,
+    ItemStory,
     LastSession,
     NavItem,
     RankerChoice,
@@ -469,7 +472,7 @@ def _place(place: Place) -> ItemPlace:
     )
 
 
-def _nav_item(item: Item, ranked: Ranked) -> NavItem:
+def _nav_item(item: Item, ranked: Ranked, story: ItemStory | None = None) -> NavItem:
     by_role = {field: _go(item.go_by_role.get(role)) for role, field in _GO_FIELDS}
     return NavItem(
         id=item.id,
@@ -491,17 +494,19 @@ def _nav_item(item: Item, ranked: Ranked) -> NavItem:
         go_ide=by_role["go_ide"],
         go_agent=by_role["go_agent"],
         go_terminal=by_role["go_terminal"],
+        story=story,
     )
 
 
-def item_matches(item: Item, needle: str) -> bool:
-    """``needle`` (case-folded) is in the item's name, a ticket, its path, its summary or a place
-    title, case-insensitively."""
+def item_matches(item: Item, needle: str, story: str | None = None) -> bool:
+    """``needle`` (case-folded) is in the item's name, a ticket, its path, its summary, its
+    ``story`` text or a place title, case-insensitively."""
     texts = [
         item.name,
         *item.tickets,
         item.path or "",
         item.summary,
+        story or "",
         *(place.title for place in item.places if place.title),
     ]
     return any(needle in text.casefold() for text in texts)
@@ -613,6 +618,10 @@ def _last_session(result: RankResult) -> LastSession | None:
     )
 
 
+def _story_text(story: ItemStory | None) -> str | None:
+    return None if story is None else story.text
+
+
 def build_items_answer(
     result: RankResult,
     now: Now,
@@ -620,6 +629,7 @@ def build_items_answer(
     query: str | None = None,
     limit: int | None = None,
     summaries_enabled: bool = False,
+    stories: Mapping[str, ItemStory] | None = None,
 ) -> Items:
     """``fylgja.items/1`` of a ranking.
 
@@ -627,11 +637,17 @@ def build_items_answer(
     ``query`` keeps the items :func:`item_matches` accepts, in rank order; ``limit`` keeps the
     first ones after that. ``total`` counts the items before both and ``shown`` after. The day
     groups hold the shown items. ``while_away`` and ``last_session`` do not depend on the ranker,
-    ``query`` or ``limit``."""
+    ``query`` or ``limit``. ``stories`` holds the cached folder summaries by item id
+    (:func:`fylgja.api.summary_inputs.item_stories`)."""
+    found = stories or {}
     pairs = list(zip(result.items, result.ranked, strict=True))
     needle = (query or "").strip().casefold()
     if needle:
-        pairs = [pair for pair in pairs if item_matches(pair[0], needle)]
+        pairs = [
+            pair
+            for pair in pairs
+            if item_matches(pair[0], needle, _story_text(found.get(pair[0].id)))
+        ]
     if limit is not None:
         pairs = pairs[:limit]
     shown = [item for item, _ in pairs]
@@ -642,7 +658,7 @@ def build_items_answer(
         activity=_activity_info(result.activity),
         while_away=_while_away(result, now),
         last_session=_last_session(result),
-        items=[_nav_item(item, ranked) for item, ranked in pairs],
+        items=[_nav_item(item, ranked, found.get(item.id)) for item, ranked in pairs],
         days=_days(shown, _local_day(result.now)),
         summaries_enabled=summaries_enabled,
         query=query or None,

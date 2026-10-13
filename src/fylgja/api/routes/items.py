@@ -8,7 +8,9 @@ Both are reads: no authentication, Host-checked like every route.
   ``rank`` (default: the default ranker in effect), searched by ``q`` and cut to ``limit`` after
   ranking. A ``rank`` that names neither a loaded ranker nor the ``natural`` floor is **422** and
   the detail lists the loaded rankers; so are ``days`` outside 1–14, ``limit`` outside 1–500 and a
-  ``q`` over 200 characters.
+  ``q`` over 200 characters. While summaries are enabled an item carries its cached folder summary
+  as ``story`` (``docs/decisions/0053``), judged against the inputs ``POST
+  /summaries/folder/{id}`` would take (the items of the default ``days``); nothing is generated.
 * ``GET /rankers?rank=`` answers ``fylgja.rankers/1`` (:class:`~fylgja.api.items_models.Rankers`):
   every discovered ranker, the loaded ones as ``choices``, and for a client's stored ``rank`` the
   ``selected`` choice and whether the stored one is stale. A ``rank`` that names no choice is the
@@ -20,7 +22,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
-from fylgja.api.deps import current_now, daemon_of, json_response, ranked_or_422
+from fylgja.api.deps import current_items, current_now, daemon_of, json_response, ranked_or_422
 from fylgja.api.item_inputs import (
     DEFAULT_DAYS,
     MAX_DAYS,
@@ -29,7 +31,9 @@ from fylgja.api.item_inputs import (
     build_items_answer,
     build_rankers_answer,
 )
+from fylgja.api.items_models import ItemStory
 from fylgja.api.now_models import dump_json
+from fylgja.api.summary_inputs import item_stories
 
 __all__ = ["router"]
 
@@ -58,8 +62,18 @@ async def get_items(
     now = current_now(request)
     name = rank or daemon.effective_default_ranker
     result = ranked_or_422(request, now, name, days=days)
+    service = daemon.summaries
+    stories: dict[str, ItemStory] = {}
+    if service.enabled:  # the summary route's items: those of the default days
+        pool = result.items if days == DEFAULT_DAYS else current_items(request)
+        stories = item_stories(service, pool, now)
     answer = build_items_answer(
-        result, now, query=q, limit=limit, summaries_enabled=daemon.summaries.enabled
+        result,
+        now,
+        query=q,
+        limit=limit,
+        summaries_enabled=service.enabled,
+        stories=stories,
     )
     return json_response(dump_json(answer))
 

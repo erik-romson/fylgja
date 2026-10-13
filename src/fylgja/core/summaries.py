@@ -1,4 +1,4 @@
-"""The summary service: session and workspace summaries by a local model (WP8.1, A8).
+"""The summary service: session, workspace, day and folder summaries by a local model (WP8.1, A8).
 
 ``PLAN-final-plan.md`` §5 WP8.1, §4.2 ("Summary responses") and §4.4 (model calls); the reference is
 Lidskjalv's ``_story_one``: its prompt, its facts block, its TTL and its "skip when the story is
@@ -41,6 +41,14 @@ written back through the single writer after every job. A request
 (:mod:`fylgja.api.summary_inputs`) are the day's ``/history`` totals and ordered spans, the
 sessions active that day with their one-liners and the todos created or finished that day, and
 the output is one paragraph (``kind = text``).
+
+**The folder scope** (``docs/decisions/0053``): ``ref`` is the id of a navigation item (16 hex
+digits, :func:`fylgja.core.items.item_id`), a git-root folder or an app. Its inputs
+(:mod:`fylgja.api.summary_inputs`) are the item's name, tickets, branch, PR state and ``dirty``,
+its places (label and title), its sessions with their one-liners and cached ARC, and its open
+todos, with no seconds and no times, so the digest moves only when the content does. The output is
+one paragraph (``kind = text``). A folder summary is made only on ``POST``; a read only shows the
+cached one.
 
 ``generated_at`` is the instant a summary describes: when its job took its inputs. A failed attempt
 keeps the previous text and records its ``error_kind``. Model output is redacted with the privacy
@@ -101,6 +109,7 @@ __all__ = [
     "normalize",
     "day_bounds",
     "day_prompt",
+    "folder_prompt",
     "parse_day",
     "parse_story",
     "parse_text",
@@ -111,12 +120,13 @@ __all__ = [
 
 logger = logging.getLogger("fylgja.summaries")
 
-ScopeKind = Literal["session", "workspace", "day"]
-SCOPES: Final[tuple[ScopeKind, ...]] = ("session", "workspace", "day")
+ScopeKind = Literal["session", "workspace", "day", "folder"]
+SCOPES: Final[tuple[ScopeKind, ...]] = ("session", "workspace", "day", "folder")
 PARTS: Final[Mapping[str, tuple[str, ...]]] = {
     "session": ("arc", "now"),
     "workspace": ("text",),
     "day": ("text",),
+    "folder": ("text",),
 }
 """The ``summaries.kind`` rows a summary of each scope consists of."""
 
@@ -448,8 +458,61 @@ def day_prompt(data: Mapping[str, Any]) -> str:
     return "\n".join(parts)
 
 
+_FOLDER_REPLY: Final = """Reply with one short paragraph of at most three sentences and
+nothing else: what was being done here and where it stands now. Present tense. Be
+concrete: name the work rather than saying "the code". Do not repeat window, session
+or todo titles word for word; a ticket key may be named as it is. No preamble, no
+markdown, no bullet points, no quotes."""
+
+_FOLDER_FACTS: Final = (
+    ("name", "Name"),
+    ("group", "Group"),
+    ("tickets", "Tickets"),
+    ("branch", "Branch"),
+    ("pr", "Pull request"),
+)
+
+
+def folder_prompt(data: Mapping[str, Any]) -> str:
+    """The prompt for one paragraph about a navigation item, a folder or an app, over its
+    normalized inputs (see :mod:`fylgja.api.summary_inputs`)."""
+    what = "app" if data.get("kind") == "app" else "folder"
+    parts = [
+        "Someone works in many folders (git checkouts and worktrees) and apps at once and is\n"
+        "looking at a list that shows one row per folder or app. Write the summary for the\n"
+        f'{what} "{data.get("name", "")}".',
+        "",
+    ]
+    parts.extend(_line(label, data[name]) for name, label in _FOLDER_FACTS if name in data)
+    if data.get("dirty"):
+        parts.append("Uncommitted changes: yes")
+    places = [p for p in data.get("places", []) if isinstance(p, Mapping)]
+    if places:
+        parts.append("Its windows:")
+        parts.extend(f"  - {p.get('label', 'window')}: {p.get('title') or '—'}" for p in places)
+    sessions = [s for s in data.get("sessions", []) if isinstance(s, Mapping)]
+    if sessions:
+        parts.append("Agent sessions here:")
+        for item in sessions:
+            parts.append(f"  - {item.get('agent', 'agent')}: {item.get('one_liner') or '—'}")
+            if item.get("title"):
+                parts.append(f"    Conversation title: {item['title']}")
+            if item.get("arc"):
+                parts.append(f"    The session so far: {item['arc']}")
+    todos = [t for t in data.get("todos", []) if isinstance(t, Mapping)]
+    if todos:
+        parts.append("Open todos:")
+        parts.extend(f"  - [{t.get('status', 'open')}] {t.get('text', '')}" for t in todos)
+    parts += ["", _FOLDER_REPLY]
+    return "\n".join(parts)
+
+
 def _day_prompt(inputs: SummaryInputs, previous: CachedSummary | None) -> str:
     return day_prompt(inputs.data)
+
+
+def _folder_prompt(inputs: SummaryInputs, previous: CachedSummary | None) -> str:
+    return folder_prompt(inputs.data)
 
 
 def _session_prompt(inputs: SummaryInputs, previous: CachedSummary | None) -> str:
@@ -466,6 +529,7 @@ _PROMPTS: Final[Mapping[str, Callable[[SummaryInputs, CachedSummary | None], str
     "session": _session_prompt,
     "workspace": _workspace_prompt,
     "day": _day_prompt,
+    "folder": _folder_prompt,
 }
 """The scopes the service can summarize, and their prompts."""
 

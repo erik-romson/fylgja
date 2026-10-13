@@ -2,8 +2,10 @@
 ``PLAN-final-plan.md`` §4.2 "Summary responses").
 
 ``scope`` is ``session`` (``ref`` is the session key), ``workspace`` (``ref`` is the workspace
-name) or ``day`` (``ref`` is a local date ``YYYY-MM-DD``, WP8.2; a ref that is not one is **422**,
-and a day that has not begun or has nothing recorded is **404**). Any other scope is **404**.
+name), ``day`` (``ref`` is a local date ``YYYY-MM-DD``, WP8.2; a ref that is not one is **422**,
+and a day that has not begun or has nothing recorded is **404**) or ``folder`` (``ref`` is the id
+of a navigation item, 16 hex digits, looked up in the current items; ``docs/decisions/0053``). Any
+other scope is **404**.
 Both methods answer the same model,
 :class:`SummaryResponse`: ``{scope, ref, state, arc?, now?, text?, generated_at?, input_digest?,
 error_kind?}``, with ``state`` one of ``fresh``, ``stale``, ``pending``, ``missing``, ``failed`` and
@@ -16,8 +18,8 @@ error_kind?}``, with ``state`` one of ``fresh``, ``stale``, ``pending``, ``missi
   summary: **200** with the cached result when it is fresh, or when it is stale or failed and the
   TTL holds the next attempt back; **202** with ``pending`` when a job was queued for it or is
   already running (the requests share that job); **409** with ``disabled`` while summaries are off;
-  **404** when ``/now`` does not show the scope (a day: nothing was recorded that day); **422**
-  for a day that is not ``YYYY-MM-DD``.
+  **404** when ``/now`` does not show the scope (a day: nothing was recorded that day; a folder: no
+  current item has that id); **422** for a day that is not ``YYYY-MM-DD``.
 
 A finished job publishes ``summary.ready`` (``{scope, ref, state}``) on ``/events``; the app wires
 that in :func:`fylgja.api.app.create_app`.
@@ -31,9 +33,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import AwareDatetime
 
-from fylgja.api.deps import current_now, daemon_of, json_response
+from fylgja.api.deps import current_items, current_now, daemon_of, json_response
 from fylgja.api.now_models import NowModel, SummaryState, dump_json
-from fylgja.api.summary_inputs import find_day_inputs, find_inputs
+from fylgja.api.summary_inputs import FOLDER, find_day_inputs, find_folder_inputs, find_inputs
 from fylgja.core.summaries import (
     SCOPES,
     ScopeKind,
@@ -47,18 +49,19 @@ __all__ = ["SummaryResponse", "response_of", "router"]
 
 router = APIRouter()
 
-_UNKNOWN_SCOPE: Final = "unknown summary scope (session, workspace or day)"
+_UNKNOWN_SCOPE: Final = "unknown summary scope (session, workspace, day or folder)"
 _NOT_SHOWN: Final = {
     "session": "no live session has that key",
     "workspace": "no workspace has that name",
     "day": "nothing was recorded on that day",
+    "folder": "no item has that id",
 }
 
 
 class SummaryResponse(NowModel):
     """The answer of ``GET`` and ``POST /summaries/{scope}/{ref}``."""
 
-    scope: Literal["session", "workspace", "day"]
+    scope: Literal["session", "workspace", "day", "folder"]
     ref: str
     state: SummaryState
     arc: str | None = None
@@ -66,7 +69,7 @@ class SummaryResponse(NowModel):
     now: str | None = None
     """A session: what it is working on at this moment."""
     text: str | None = None
-    """A workspace or a day: one short paragraph."""
+    """A workspace, a day or a folder: one short paragraph."""
     generated_at: AwareDatetime | None = None
     """The instant the summary describes (when its job took its inputs)."""
     input_digest: str | None = None
@@ -97,6 +100,11 @@ def _scope(value: str) -> ScopeKind:
 
 async def _inputs(request: Request, kind: ScopeKind, ref: str) -> SummaryInputs | None:
     """The current inputs of the scope; a day that is not ``YYYY-MM-DD`` is **422**."""
+    if kind == FOLDER:  # the item of that id in the current (memoized) items
+        items = current_items(request)
+        if not any(item.id == ref for item in items):
+            return None
+        return find_folder_inputs(items, current_now(request), ref)
     if kind != "day":
         return find_inputs(current_now(request), kind, ref)
     try:

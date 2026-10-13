@@ -1,5 +1,5 @@
 """The recursion guard (WP8.1, ``PLAN-final-plan.md`` §4.4): a summarizer run never makes a session
-appear in ``/now``.
+appear in ``/now``, whether it summarizes a session or a folder (``docs/decisions/0053``).
 
 A real ``claude -p`` would do two things Fylgja can see: register itself in the Claude session
 registry (with its cwd, the summarizer cwd) and run the hooks the user installed. The fake runner
@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from api_support import BASE_URL, T0, Synthetic, make_daemon
 from claude_support import World, row_data, write_row
 from pydantic import BaseModel, ConfigDict
@@ -115,7 +116,27 @@ async def session_keys(api: httpx.AsyncClient) -> list[str]:
     return [s["key"] for s in now.get("sessions", [])]
 
 
-async def test_a_summarizer_run_never_makes_a_session_appear_in_now(tmp_path: Path) -> None:
+async def item_paths(api: httpx.AsyncClient) -> list[str]:
+    items: dict[str, Any] = (await api.get("/items")).json()
+    return sorted(item.get("path", "") for item in items["items"])
+
+
+async def summary_ref(api: httpx.AsyncClient, scope: str) -> str:
+    """The user session's key, or the id of the folder item that holds the session."""
+    if scope == "session":
+        return USER_KEY
+    items: dict[str, Any] = (await api.get("/items")).json()
+    return next(
+        item["id"]
+        for item in items["items"]
+        if any(place["ref"] == USER_KEY for place in item["places"])
+    )
+
+
+@pytest.mark.parametrize("scope", ["session", "folder"])
+async def test_a_summarizer_run_never_makes_a_session_appear_in_now(
+    tmp_path: Path, scope: str
+) -> None:
     world = World(tmp_path / "sessions", ignore_cwd=ignore_list(ClaudeSettings()))
     assert str(paths.summarizer_dir()) in ignore_list(ClaudeSettings())
     world.add(4101, USER_SESSION, cwd="/work/alpha", status="busy")
@@ -135,9 +156,11 @@ async def test_a_summarizer_run_never_makes_a_session_appear_in_now(tmp_path: Pa
             await world.collector.poll()
             await feed(daemon, list(world.sink.records))
             assert await session_keys(api) == [USER_KEY]
+            paths_before = await item_paths(api)
+            ref = await summary_ref(api, scope)
 
             # the summary job: the summarizer registers itself and runs the hooks
-            asked = await api.post(f"/summaries/session/{USER_KEY}", headers=WRITE, content=b"{}")
+            asked = await api.post(f"/summaries/{scope}/{ref}", headers=WRITE, content=b"{}")
             assert asked.status_code == 202, asked.text
             await daemon.summaries.drain()
             call = runner.calls[0]
@@ -173,7 +196,8 @@ async def test_a_summarizer_run_never_makes_a_session_appear_in_now(tmp_path: Pa
             assert await session_keys(api) == [USER_KEY]
             listed = (await api.get("/sessions")).json()
             assert [s["key"] for s in listed] == [USER_KEY]
-            story = (await api.get(f"/summaries/session/{USER_KEY}")).json()
+            assert await item_paths(api) == paths_before  # no item for the summarizer cwd
+            story = (await api.get(f"/summaries/{scope}/{ref}")).json()
             assert story["state"] == "fresh"
             assert (await api.get(f"/summaries/session/{SUMMARIZER_KEY}")).status_code == 404
     finally:

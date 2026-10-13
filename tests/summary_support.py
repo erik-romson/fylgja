@@ -2,8 +2,10 @@
 session and a workspace to summarize, and an ``/events`` client over the raw ASGI interface.
 
 Workspace ``3`` is focused. Window ``100`` (a terminal) sits in it and hosts the Claude session
-``claude:abc-123``, whose activity carries a facts block; a todo is open in the workspace. Nothing
-here calls a model: :class:`FakeRunner` answers in its place and records every call.
+``claude:abc-123``, whose activity carries a facts block; a todo is open in the workspace. The
+session works in ``/work/alpha``, so the navigation item ``folder:/work/alpha`` (id
+:data:`FOLDER_ID`) holds it. Nothing here calls a model: :class:`FakeRunner` answers in its place
+and records every call.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from api_support import (
 from fastapi import FastAPI
 
 from fylgja.core.daemon import Daemon
+from fylgja.core.items import item_id
 from fylgja.core.summaries import RunOutput
 from fylgja.models import SessionActivity
 from fylgja.store import db
@@ -50,6 +53,9 @@ ARC = "The session fixes the login form of alpha."
 NOW = "It is making the email field validate. The validator is changed."
 REPLY = f"ARC: {ARC}\nNOW: {NOW}\n"
 PARAGRAPH = "Workspace 3 is where alpha's login form is fixed. One Claude session edits it now."
+FOLDER = "/work/alpha"
+FOLDER_ID = item_id(f"folder:{FOLDER}")
+FOLDER_PARAGRAPH = "The login form of alpha gets an email validator. It is half done."
 
 
 def facts(*, last_at: datetime = T0 - timedelta(minutes=5), turns: int = 4) -> dict[str, Any]:

@@ -242,6 +242,7 @@ async def test_canaries_reach_no_log_spool_file_database_row_or_api_response(
                 "/view/overview",
                 "/items",
                 "/rankers",
+                "/summaries/folder/0123456789abcdef",
                 "/",
             ):
                 reply = await http.get(route)

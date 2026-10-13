@@ -26,7 +26,7 @@ shows "`shown` of `total`" and fills its ranker list from `choices`; it never fi
 |---|---|
 | `rank` | A loaded ranker, or `natural` (the floor). Default: the default ranker in effect (see `GET /rankers`). An empty value is the default. |
 | `days` | How far back an item without an open place may have had focus: 1 to 14. Default 14. |
-| `q` | Search text, at most 200 characters. Case-insensitive; matched against the item name, its tickets, its path, its summary and its place titles. |
+| `q` | Search text, at most 200 characters. Case-insensitive; matched against the item name, its tickets, its path, its summary, its `story` text and its place titles. |
 | `limit` | Keep the first `limit` items: 1 to 500. Default: all. |
 
 **422** with a `detail`: a `rank` that names neither a loaded ranker nor `natural` (an unknown, disabled, uninstalled
@@ -89,7 +89,7 @@ The day groups hold the shown items.
 | `last_session` | `LastSession`, optional | The work session before the current one |
 | `items[]` | `NavItem` | Rank order, after `q` and `limit` |
 | `days[]` | `DayGroup` | The shown items by the local day of their last focus, newest day first |
-| `summaries_enabled` | boolean | `[summaries] enabled` |
+| `summaries_enabled` | boolean | `[summaries] enabled`: a client may offer `POST /summaries/folder/{id}` |
 | `query` | string, optional | `q` as given |
 | `total` | integer | Items before `q` and `limit` |
 | `shown` | integer | Items in `items` |
@@ -113,6 +113,10 @@ The day groups hold the shown items.
   `go_terminal` are the same choice per role. A target (`GoTarget`: `kind`, `ref`) is focused with
   `POST /focus/session/{ref}` or `POST /focus/window/{ref}`. An item with nothing open has no `go`: nothing is started
   or reopened.
+- `story` (`ItemStory`: optional `text` and `generated_at`, and `state`: `fresh`, `stale`, `pending` or `failed`) is the
+  cached folder summary (decision 0053). It is present only while summaries are enabled and a summary with text is
+  cached for the item, and its state is judged against the item's current inputs. Reading `/items` never asks for one:
+  `POST /summaries/folder/{id}` does (`docs/api/summaries.md`).
 
 **`DayGroup`** has `day` (`YYYY-MM-DD`, local time) and `items` (item ids in rank order). An item that was never
 focused is in today's group.
@@ -207,4 +211,5 @@ number order passes `?rank=workspace`. `fylgja now` and `fylgja ws` follow the d
 
 Items are built from `/now` and from the stored focus spans, both redacted at ingest, so every title is one that
 `/now` and `/history` already show. A window of an ignored app is never a span or a place. URLs carry item ids, never
-paths, and the daemon logs counts and ranker names only: never a title, path, ticket or summary text.
+paths, and the daemon logs counts and ranker names only: never a title, path, ticket or summary text. A `story` is
+model output over those redacted inputs, redacted again and cut to 600 characters before it is stored.

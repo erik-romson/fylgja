@@ -12,6 +12,7 @@ import json
 import os
 import stat
 import sys
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,8 @@ from api_support import T0, client
 from summary_support import (
     ARC,
     FOCUSED,
+    FOLDER_ID,
+    FOLDER_PARAGRAPH,
     NOW,
     OTHER_KEYS,
     PARAGRAPH,
@@ -36,9 +39,13 @@ from summary_support import (
 )
 
 from fylgja import paths
+from fylgja.api.deps import item_builder
+from fylgja.api.item_inputs import DEFAULT_DAYS
 from fylgja.api.now import build_now
-from fylgja.api.summary_inputs import find_inputs
+from fylgja.api.now_models import Now
+from fylgja.api.summary_inputs import find_folder_inputs, find_inputs, folder_inputs
 from fylgja.core.daemon import Daemon
+from fylgja.core.items import Item, Place
 from fylgja.core.summaries import (
     CLAUDE_ARGS,
     GUARD_ENV,
@@ -50,6 +57,7 @@ from fylgja.core.summaries import (
     SummaryInputs,
     SummaryState,
     claude_command,
+    folder_prompt,
     input_digest,
     normalize,
     parse_story,
@@ -68,6 +76,22 @@ def inputs_of(
 ) -> SummaryInputs:
     found = find_inputs(build_now(daemon.state()), scope, ref)
     assert found is not None, (scope, ref)
+    return found
+
+
+def picture(daemon: Daemon) -> tuple[Now, tuple[Item, ...]]:
+    """``/now`` and the navigation items of it, as the summary route takes them."""
+    now = build_now(daemon.state())
+    data = daemon.rank_input(
+        item_builder(daemon, lambda: now, days=DEFAULT_DAYS), days=DEFAULT_DAYS
+    )
+    return now, data.items
+
+
+def folder_inputs_of(daemon: Daemon, ref: str = FOLDER_ID) -> SummaryInputs:
+    now, items = picture(daemon)
+    found = find_folder_inputs(items, now, ref)
+    assert found is not None, ref
     return found
 
 
@@ -509,6 +533,160 @@ async def test_a_workspace_paragraph_from_its_label_sessions_context_and_todos()
         assert answer is not None
         assert (answer.state, answer.text, answer.arc) == (SummaryState.FRESH, PARAGRAPH, None)
         assert [(r["kind"], r["text"]) for r in stored(daemon)] == [("text", PARAGRAPH)]
+
+
+# --------------------------------------------------------------------------------------------
+# Folders (docs/decisions/0053)
+# --------------------------------------------------------------------------------------------
+
+
+async def test_a_folder_job_runs_guarded_stores_redacted_text_and_keeps_its_digest() -> None:
+    secret = "sk-" + "B" * 24
+    runner = FakeRunner(default=f"**{FOLDER_PARAGRAPH}** It uses {secret} for now.\n")
+    async with story_world(runner) as daemon:
+        inputs = folder_inputs_of(daemon)
+        assert (inputs.scope, inputs.ref, inputs.activity_at, inputs.settled) == (
+            "folder",
+            FOLDER_ID,
+            None,
+            False,
+        )
+        assert daemon.summaries.request(inputs).state is SummaryState.PENDING
+        assert daemon.summaries.pending("folder", FOLDER_ID)
+        await daemon.summaries.drain()
+
+        call = runner.calls[0]
+        assert {name: call.env.get(name) for name in GUARD_ENV} == dict(GUARD_ENV)
+        assert call.env["FYLGJA_SUMMARY"] == "1"
+        assert call.cwd == paths.summarizer_dir()
+        for expected in (
+            'folder "work/alpha"',
+            "Name: work/alpha",
+            "Agent sessions here:\n  - claude: ",
+            "    Conversation title: Fix the login form",
+            "at most three sentences",
+        ):
+            assert expected in call.prompt, expected
+        assert "The session so far" not in call.prompt  # no session story is cached yet
+
+        rows = stored(daemon)
+        assert [(r["scope_kind"], r["scope_ref"], r["kind"]) for r in rows] == [
+            ("folder", FOLDER_ID, "text")
+        ]
+        assert secret not in json.dumps(rows)
+        assert rows[0]["text"].startswith(FOLDER_PARAGRAPH)
+        assert (rows[0]["input_digest"], rows[0]["model"]) == (inputs.digest, "haiku")
+        cached = daemon.summaries.cached("folder", FOLDER_ID)
+        assert cached is not None
+        assert cached.text is not None
+        assert secret not in cached.text
+        assert len(cached.text) <= MAX_CHARS
+
+        # an hour later, nothing in the folder changed: the same digest, no call
+        await clock_of(daemon).advance(3600)
+        again = folder_inputs_of(daemon)
+        assert again.digest == inputs.digest
+        for _ in range(2):
+            answer = daemon.summaries.request(again)
+            assert (answer.state, answer.text) == (SummaryState.FRESH, cached.text)
+        assert len(runner.calls) == 1
+
+
+async def test_the_folder_inputs_carry_the_cached_session_arc() -> None:
+    runner = FakeRunner()
+    async with story_world(runner) as daemon:
+        before = folder_inputs_of(daemon)
+        assert "arc" not in before.data["sessions"][0]
+        await generate(daemon)  # the session's ARC and NOW
+        after = folder_inputs_of(daemon)
+        assert after.data["sessions"][0]["arc"] == ARC
+        assert after.digest != before.digest
+        runner.default = FOLDER_PARAGRAPH
+        daemon.summaries.request(after)
+        await daemon.summaries.drain()
+        assert f"    The session so far: {ARC}" in runner.calls[-1].prompt
+
+
+async def test_an_unknown_item_id_has_no_folder_inputs() -> None:
+    async with story_world() as daemon:
+        now, items = picture(daemon)
+        assert find_folder_inputs(items, now, "0000000000000000") is None
+        assert {item.id for item in items} >= {FOLDER_ID}
+
+
+def _place(ref: str, title: str, seconds: int, *, kind: str = "window") -> Place:
+    return Place(
+        kind=kind,  # type: ignore[arg-type]
+        ref=ref,
+        role="agent" if kind == "session" else "ide",
+        label="claude" if kind == "session" else "PyCharm",
+        title=title,
+        workspace="3",
+        open=seconds % 2 == 0,
+        waiting=False,
+        last_focus_at=T0 + timedelta(seconds=seconds),
+    )
+
+
+async def test_folder_inputs_hold_no_times_and_no_focus_order() -> None:
+    async with story_world() as daemon:
+        now, items = picture(daemon)
+        item = next(i for i in items if i.id == FOLDER_ID)
+        places = (_place("100", "main.py", 10), _place("102", "notes.md", 20))
+        one = replace(item, places=places, last_focus_at=T0, seconds_today=60.0)
+        two = replace(
+            item,
+            places=tuple(reversed([replace(p, last_focus_at=T0) for p in places])),
+            last_focus_at=T0 + timedelta(hours=2),
+            seconds_today=7200.0,
+        )
+        first, second = folder_inputs(one, now), folder_inputs(two, now)
+        assert first.digest == second.digest
+        assert first.data["places"] == [
+            {"label": "PyCharm", "title": "main.py"},
+            {"label": "PyCharm", "title": "notes.md"},
+        ]
+        assert not any(name.endswith(("_at", "seconds", "since")) for name in first.data)
+        moved = replace(one, places=(_place("100", "test_main.py", 10), places[1]))
+        assert folder_inputs(moved, now).digest != first.digest
+        session = next(s for s in now.sessions or () if s.key == SESSION_KEY)
+        with_session = replace(one, places=(*places, _place(SESSION_KEY, "x", 30, kind="session")))
+        data = folder_inputs(with_session, now).data
+        assert [s["agent"] for s in data["sessions"]] == [session.kind]
+
+
+def test_the_folder_prompt_over_minimal_and_full_inputs() -> None:
+    app = folder_prompt({"kind": "app", "name": "Term"})
+    assert 'the\napp "Term"' in app
+    assert "Agent sessions here" not in app
+    assert "Open todos" not in app
+    full = folder_prompt(
+        {
+            "kind": "folder",
+            "name": "alpha/CBS-1",
+            "group": "alpha",
+            "tickets": ["CBS-1"],
+            "branch": "CBS-1-login",
+            "pr": "#12 open",
+            "dirty": True,
+            "places": [{"label": "PyCharm", "title": "login.py"}, {"label": "Term"}],
+            "sessions": [{"agent": "codex"}, {"agent": "claude", "one_liner": "Edit form.py"}],
+            "todos": [{"status": "next", "text": "ship it"}],
+        }
+    )
+    for expected in (
+        'folder "alpha/CBS-1"',
+        "Group: alpha",
+        "Tickets: CBS-1",
+        "Branch: CBS-1-login",
+        "Pull request: #12 open",
+        "Uncommitted changes: yes",
+        "Its windows:\n  - PyCharm: login.py\n  - Term: —",
+        "Agent sessions here:\n  - codex: —\n  - claude: Edit form.py",
+        "Open todos:\n  - [next] ship it",
+        "a ticket key may be named as it is",
+    ):
+        assert expected in full, expected
 
 
 async def test_a_scope_without_a_prompt_cannot_be_requested() -> None:

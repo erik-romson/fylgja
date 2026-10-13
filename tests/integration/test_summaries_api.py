@@ -14,6 +14,8 @@ from api_support import BASE_URL, T0, nulls
 from summary_support import (
     ARC,
     FOCUSED,
+    FOLDER_ID,
+    FOLDER_PARAGRAPH,
     NOW,
     PARAGRAPH,
     SECRET,
@@ -35,6 +37,8 @@ from fylgja.testing.fakes import FakeClock
 
 SESSION_PATH = f"/summaries/session/{SESSION_KEY}"
 WORKSPACE_PATH = f"/summaries/workspace/{FOCUSED}"
+FOLDER_PATH = f"/summaries/folder/{FOLDER_ID}"
+NO_ITEM = "0000000000000000"
 WRITE = {"Authorization": f"Bearer {SECRET}", "Content-Type": "application/json"}
 RESPONSE_FIELDS = {
     "scope",
@@ -138,6 +142,7 @@ async def test_get_of_an_unknown_scope_or_ref_is_404(world: Daemon) -> None:
             "/summaries/session/claude:nobody",
             "/summaries/workspace/99",
             "/summaries/day/2026-09-01",
+            f"/summaries/folder/{NO_ITEM}",
         ):
             response = await api.get(path)
             assert response.status_code == 404, path
@@ -223,9 +228,66 @@ async def test_post_for_a_workspace_writes_its_paragraph(world: Daemon, runner: 
     assert "now" not in fresh
 
 
+async def test_post_for_a_folder_answers_202_then_summary_ready_then_fresh(
+    world: Daemon, runner: FakeRunner
+) -> None:
+    runner.default = FOLDER_PARAGRAPH
+    runner.hold()
+    app = create_app(world, secret=SECRET)
+    stream = await Stream(app).open()
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=BASE_URL
+        ) as api:
+            assert checked(await api.get(FOLDER_PATH), 200)["state"] == "missing"
+            first = checked(await post(api, FOLDER_PATH), 202)
+            assert first == {"scope": "folder", "ref": FOLDER_ID, "state": "pending"}
+            assert checked(await api.get(FOLDER_PATH), 200)["state"] == "pending"
+            await wait_until(lambda: len(runner.calls) == 1)
+            runner.release()
+            name, data = await stream.event()
+            while name != "summary.ready":
+                name, data = await stream.event()
+            assert data == {"scope": "folder", "ref": FOLDER_ID, "state": "fresh"}
+
+            fresh = checked(await api.get(FOLDER_PATH), 200)
+            assert (fresh["state"], fresh["text"]) == ("fresh", FOLDER_PARAGRAPH)
+            assert fresh["generated_at"] == T0.isoformat().replace("+00:00", "Z")
+            assert len(fresh["input_digest"]) == 64
+            assert "arc" not in fresh
+            assert "now" not in fresh
+            again = checked(await post(api, FOLDER_PATH), 200)
+            assert (again["state"], again["text"]) == ("fresh", FOLDER_PARAGRAPH)
+    finally:
+        await stream.close()
+        await world.summaries.drain()
+    assert len(runner.calls) == 1
+    assert [(r["scope_kind"], r["scope_ref"], r["kind"]) for r in stored(world)] == [
+        ("folder", FOLDER_ID, "text")
+    ]
+
+
+async def test_the_folder_post_needs_the_bearer_and_an_allowed_origin(
+    world: Daemon, runner: FakeRunner
+) -> None:
+    async with http(world) as api:
+        assert (await api.post(FOLDER_PATH, content=b"{}")).status_code == 401
+        foreign = {**WRITE, "Origin": "http://evil.example"}
+        assert (await api.post(FOLDER_PATH, headers=foreign, content=b"{}")).status_code == 403
+        form = {**WRITE, "Content-Type": "text/plain"}
+        assert (await api.post(FOLDER_PATH, headers=form, content=b"{}")).status_code == 415
+    assert not world.summaries.pending("folder", FOLDER_ID)
+    assert runner.calls == []
+
+
 async def test_post_while_disabled_is_409_with_disabled(runner: FakeRunner) -> None:
     async with story_world(runner, enabled=False) as daemon, http(daemon) as api:
-        for scope, ref in (("session", SESSION_KEY), ("workspace", FOCUSED), ("day", "x")):
+        for scope, ref in (
+            ("session", SESSION_KEY),
+            ("workspace", FOCUSED),
+            ("day", "x"),
+            ("folder", FOLDER_ID),
+        ):
             response = await post(api, f"/summaries/{scope}/{ref}")
             assert checked(response, 409) == {"scope": scope, "ref": ref, "state": "disabled"}
         assert checked(await api.get(SESSION_PATH), 200)["state"] == "disabled"
@@ -238,10 +300,12 @@ async def test_post_of_an_unknown_scope_ref_or_an_empty_day_is_404(
 ) -> None:
     async with http(world) as api:
         for path, detail in (
-            ("/summaries/project/x", "unknown summary scope (session, workspace or day)"),
+            ("/summaries/project/x", "unknown summary scope (session, workspace, day or folder)"),
             ("/summaries/session/claude:nobody", "no live session has that key"),
             ("/summaries/workspace/99", "no workspace has that name"),
             ("/summaries/day/2026-09-01", "nothing was recorded on that day"),
+            (f"/summaries/folder/{NO_ITEM}", "no item has that id"),
+            (f"/summaries/folder/{FOLDER_ID[:8]}", "no item has that id"),
         ):
             response = await post(api, path)
             assert response.status_code == 404, path

@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from fylgja.api.item_inputs import build_items_answer, build_rankers_answer, item_matches
-from fylgja.api.items_models import Items, Rankers
-from fylgja.api.now_models import Now, Waiting
+from fylgja.api.items_models import Items, ItemStory, Rankers
+from fylgja.api.now_models import Now, SummaryState, Waiting, dump_json
 from fylgja.collectors.registry import Origin
 from fylgja.core.activity import build_activity
 from fylgja.core.daemon import RankResult
@@ -209,6 +209,29 @@ def test_item_matches_name_tickets_path_summary_and_titles_only() -> None:
     assert item_matches(alpha, "title of 10")
     assert item_matches(alpha, "/work/alpha")
     assert not item_matches(alpha, "example")  # the window label is not searched
+
+
+def test_item_matches_the_story_text_when_one_is_given() -> None:
+    alpha = world()[0][0]
+    assert not item_matches(alpha, "validator")
+    assert item_matches(alpha, "validator", "Adds an email validator.")
+    assert not item_matches(alpha, "validator", None)
+
+
+def test_a_cached_story_rides_on_its_item_and_is_searched() -> None:
+    story = ItemStory(text="Adds an email validator.", generated_at=T0, state=SummaryState.STALE)
+    stories = {item_id(ALPHA): story, "0000000000000000": story}  # an id that is not shown
+    body = answer(stories=stories, summaries_enabled=True)
+    by_id = {nav.id: nav for nav in body.items}
+    assert by_id[item_id(ALPHA)].story == story
+    assert [nav.id for nav in body.items if nav.story is not None] == [item_id(ALPHA)]
+    assert b'"story":{"text":"Adds an email validator.","generated_at":"2026-10-05T12:00:00Z",' in (
+        dump_json(body)
+    )
+    found = answer(stories=stories, query="VALIDATOR")
+    assert ([nav.id for nav in found.items], found.shown, found.total) == ([item_id(ALPHA)], 1, 4)
+    assert answer(query="validator").items == []  # without the story nothing matches
+    assert b'"story"' not in dump_json(answer())
 
 
 def _registered(name: str, *, loaded: bool, enabled: bool = True) -> RegisteredRanker:

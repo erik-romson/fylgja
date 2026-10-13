@@ -42,13 +42,17 @@ from api_support import (
 )
 from fastapi import Request
 from fastapi.responses import Response
+from summary_support import SECRET, FakeRunner, summaries_config
 
 from fylgja.api.app import create_app
-from fylgja.api.deps import current_items, json_response
+from fylgja.api.deps import current_items, item_builder, json_response
+from fylgja.api.now import build_now
+from fylgja.api.now_models import Now
+from fylgja.api.summary_inputs import find_folder_inputs
 from fylgja.collectors.base import Capability
 from fylgja.collectors.registry import EntryPointLike
 from fylgja.core.daemon import Daemon, floor_time
-from fylgja.core.items import item_id
+from fylgja.core.items import Item, item_id
 from fylgja.core.spans import Closed
 from fylgja.models import (
     ContextItemEvent,
@@ -617,6 +621,92 @@ async def test_items_need_no_authentication_and_are_never_cached() -> None:
         rankers = await http.get("/rankers")
     assert response.status_code == rankers.status_code == 200
     assert response.headers["cache-control"] == rankers.headers["cache-control"] == "no-store"
+
+
+# --------------------------------------------------------------------------------------------
+# story: the cached folder summary (docs/decisions/0053)
+# --------------------------------------------------------------------------------------------
+
+STORY = "Alpha main gets an email validator for its login form. It is half done."
+WRITE = {"Authorization": f"Bearer {SECRET}", "Content-Type": "application/json"}
+
+
+def summarized(runner: FakeRunner, *, enabled: bool = True) -> dict[str, Any]:
+    return {"user_config": summaries_config(enabled=enabled), "summary_runner": runner}
+
+
+def stories(body: dict[str, Any]) -> dict[str, Any]:
+    return {item["id"]: item["story"] for item in body["items"] if "story" in item}
+
+
+async def test_an_item_carries_its_folder_summary_only_once_it_is_cached() -> None:
+    runner = FakeRunner(default=STORY)
+    async with world(**summarized(runner)) as daemon:
+        app = create_app(daemon, secret=SECRET)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as http:
+            before = (await http.get("/items")).json()
+            assert before["summaries_enabled"] is True
+            assert stories(before) == {}
+            assert runner.calls == []  # a read asks for nothing
+
+            posted = await http.post(f"/summaries/folder/{ALPHA_ID}", headers=WRITE, content=b"{}")
+            assert posted.status_code == 202, posted.text
+            await daemon.summaries.drain()
+            after = (await http.get("/items?rank=workspace")).json()
+            assert list(nulls(after)) == []
+            fresh = {"text": STORY, "generated_at": iso(at(960)), "state": "fresh"}
+            assert stories(after) == {ALPHA_ID: fresh}
+            assert stories((await http.get("/items?days=3")).json()) == {ALPHA_ID: fresh}
+            assert ids((await http.get("/items?q=VALIDATOR")).json()) == [ALPHA_ID]
+
+            # focus moves and time passes, the folder's content does not change
+            daemon.sink("wm").emit(focus_event("wm", "100", "3", at(1000)))
+            await daemon.settle()
+            await advance_to(daemon, 4600)
+            assert stories((await http.get("/items")).json()) == {ALPHA_ID: fresh}
+
+            # the IDE window of alpha shows another file: the story is stale
+            daemon.sink("wm").emit(
+                window_snapshot(
+                    "wm",
+                    [
+                        Win("100", "3", "PyCharm", 800, "test_main.py"),
+                        Win("101", "3", "Term", 500, "zsh"),
+                        Win("102", "2", "PyCharm", 801, "CBS-1 notes.md"),
+                    ],
+                    at(4600),
+                )
+            )
+            await daemon.settle()
+            moved = stories((await http.get("/items")).json())
+            assert moved == {ALPHA_ID: {**fresh, "state": "stale"}}
+    assert len(runner.calls) == 1
+
+
+async def test_no_story_while_summaries_are_off() -> None:
+    runner = FakeRunner(default=STORY)
+    async with world(**summarized(runner)) as daemon:
+        now = build_now(daemon.state())
+        inputs = find_folder_inputs(current_items_of(daemon, now), now, ALPHA_ID)
+        assert inputs is not None
+        daemon.summaries.request(inputs)
+        await daemon.summaries.drain()
+        assert daemon.summaries.cached("folder", ALPHA_ID) is not None
+    off = FakeRunner(default=STORY)
+    async with world(**summarized(off, enabled=False)) as daemon:  # the same database
+        assert daemon.summaries.cached("folder", ALPHA_ID) is not None  # cached, not shown
+        body = await get(daemon, "/items")
+        folder = await get(daemon, f"/summaries/folder/{ALPHA_ID}")
+    assert body["summaries_enabled"] is False
+    assert stories(body) == {}
+    assert folder == {"scope": "folder", "ref": ALPHA_ID, "state": "disabled"}
+    assert off.calls == []
+
+
+def current_items_of(daemon: Daemon, now: Now) -> Sequence[Item]:
+    """The items the summary route looks an id up in, for the picture ``now``."""
+    return daemon.rank_input(item_builder(daemon, lambda: now, days=14), days=14).items
 
 
 # --------------------------------------------------------------------------------------------

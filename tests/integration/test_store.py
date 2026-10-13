@@ -341,7 +341,7 @@ def test_migration_from_empty_creates_every_table(db_path: Path) -> None:
     assert not db_path.exists()
     connection = db.open_store(db_path)
     try:
-        assert db.schema_version(connection) == len(db.load_migrations()) == 1
+        assert db.schema_version(connection) == len(db.load_migrations()) == 2
         tables = {
             row[0]
             for row in connection.execute(
@@ -397,15 +397,81 @@ def test_migration_rerun_is_idempotent(db_path: Path) -> None:
         connection.execute(
             "INSERT INTO workspaces (name, manual_label) VALUES ('3', 'kept across reruns')"
         )
-        assert db.migrate(connection) == 1
-        assert db.migrate(connection) == 1
+        assert db.migrate(connection) == len(db.load_migrations())
+        assert db.migrate(connection) == len(db.load_migrations())
     finally:
         connection.close()
     again = db.open_store(db_path)
     try:
-        assert db.schema_version(again) == 1
+        assert db.schema_version(again) == len(db.load_migrations())
         label = again.execute("SELECT manual_label FROM workspaces WHERE name = '3'").fetchone()
         assert label[0] == "kept across reruns"
+    finally:
+        again.close()
+
+
+_SUMMARY_ROW = (
+    "INSERT INTO summaries (id, scope_kind, scope_ref, kind, text, input_digest, model, "
+    "generated_at, error_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+
+
+def _summaries(connection: sqlite3.Connection) -> list[tuple[Any, ...]]:
+    return [
+        tuple(row)
+        for row in connection.execute(
+            "SELECT id, scope_kind, scope_ref, kind, text, input_digest, model, generated_at, "
+            "error_kind FROM summaries ORDER BY id"
+        )
+    ]
+
+
+def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
+    """0002 rebuilds ``summaries`` for the ``folder`` scope: every row of a version 1 database
+    survives with its id, the constraints still hold and a folder row is accepted."""
+    connection = db.connect_writer(db_path)
+    try:
+        first = db.load_migrations()[:1]
+        assert db.migrate(connection, first) == 1
+        noon, midnight = "2026-10-05T12:00:00.000000Z", "2026-10-05T00:00:00.000000Z"
+        kept = [
+            (7, "session", "claude:x", "arc", "an arc", "d" * 64, "haiku", noon, None),
+            (8, "session", "claude:x", "now", "a now", "d" * 64, "haiku", noon, None),
+            (9, "workspace", "3", "text", None, None, None, None, "timeout"),
+            (12, "day", "2026-10-04", "text", "a day", "e" * 64, "haiku", midnight, None),
+        ]
+        connection.executemany(_SUMMARY_ROW, kept)
+        folder = (20, "folder", "0123456789abcdef", "text", "a folder", None, None, None, None)
+        with pytest.raises(sqlite3.IntegrityError):  # version 1 knows no folder scope
+            connection.execute(_SUMMARY_ROW, folder)
+
+        assert db.migrate(connection) == 2
+        assert db.schema_version(connection) == 2
+        assert _summaries(connection) == kept
+        connection.execute(_SUMMARY_ROW, folder)
+        assert _summaries(connection) == [*kept, folder]
+        assert _columns(connection, "summaries") == EXPECTED_COLUMNS["summaries"] | {"id"}
+        with pytest.raises(sqlite3.IntegrityError):  # UNIQUE (scope_kind, scope_ref, kind)
+            connection.execute(_SUMMARY_ROW, (21, *folder[1:]))
+        with pytest.raises(sqlite3.IntegrityError):  # the CHECK still rejects other scopes
+            connection.execute(_SUMMARY_ROW, (22, "project", "x", "text", *folder[4:]))
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(_SUMMARY_ROW, (23, "folder", "x", "story", *folder[4:]))
+        names = {r[0] for r in connection.execute("SELECT name FROM sqlite_master")}
+        assert "summaries_new" not in names
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()
+
+    again = db.open_store(db_path)  # a rerun on the migrated file is a no-op
+    try:
+        assert db.schema_version(again) == 2
+        assert [row[0] for row in _summaries(again)] == [7, 8, 9, 12, 20]
+        stored = queries.load_summaries(again)
+        assert [
+            (r.scope_kind, r.scope_ref, r.text) for r in stored if r.scope_kind == "folder"
+        ] == [("folder", "0123456789abcdef", "a folder")]
     finally:
         again.close()
 
