@@ -144,6 +144,43 @@ def test_the_span_idle_threshold_matches_the_presence_default_and_is_validated()
     assert info.value.key == "spans.idle_threshold_seconds"
 
 
+def test_the_items_defaults_load() -> None:
+    items = load_config().items
+    assert items.ticket_prefixes == ["CBS"]
+    assert items.default_ranker == "frecency"
+    assert items.work_session_break_minutes == 30
+
+
+def test_a_user_ticket_prefix_list_replaces_the_default() -> None:
+    _write('[items]\nticket_prefixes = ["CBS", "WSS"]\n')
+    items = load_config().items
+    assert items.ticket_prefixes == ["CBS", "WSS"]
+    assert items.default_ranker == "frecency"
+
+
+def test_an_empty_ticket_prefix_list_is_valid() -> None:
+    _write("[items]\nticket_prefixes = []\n")
+    assert load_config().items.ticket_prefixes == []
+
+
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        ('ticket_prefixes = ["cbs"]', "items.ticket_prefixes"),
+        ('ticket_prefixes = ["CBS-"]', "items.ticket_prefixes"),
+        ('ticket_prefixes = ["CBS", "CBS"]', "items.ticket_prefixes"),
+        ("work_session_break_minutes = 0", "items.work_session_break_minutes"),
+        ("work_session_break_minutes = 1441", "items.work_session_break_minutes"),
+        ('default_ranker = "Bad Name"', "items.default_ranker"),
+    ],
+)
+def test_bad_items_values_are_refused_by_key(text: str, key: str) -> None:
+    _write(f"[items]\n{text}\n")
+    with pytest.raises(ConfigError) as info:
+        load_config()
+    assert info.value.key.startswith(key)
+
+
 def test_invalid_regex_names_list_index() -> None:
     _write('[privacy]\nredact_patterns = ["ok", "("]\n')
     with pytest.raises(ConfigError) as info:

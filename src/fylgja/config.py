@@ -32,6 +32,7 @@ __all__ = [
     "Config",
     "ConfigError",
     "HooksConfig",
+    "ItemsConfig",
     "PathsConfig",
     "PrivacyConfig",
     "SummariesConfig",
@@ -127,6 +128,38 @@ class SpansConfig(_Section):
     ends there. Keep it equal to the presence collector's ``idle_threshold_seconds``."""
 
 
+_PREFIX = re.compile(r"[A-Z][A-Z0-9]{0,9}")
+_RANKER_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+
+
+class ItemsConfig(_Section):
+    ticket_prefixes: list[str]
+    """Ticket key prefixes: a key is ``<PREFIX>-<digits>``. An empty list turns detection off."""
+    default_ranker: str
+    """The ranker used when a request names none. Whether it is loaded is checked at runtime."""
+    work_session_break_minutes: float = Field(gt=0, le=1440)
+    """A not-working gap this long splits two work sessions."""
+
+    @field_validator("ticket_prefixes")
+    @classmethod
+    def _prefixes(cls, value: list[str]) -> list[str]:
+        for prefix in value:
+            if _PREFIX.fullmatch(prefix) is None:
+                raise ValueError(
+                    f"{prefix!r} is not a ticket prefix (A-Z, then A-Z or 0-9, up to 10)"
+                )
+        if len(set(value)) != len(value):
+            raise ValueError("ticket prefixes must not repeat")
+        return value
+
+    @field_validator("default_ranker")
+    @classmethod
+    def _ranker_name(cls, value: str) -> str:
+        if _RANKER_NAME.fullmatch(value) is None:
+            raise ValueError(f"{value!r} is not a ranker name")
+        return value
+
+
 _HOOK_EVENT = re.compile(r"[A-Z][A-Za-z]*")
 
 
@@ -160,6 +193,9 @@ class Config(_Section):
     hooks: HooksConfig
     paths: PathsConfig
     spans: SpansConfig = SpansConfig(idle_threshold_seconds=300.0)
+    items: ItemsConfig = ItemsConfig(
+        ticket_prefixes=["CBS"], default_ranker="frecency", work_session_break_minutes=30
+    )
     collectors: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("collectors")

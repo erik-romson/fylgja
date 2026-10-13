@@ -28,6 +28,7 @@ from fylgja.cli.doctor import (
     check_dotfiles_layout,
     check_fda_paths,
     check_hook_commands,
+    check_items,
     check_plugins,
     check_port,
     command_targets,
@@ -156,6 +157,22 @@ def test_config_that_is_invalid_fails_and_the_rest_runs_on_defaults(text: str) -
     assert "config.toml" in check.detail
     assert "defaults" in check.detail
     assert config.api.port == 7319
+
+
+def test_items_check_names_the_prefixes_and_the_default_ranker() -> None:
+    _, config = check_config()
+    check = check_items(config)
+    assert check.status is Status.OK
+    assert check.detail == "ticket prefixes: CBS · default ranker: frecency"
+
+
+def test_items_check_says_when_ticket_detection_is_off() -> None:
+    paths.config_dir().mkdir(parents=True, exist_ok=True)
+    paths.config_file().write_text("[items]\nticket_prefixes = []\n", encoding="utf-8")
+    _, config = check_config()
+    check = check_items(config)
+    assert check.status is Status.OK
+    assert check.detail == "ticket detection off · default ranker: frecency"
 
 
 # --------------------------------------------------------------------------------------------
@@ -719,6 +736,7 @@ def test_run_doctor_combines_every_check_and_only_reads(fake_home: Layout) -> No
     names = [c.name for c in checks]
     assert names == [
         "config",
+        "items",
         "plugin:probe",
         "source:probe",
         "fda-paths",

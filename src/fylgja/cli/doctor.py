@@ -180,6 +180,13 @@ def check_config(path: Path | None = None) -> tuple[Check, Config]:
     return Check("config", Status.OK, detail), config
 
 
+def check_items(config: Config) -> Check:
+    """The ticket prefixes and the default ranker that the navigation items use."""
+    prefixes = config.items.ticket_prefixes
+    tickets = f"ticket prefixes: {', '.join(prefixes)}" if prefixes else "ticket detection off"
+    return Check("items", Status.OK, f"{tickets} · default ranker: {config.items.default_ranker}")
+
+
 def check_plugins(registry: Sequence[RegisteredCollector]) -> list[Check]:
     """One check per discovered plugin: duplicates, API mismatch and import failures fail."""
     checks: list[Check] = []
@@ -1340,7 +1347,7 @@ async def run_doctor(
     """Run every check. Never raises for a finding; changes only the AppleScript switch record."""
     where = Layout.current() if layout is None else layout
     config_check, config = check_config()
-    checks = [config_check]
+    checks = [config_check, check_items(config)]
     registry = load_registry(config, source)
     checks.extend(check_plugins(registry))
     checks.extend(await check_collector_doctors(registry))

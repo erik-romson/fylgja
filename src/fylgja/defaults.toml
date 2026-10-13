@@ -70,6 +70,13 @@ events = [
 [spans]
 idle_threshold_seconds = 300
 
+# Navigation items (docs/api/items.md). A ticket key is <PREFIX>-<digits>; an empty list turns ticket detection off.
+# Work sessions split at a not-working gap this long. Each ranker has its own [rankers.<name>] table (docs/rankers.md).
+[items]
+ticket_prefixes = ["CBS"]
+default_ranker = "frecency"
+work_session_break_minutes = 30
+
 # Absolute paths, because launchd's PATH is minimal.
 [paths]
 aerospace = "/opt/homebrew/bin/aerospace"
