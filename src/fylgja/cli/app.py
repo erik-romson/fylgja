@@ -315,6 +315,43 @@ def history(
     _show(payload, as_json, lambda: render.render_history(payload, _width(), spans=spans))
 
 
+@app.command()
+def items(
+    rank: Annotated[
+        str | None,
+        typer.Option("--rank", metavar="NAME", help="The ranker; default: the one in effect."),
+    ] = None,
+    days: Annotated[
+        int | None, typer.Option("--days", metavar="N", help="How many days back to group.")
+    ] = None,
+    search: Annotated[
+        str | None,
+        typer.Option(
+            "--search", metavar="TEXT", help="Only items matching TEXT (the daemon searches)."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", metavar="N", help="At most N items (the daemon caps).")
+    ] = None,
+    as_json: JsonOption = False,
+) -> None:
+    """Folders and apps you worked in, ranked by the daemon, grouped by day."""
+    query = {
+        key: str(value)
+        for key, value in (("rank", rank), ("days", days), ("q", search), ("limit", limit))
+        if value is not None
+    }
+    payload = _fetch("/items" + (f"?{urllib.parse.urlencode(query)}" if query else ""))
+    _show(payload, as_json, lambda: render.render_items(payload, _width()))
+
+
+@app.command()
+def rankers(as_json: JsonOption = False) -> None:
+    """The installed rankers: enabled, loaded or why not, and the default in effect."""
+    payload = _fetch("/rankers")
+    _show(payload, as_json, lambda: render.render_rankers(payload, _width()))
+
+
 @collectors_app.command("list")
 def collectors_list(as_json: JsonOption = False) -> None:
     """The collector plugins, their capabilities and their health."""

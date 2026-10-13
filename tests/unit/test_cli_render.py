@@ -159,3 +159,68 @@ def test_next_lists_the_items_best_first_with_short_targets() -> None:
 def test_next_with_nothing_says_so() -> None:
     assert render.render_next({"list_id": "nl-1", "items": []}) == "nothing is waiting for you"
     assert render.render_next({}) == "nothing is waiting for you"
+
+
+def test_render_items_groups_by_day_and_flags_a_fallback() -> None:
+    payload = {
+        "ranker": "recent",
+        "ranker_fallback": "natural",
+        "shown": 2,
+        "total": 5,
+        "query": "alpha",
+        "items": [
+            {
+                "id": "a",
+                "name": "alpha/main",
+                "tickets": ["CBS-1", "CBS-2"],
+                "seconds_today": 3900,
+                "places": [{"label": "IDE"}, {"label": "IDE"}, {"label": "Terminal"}],
+                "state": ["permission", "dirty"],
+                "summary": "on feature\nbranch",
+                "explanation": "focus 300",
+            },
+            {"id": "b", "name": "Example", "seconds_today": 0},
+        ],
+        "days": [
+            {"day": "2026-10-05", "items": ["a", "missing"]},
+            {"day": "2026-10-04", "items": ["b"]},
+        ],
+    }
+    lines = render.render_items(payload, 80).splitlines()
+    assert lines[0] == "ranker recent (failed; natural answered) · 2 of 5 items · search 'alpha'"
+    assert lines[2] == "2026-10-05"
+    assert lines[3] == "  alpha/main · CBS-1,CBS-2 · 1h05m · IDE,Terminal · permission,dirty"
+    assert lines[4] == "    on feature branch"
+    assert lines[5] == "    · focus 300"
+    assert lines[7] == "2026-10-04"
+    assert lines[8] == "  Example · — · 0s · — · —"
+
+
+def test_render_items_without_items_says_so() -> None:
+    assert render.render_items({"ranker": "natural", "items": [], "days": []}).endswith("no items")
+
+
+def test_render_rankers_marks_the_default_and_the_reason_a_ranker_is_off() -> None:
+    payload = {
+        "default": "recent",
+        "configured_default": "recent",
+        "rankers": [
+            {"name": "recent", "origin": "built-in", "enabled": True, "loaded": True},
+            {
+                "name": "x",
+                "origin": "external",
+                "distribution": "d",
+                "version": "2",
+                "enabled": True,
+                "loaded": False,
+            },
+        ],
+    }
+    lines = render.render_rankers(payload).splitlines()
+    assert lines[1].startswith("recent*")
+    assert "external (d@2)" in lines[2]
+    assert "not loaded" in lines[2]
+    assert lines[-1] == "default in effect: recent"
+    assert render.render_rankers({"default": "natural", "rankers": []}) == (
+        "no rankers\ndefault in effect: natural"
+    )

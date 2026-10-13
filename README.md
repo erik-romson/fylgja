@@ -52,6 +52,8 @@ Optional: `install skill` (the `fylgja-todo` Claude skill) and `install keybindi
 | `history [--since] [--story]` | Where your attention went |
 | `todo`, `label` | Your todos; a manual name for a workspace |
 | `session`, `story` | Act on one session; model-written summaries |
+| `items [--rank] [--days] [--search]` | Folders and apps you worked in, ranked |
+| `rankers` | Installed rankers: enabled, loaded, default |
 | `collectors`, `doctor` | Plugin status; setup check |
 
 Read commands take `--json`. The CLI talks to the daemon over HTTP; read commands exit with code 3

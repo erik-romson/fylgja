@@ -17,8 +17,10 @@ __all__ = [
     "DEFAULT_WIDTH",
     "render_collectors",
     "render_history",
+    "render_items",
     "render_next",
     "render_now",
+    "render_rankers",
     "render_sessions",
     "render_story",
     "render_todos",
@@ -382,3 +384,101 @@ def render_story(summary: Row, width: int = DEFAULT_WIDTH) -> str:
     when = f", as of {_local(stamp, '%Y-%m-%d %H:%M')}" if stamp else ""
     lines.append(f"[{state}{when}]" + (f" {note}" if note else ""))
     return "\n".join(lines)
+
+
+def _day_label(day: object) -> str:
+    return str(day) if day else _DASH
+
+
+def render_items(payload: Row, width: int = DEFAULT_WIDTH) -> str:
+    """The ``items`` answer: day groups in server order, an item as a line and its notes.
+
+    Nothing is sorted, filtered or counted here; ``total`` and ``shown`` are the daemon's.
+    """
+    by_id = {
+        str(item.get("id")): item
+        for item in payload.get("items") or []
+        if isinstance(item, Mapping)
+    }
+    ranker = str(payload.get("ranker", "?"))
+    fallback = payload.get("ranker_fallback")
+    head = f"ranker {ranker}" + (f" (failed; {fallback} answered)" if fallback else "")
+    head += f" · {payload.get('shown', 0)} of {payload.get('total', 0)} items"
+    if payload.get("query"):
+        head += f" · search {payload['query']!r}"
+    parts = [_clip(head, width)]
+    for group in payload.get("days") or []:
+        if not isinstance(group, Mapping):
+            continue
+        parts += ["", _day_label(group.get("day"))]
+        for item_id in group.get("items") or []:
+            item = by_id.get(str(item_id))
+            if item is None:
+                continue
+            parts += _item_lines(item, width)
+    if not by_id:
+        parts += ["", "no items"]
+    return "\n".join(parts)
+
+
+def _item_lines(item: Row, width: int) -> list[str]:
+    tickets = item.get("tickets")
+    places = item.get("places")
+    apps = list(
+        dict.fromkeys(  # first-seen order, each label once
+            str(place.get("label"))
+            for place in places or []
+            if isinstance(place, Mapping) and place.get("label")
+        )
+    )
+    state = item.get("state")
+    columns = [
+        str(item.get("name", "?")),
+        ",".join(tickets) if isinstance(tickets, list) and tickets else _DASH,
+        _duration(item.get("seconds_today")),
+        ",".join(apps) or _DASH,
+        ",".join(state) if isinstance(state, list) and state else _DASH,
+    ]
+    lines = ["  " + _clip(" · ".join(columns), width - 2)]
+    if item.get("summary"):
+        lines.append("    " + _clip(str(item["summary"]), width - 4))
+    if item.get("explanation"):
+        lines.append("    · " + _clip(str(item["explanation"]), width - 6))
+    return lines
+
+
+def _ranker_origin(row: Row) -> str:
+    distribution = row.get("distribution")
+    if not distribution:
+        return str(row.get("origin", "?"))
+    version = row.get("version")
+    return f"{row.get('origin', '?')} ({distribution}{f'@{version}' if version else ''})"
+
+
+def render_rankers(payload: Row, width: int = DEFAULT_WIDTH) -> str:
+    """The ``rankers`` answer: every discovered ranker and which one is the default in effect."""
+    rows = [row for row in payload.get("rankers") or [] if isinstance(row, Mapping)]
+    default = str(payload.get("default", "?"))
+    configured = str(payload.get("configured_default", default))
+    note = f"default in effect: {default}"
+    if configured != default:
+        note += f" (configured: {configured}, not loaded)"
+    if not rows:
+        return "no rankers\n" + note
+    body = []
+    for row in rows:
+        name = str(row.get("name", "?"))
+        if row.get("error"):
+            loaded = f"error: {row['error']}"
+        else:
+            loaded = "loaded" if row.get("loaded") else "not loaded"
+        body.append(
+            [
+                name + ("*" if name == default else ""),
+                _ranker_origin(row),
+                "enabled" if row.get("enabled") else "disabled",
+                loaded,
+                str(row.get("description") or _DASH),
+            ]
+        )
+    return table(["NAME", "ORIGIN", "ENABLED", "LOADED", "DESCRIPTION"], body, width) + "\n" + note
