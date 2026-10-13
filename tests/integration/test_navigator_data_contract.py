@@ -37,7 +37,7 @@ from api_support import (
 from pydantic import BaseModel
 
 from fylgja.api.app import create_app
-from fylgja.api.inspect_models import InspectCollectors
+from fylgja.api.inspect_models import InspectCollectors, InspectPipeline
 from fylgja.api.items_models import Items, Rankers
 from fylgja.api.view_models import Overview
 from fylgja.core.daemon import Daemon
@@ -250,6 +250,8 @@ INSPECT_VARIABLES: dict[str, str] = {
     "rc": "RecordCounts",
     "kc": "KindCount",
     "sw": "AppleScriptSwitch",
+    "pipe": "InspectPipeline",
+    "fc": "FlowCount",
 }
 INSPECT_FIELDS: dict[str, set[str]] = {
     "InspectCollectors": {
@@ -286,6 +288,41 @@ INSPECT_FIELDS: dict[str, set[str]] = {
     "RecordCounts": {"accepted", "dropped", "kinds", "last_at", "lost", "rejected"},
     "KindCount": {"accepted", "entity_kind", "last_at", "record_type"},
     "AppleScriptSwitch": {"configured", "doctor_at", "doctor_ok", "doctor_reason", "name"},
+    "InspectPipeline": {
+        "collectors_running",
+        "events.clients",
+        "events.max_clients",
+        "flows",
+        "gate.accepted",
+        "gate.dropped",
+        "gate.lost",
+        "gate.rejected",
+        "generated_at",
+        "live_view.rows",
+        "live_view.version",
+        "messaging_enabled",
+        "privacy.ignore_bundle_ids",
+        "privacy.ignore_title_patterns",
+        "privacy.redact_patterns",
+        "started_at",
+        "summaries.cached",
+        "summaries.calls",
+        "summaries.enabled",
+        "summaries.jobs",
+        "summaries.max_concurrent",
+        "summaries.running",
+        "summaries.ttl_seconds",
+        "writer.batch_max",
+        "writer.batch_mean",
+        "writer.duplicates",
+        "writer.failed_items",
+        "writer.failed_transactions",
+        "writer.items",
+        "writer.pending",
+        "writer.running",
+        "writer.transactions",
+    },
+    "FlowCount": {"accepted", "collector", "entity_kind", "last_at", "record_type"},
 }
 
 Resolver = Callable[[str, str], bool]
@@ -435,7 +472,7 @@ def test_the_recall_tab_reads_nothing_from_now() -> None:
 
 def test_every_field_the_collectors_tab_reads_exists_in_the_inspect_model() -> None:
     _assert_declared_fields_exist(
-        INSPECT_FIELDS, _model_resolver(InspectCollectors), "InspectCollectors"
+        INSPECT_FIELDS, _model_resolver(InspectCollectors, InspectPipeline), "the inspect models"
     )
     schema = InspectCollectors.model_json_schema(by_alias=True, mode="serialization")
     assert schema["properties"]["schema"]["const"] == "fylgja.inspect.collectors/1"
@@ -568,6 +605,19 @@ async def test_inspect_collectors_has_every_root_field_the_page_reads(
     for collector in body["collectors"]:
         assert {"name", "origin", "state", "enabled", "loaded", "health"} <= set(collector)
         assert "state" in collector["health"]
+
+
+async def test_inspect_pipeline_has_every_root_field_the_page_reads(
+    http: httpx.AsyncClient,
+) -> None:
+    answer = await http.get("/inspect/pipeline")
+    assert answer.status_code == 200
+    body = answer.json()
+    assert body["schema"] == "fylgja.inspect.pipeline/1"
+    for name in _root_fields(INSPECT_FIELDS["InspectPipeline"]) - {"started_at"}:
+        assert name in body, name
+    for flow in body["flows"]:
+        assert {"collector", "entity_kind", "record_type", "accepted"} <= set(flow)
 
 
 async def test_todos_answers_the_raw_tab(http: httpx.AsyncClient) -> None:

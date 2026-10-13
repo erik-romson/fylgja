@@ -70,6 +70,7 @@
   <a href="#live" data-tab="live">Live data</a>
   <a href="#todos" data-tab="todos">Todos</a>
   <a href="#collectors" data-tab="collectors">Collectors</a>
+  <a href="#flow" data-tab="flow">Data flow</a>
 </nav>
 <select id="ranker" aria-label="Order" hidden></select>
 <p id="status" role="status"></p>
@@ -123,6 +124,21 @@
   <p class="muted intro">Reported, never run. The check is the last one <code>fylgja doctor</code> recorded.</p>
   <table id="switch-table"></table>
 </section>
+<section id="tab-flow" data-tab="flow" hidden>
+  <p class="muted intro">How a record gets from a collector to the page. The text is fixed; the numbers are what the daemon counted since it started.</p>
+  <ol id="flow-stages">
+    <li id="flow-collectors"><strong>Collectors.</strong> Each enabled collector runs as its own task; a crash restarts after a backoff.<div class="muted live"></div></li>
+    <li id="flow-gate"><strong>Ingest gate.</strong> Validation, source, capability and timestamp window.<div class="muted live"></div></li>
+    <li id="flow-privacy"><strong>Privacy filter.</strong> Ignored apps and titles are dropped; secrets are redacted.<div class="muted live"></div></li>
+    <li id="flow-writer"><strong>Writer.</strong> One writer, batched transactions.<div class="muted live"></div></li>
+    <li id="flow-store"><strong>Store.</strong> SQLite; raw events are kept 30 days.<div class="muted live"></div></li>
+    <li id="flow-live"><strong>Live view.</strong> The in-memory current model; every change bumps the version.<div class="muted live"></div></li>
+    <li id="flow-api"><strong>API.</strong> <code>/now</code> and the SSE event <code>now.changed</code>.<div class="muted live"></div></li>
+  </ol>
+  <div id="flow-side"></div>
+  <h2>Records by collector and kind</h2>
+  <table id="flow-matrix"></table>
+</section>
 <script>
 "use strict";
 const secret = document.querySelector('meta[name="fylgja-secret"]').content;
@@ -140,6 +156,8 @@ const todoTable = document.getElementById("all-todo-list");
 const collectorTable = document.getElementById("collector-table");
 const notInstalled = document.getElementById("not-installed");
 const switchTable = document.getElementById("switch-table");
+const flowSide = document.getElementById("flow-side");
+const flowMatrix = document.getElementById("flow-matrix");
 const rankerSelect = document.getElementById("ranker");
 const search = document.getElementById("recall-search");
 const awayBanner = document.getElementById("away-banner");
@@ -825,11 +843,63 @@ async function loadCollectors() {
 
 document.getElementById("collectors-refresh").addEventListener("click", () => { refresh(true); });
 
+// ---- Data flow: fixed text in the page, the numbers from /inspect/pipeline ----
+
+function setLive(stage, text) {
+  document.querySelector("#flow-" + stage + " .live").textContent = text;
+}
+
+function flowRow(fc) {
+  return {
+    cells: [fc.collector, fc.entity_kind, fc.record_type, String(fc.accepted), fmtTime(fc.last_at)],
+  };
+}
+
+function renderStages(pipe) {
+  const rejected = Object.entries(pipe.gate.rejected).map(([reason, count]) => reason + " " + count);
+  setLive("collectors", pipe.collectors_running + " running"
+    + (pipe.started_at ? " · daemon started " + fmtTime(pipe.started_at) : ""));
+  setLive("gate", pipe.gate.accepted + " accepted · rejected " + rejected.join(", ")
+    + " · " + pipe.gate.lost + " lost");
+  setLive("privacy", pipe.gate.dropped + " dropped · " + pipe.privacy.redact_patterns
+    + " redact patterns · " + pipe.privacy.ignore_bundle_ids + " ignored apps · "
+    + pipe.privacy.ignore_title_patterns + " ignored title patterns");
+  setLive("writer", (pipe.writer.running ? "running" : "stopped") + " · " + pipe.writer.pending + " pending · "
+    + pipe.writer.transactions + " transactions · " + pipe.writer.items + " items · " + pipe.writer.duplicates
+    + " duplicates · " + pipe.writer.failed_items + " failed items · " + pipe.writer.failed_transactions
+    + " failed transactions · batch max " + pipe.writer.batch_max + ", mean " + pipe.writer.batch_mean.toFixed(1));
+  setLive("store", "");
+  const rows = Object.entries(pipe.live_view.rows).map(([name, count]) => name + " " + count);
+  setLive("live", "version " + pipe.live_view.version + (rows.length > 0 ? " · " + rows.join(", ") : ""));
+  setLive("api", pipe.events.clients + " of " + pipe.events.max_clients + " event clients");
+}
+
+function renderFlowSide(pipe) {
+  const box = el("div");
+  box.append(el("h2", "", "Summaries"));
+  box.append(el("p", "", pipe.summaries.enabled
+    ? "On · " + pipe.summaries.running + " running · " + pipe.summaries.calls + " calls · " + pipe.summaries.cached + " cached · "
+      + pipe.summaries.jobs + " jobs · ttl " + fmtDuration(pipe.summaries.ttl_seconds) + " · up to " + pipe.summaries.max_concurrent + " at once"
+    : "Off. Set [summaries] enabled = true to let a local model write stories."));
+  box.append(el("h2", "", "Messaging"));
+  box.append(el("p", "", pipe.messaging_enabled ? "On" : "Off. Set [actions.message] enabled = true to allow sending."));
+  flowSide.replaceChildren(box);
+}
+
+async function loadFlow() {
+  const pipe = await call("GET", "/inspect/pipeline");
+  renderStages(pipe);
+  renderFlowSide(pipe);
+  flowMatrix.replaceChildren(el("caption", "muted", "As of " + fmtTime(pipe.generated_at)));
+  fillTable(flowMatrix, ["Collector", "Entity kind", "Record type", "Accepted", "Last"],
+    pipe.flows.map(flowRow));
+}
+
 // ---- tabs: one loader each, only the visible one is fetched ----
 
 const TABS = {
   overview: loadOverview, recall: loadRecall, live: loadLive, todos: loadTodos,
-  collectors: loadCollectors,
+  collectors: loadCollectors, flow: loadFlow,
 };
 
 // Diagnostic tabs reload at most this far apart after a live change. The clock only spaces reloads.

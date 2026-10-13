@@ -80,6 +80,17 @@ STATIC_IDS = {
     "switch-table": "table",
     "not-installed": "ul",
     "collectors-refresh": "button",
+    "tab-flow": "section",
+    "flow-stages": "ol",
+    "flow-collectors": "li",
+    "flow-gate": "li",
+    "flow-privacy": "li",
+    "flow-writer": "li",
+    "flow-store": "li",
+    "flow-live": "li",
+    "flow-api": "li",
+    "flow-side": "div",
+    "flow-matrix": "table",
 }
 
 
@@ -264,7 +275,7 @@ def test_tabs_route_by_hash_and_load_only_the_visible_tab() -> None:
     views = set(re.findall(r'data-tab="(\w+)"', source))
     assert views
     assert views <= keys
-    assert keys == {"overview", "recall", "live", "todos", "collectors"}
+    assert keys == {"overview", "recall", "live", "todos", "collectors", "flow"}
 
 
 def test_the_sessions_tab_never_renders_prompt_text() -> None:
@@ -352,3 +363,13 @@ def test_the_collectors_tab_reads_the_inspect_route_and_the_throttle_spaces_relo
     assert script.count("Date.now()") == 2
     assert "setInterval" not in script
     assert script.count("setTimeout(connect, delay)") == 1
+
+
+def test_the_flow_tab_reads_the_pipeline_route_and_has_one_throttle() -> None:
+    script = _script(_source())
+    body = re.search(r"async function loadFlow\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/inspect/pipeline"]
+    assert "flow: loadFlow" in script
+    assert script.count("MIN_GAP_MS =") == 1
+    assert "Set [summaries] enabled = true" in script
