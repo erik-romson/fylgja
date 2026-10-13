@@ -273,14 +273,25 @@ class TodoService:
         scope_kind: str | None = None,
         scope_ref: str | None = None,
         statuses: Collection[str] = (),
+        order: str = "created",
+        limit: int | None = None,
     ) -> list[TodoRow]:
-        """Todos that are not deleted, oldest first; with no statuses, every status."""
+        """Todos that are not deleted; with no statuses, every status.
+
+        Oldest first by default; ``order="done_desc"`` puts the latest finished first. ``limit``
+        caps the answer.
+        """
         for status in statuses:
             _check_status(status)
         return await asyncio.to_thread(
             self._read,
             lambda c: queries.list_todos(
-                c, scope_kind=scope_kind, scope_ref=scope_ref, statuses=statuses
+                c,
+                scope_kind=scope_kind,
+                scope_ref=scope_ref,
+                statuses=statuses,
+                order=order,
+                limit=limit,
             ),
         )
 

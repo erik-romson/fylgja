@@ -66,6 +66,7 @@
   <a href="#overview" data-tab="overview">Overview</a>
   <a href="#recall" data-tab="recall">Recall</a>
   <a href="#live" data-tab="live">Live data</a>
+  <a href="#todos" data-tab="todos">Todos</a>
 </nav>
 <select id="ranker" aria-label="Order" hidden></select>
 <p id="status" role="status"></p>
@@ -95,6 +96,18 @@
   <h2>Sessions</h2>
   <p class="muted intro">Every live agent session as /now reports it. Click one to focus it.</p>
   <table id="session-table"></table>
+  <h2>Windows</h2>
+  <p class="muted intro">The focused window and every window per workspace, with the context found in it. Click a window to focus it.</p>
+  <div id="focus-panel"></div>
+  <div id="window-list"></div>
+  <h2>Projects</h2>
+  <p class="muted intro">Every project with its git, pull request and build state, and the usage of each provider.</p>
+  <table id="project-table"></table>
+  <table id="usage-table"></table>
+</section>
+<section id="tab-todos" data-tab="todos" hidden>
+  <p class="muted intro">Next, open and the newest finished todos, in the order the daemon gives. Add and finish them on Overview.</p>
+  <table id="all-todo-list"></table>
 </section>
 <script>
 "use strict";
@@ -105,6 +118,11 @@ const statusLine = document.getElementById("status");
 const strip = document.getElementById("next-strip");
 const cards = document.getElementById("workspace-cards");
 const sessionTable = document.getElementById("session-table");
+const focusPanel = document.getElementById("focus-panel");
+const windowList = document.getElementById("window-list");
+const projectTable = document.getElementById("project-table");
+const usageTable = document.getElementById("usage-table");
+const todoTable = document.getElementById("all-todo-list");
 const rankerSelect = document.getElementById("ranker");
 const search = document.getElementById("recall-search");
 const awayBanner = document.getElementById("away-banner");
@@ -520,8 +538,7 @@ function sessionRow(s, child) {
   };
 }
 
-async function loadLive() {
-  const now = await call("GET", "/now");
+function renderSessions(now) {
   const rows = [];
   const walk = (items, child) => (items || []).forEach((s) => {
     rows.push(sessionRow(s, child));
@@ -537,9 +554,154 @@ async function loadLive() {
     rows);
 }
 
+// ---- live data: windows and the focus ----
+
+function renderFocus(now) {
+  const f = now.focused;
+  const pres = now.presence;
+  const lines = [];
+  if (f) {
+    lines.push(el("p", "", "Focused: " + (f.app_name || "") + " · " + (f.bundle_id || "") + " · " + (f.title || "")
+      + (f.workspace ? " · ws " + f.workspace : "") + (f.since ? " · since " + fmtTime(f.since) : "")));
+  } else {
+    lines.push(el("p", "muted", "No focused window"));
+  }
+  if (pres) {
+    lines.push(el("p", "", "Presence: " + (pres.state || "") + " · " + (pres.source || "")
+      + (pres.in_call ? " · in a call" : "") + (pres.since ? " · since " + fmtTime(pres.since) : "")
+      + (pres.observed_at ? " · seen " + fmtTime(pres.observed_at) : "")));
+  }
+  focusPanel.replaceChildren(...lines);
+}
+
+function contextItemLine(c) {
+  const parts = [c.kind, c.source, c.title || "", c.confidence || ""];
+  if (c.unread) { parts.push(c.unread === true ? "unread" : "unread " + c.unread); }
+  if (c.observed_at) { parts.push(fmtTime(c.observed_at)); }
+  return el("li", "", parts.join(" · "));
+}
+
+function windowRow(win) {
+  const title = el("div", "", win.title || "");
+  const contexts = win.context || [];
+  if (contexts.length > 0) {
+    const ul = el("ul");
+    ul.append(...contexts.map(contextItemLine));
+    title.append(ul);
+  }
+  return {
+    cells: [win.app || "", win.bundle_id || "", title, win.focused ? "focused" : ""],
+    onClick: () => focusWindow(win.id),
+  };
+}
+
+function renderWindows(now) {
+  const blocks = [];
+  for (const w of now.workspaces || []) {
+    const wins = w.windows || [];
+    if (wins.length === 0) { continue; }
+    const table = el("table");
+    fillTable(table, ["App", "Bundle id", "Title and context", "Focus"], wins.map(windowRow));
+    blocks.push(el("h3", "", "Workspace " + w.name + (w.label ? " " + w.label : "")), table);
+  }
+  if (blocks.length === 0) { blocks.push(el("p", "muted", "No windows")); }
+  windowList.replaceChildren(...blocks);
+}
+
+// ---- live data: projects and usage ----
+
+function workflowText(wf) {
+  return wf.workflow + " " + (wf.state || "") + (wf.conclusion ? " " + wf.conclusion : "");
+}
+
+function projectRow(p) {
+  const git = [p.branch || ""];
+  if (p.dirty) { git.push("dirty " + (p.dirty_count || "")); }
+  if (p.ahead || p.behind) { git.push("+" + (p.ahead || 0) + " -" + (p.behind || 0)); }
+  const pr = p.pr ? "#" + p.pr.number + " " + (p.pr.state || "") + " " + (p.pr.review_decision || "")
+    + " " + (p.pr.checks || "") : "";
+  const build = p.build ? (p.build.state || "") + " " + (p.build.freshness || "")
+    + (p.build.error_kind ? " " + p.build.error_kind : "") : "";
+  const flows = p.build && p.build.workflows ? p.build.workflows.map(workflowText).join("; ") : "";
+  return {
+    cells: [
+      p.name, p.path || "", p.workspace || "", git.join(" · "), p.last_commit_at ? fmtTime(p.last_commit_at) : "",
+      pr, build, flows, (p.sessions || []).join(", "),
+    ],
+  };
+}
+
+function usageRow(prov) {
+  const pct = prov.used_pct !== undefined && prov.used_pct !== null ? prov.used_pct + "%" : "";
+  return {
+    cells: [
+      prov.provider, prov.window || "", pct, prov.resets_at ? fmtTime(prov.resets_at) : "",
+      prov.freshness || "", prov.error_kind || "", prov.source || "", prov.observed_at ? fmtTime(prov.observed_at) : "",
+    ],
+  };
+}
+
+function renderProjects(now) {
+  const projects = now.projects || [];
+  if (projects.length === 0) {
+    projectTable.replaceChildren(el("caption", "muted", "No projects"));
+  } else {
+    fillTable(projectTable,
+      ["Name", "Path", "Workspace", "Git", "Last commit", "Pull request", "Build", "Workflows", "Sessions"],
+      projects.map(projectRow));
+  }
+  const providers = now.usage && now.usage.providers ? now.usage.providers : [];
+  if (providers.length === 0) {
+    usageTable.replaceChildren(el("caption", "muted", "No usage data"));
+    return;
+  }
+  fillTable(usageTable,
+    ["Provider", "Window", "Used", "Resets", "Freshness", "Error", "Source", "Seen"],
+    providers.map(usageRow));
+}
+
+// One /now fetch fills the three parts.
+async function loadLive() {
+  const now = await call("GET", "/now");
+  renderSessions(now);
+  renderFocus(now);
+  renderWindows(now);
+  renderProjects(now);
+}
+
+// ---- todos: next, open and the newest finished, each group as the daemon orders it ----
+
+function todoGroupRows(title, todos) {
+  const rows = [{ cells: [el("strong", "", title), "", "", "", "", ""], className: "group" }];
+  if (todos.length === 0) { rows.push({ cells: [el("span", "muted", "None"), "", "", "", "", ""] }); }
+  for (const t of todos) {
+    rows.push({
+      cells: [
+        t.text, t.scope_kind + (t.scope_ref ? " " + t.scope_ref : ""), t.status, t.source || "",
+        fmtTime(t.created_at), t.done_at ? fmtTime(t.done_at) : "",
+      ],
+    });
+  }
+  return rows;
+}
+
+async function loadTodos() {
+  const [next, open, done] = await Promise.all([
+    call("GET", "/todos?status=next"),
+    call("GET", "/todos?status=open"),
+    call("GET", "/todos?status=done&order=done_desc&limit=200"),
+  ]);
+  const rows = [
+    ...todoGroupRows("Next", next),
+    ...todoGroupRows("Open", open),
+    ...todoGroupRows("Done (newest 200)", done),
+  ];
+  fillTable(todoTable, ["Todo", "Scope", "Status", "Source", "Created", "Done"], rows);
+}
+
 // ---- tabs: one loader each, only the visible one is fetched ----
 
-const TABS = { overview: loadOverview, recall: loadRecall, live: loadLive };
+const TABS = { overview: loadOverview, recall: loadRecall, live: loadLive, todos: loadTodos };
 
 function currentTab() {
   const name = location.hash.substring(1);

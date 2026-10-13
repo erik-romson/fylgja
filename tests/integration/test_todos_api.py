@@ -190,6 +190,44 @@ async def test_the_filters(http: httpx.AsyncClient) -> None:
     assert await ids("?ws=nope") == []
 
 
+async def _finish(http: httpx.AsyncClient, text: str) -> str:
+    created = await add(http, text, ws="1")
+    response = await http.patch(f"/todos/{created['id']}", headers=AUTH, json={"status": "done"})
+    assert response.status_code == 200
+    return str(created["id"])
+
+
+async def test_order_done_desc_lists_the_latest_finished_first(http: httpx.AsyncClient) -> None:
+    first = await _finish(http, "one")
+    await add(http, "still open", ws="1")
+    second = await _finish(http, "two")
+    third = await _finish(http, "three")
+    newest = await listing(http, "?status=done&order=done_desc")
+    assert [t["id"] for t in newest] == [third, second, first]
+    default = await listing(http, "?status=done")
+    assert [t["id"] for t in default] == [first, second, third]
+    explicit = await listing(http, "?status=done&order=created")
+    assert [t["id"] for t in explicit] == [first, second, third]
+
+
+async def test_limit_caps_the_answer_after_ordering(http: httpx.AsyncClient) -> None:
+    await _finish(http, "one")
+    second = await _finish(http, "two")
+    third = await _finish(http, "three")
+    capped = await listing(http, "?status=done&order=done_desc&limit=2")
+    assert [t["id"] for t in capped] == [third, second]
+    assert len(await listing(http, "?limit=1")) == 1
+    assert len(await listing(http, "?limit=1000")) == 3
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["?limit=0", "?limit=1001", "?limit=-1", "?limit=many", "?order=newest", "?order="],
+)
+async def test_a_bad_order_or_limit_is_a_422(http: httpx.AsyncClient, query: str) -> None:
+    assert (await http.get(f"/todos{query}")).status_code == 422
+
+
 @pytest.mark.parametrize("query", ["?status=blocked", "?status=open,blocked", "?ws=1&project=/p"])
 async def test_a_bad_filter_is_a_422(http: httpx.AsyncClient, query: str) -> None:
     assert (await http.get(f"/todos{query}")).status_code == 422

@@ -67,9 +67,21 @@ PAGE_VARIABLES: dict[str, str] = {
     "todo": "Todo",
     "t": "Todo",
     "n": "NextItem",
+    "f": "Focused",
+    "pres": "Presence",
+    "wf": "BuildWorkflow",
+    "prov": "UsageProvider",
 }
 PAGE_FIELDS: dict[str, set[str]] = {
-    ROOT: {"sessions"},
+    ROOT: {
+        "focused",
+        "presence",
+        "projects",
+        "sessions",
+        "usage",
+        "usage.providers",
+        "workspaces",
+    },
     "Session": {
         "children",
         "context_pct",
@@ -92,6 +104,45 @@ PAGE_FIELDS: dict[str, set[str]] = {
         "waiting_reason",
     },
     "Host": {"confidence", "kind", "unresolved", "via", "workspace"},
+    "Workspace": {"label", "name", "windows"},
+    "Window": {"app", "bundle_id", "context", "focused", "id", "title"},
+    "ContextItem": {"confidence", "kind", "observed_at", "source", "title", "unread"},
+    "Focused": {"app_name", "bundle_id", "since", "title", "workspace"},
+    "Presence": {"in_call", "observed_at", "since", "source", "state"},
+    "Project": {
+        "ahead",
+        "behind",
+        "branch",
+        "build",
+        "build.error_kind",
+        "build.freshness",
+        "build.state",
+        "build.workflows",
+        "dirty",
+        "dirty_count",
+        "last_commit_at",
+        "name",
+        "path",
+        "pr",
+        "pr.checks",
+        "pr.number",
+        "pr.review_decision",
+        "pr.state",
+        "sessions",
+        "workspace",
+    },
+    "BuildWorkflow": {"conclusion", "state", "workflow"},
+    "UsageProvider": {
+        "error_kind",
+        "freshness",
+        "observed_at",
+        "provider",
+        "resets_at",
+        "source",
+        "used_pct",
+        "window",
+    },
+    "Todo": {"created_at", "done_at", "scope_kind", "scope_ref", "source", "status", "text"},
 }
 
 # The Overview renders ``GET /view/overview`` (``fylgja.view.overview/1``) only. Its variables, the
@@ -444,6 +495,20 @@ async def test_items_and_rankers_have_what_the_recall_tab_reads(http: httpx.Asyn
     stale = (await http.get("/rankers", params={"rank": "no-such-ranker"})).json()
     assert stale["stale_choice"] is True
     assert stale["selected"] == stale["default"]
+
+
+async def test_todos_answers_the_raw_tab(http: httpx.AsyncClient) -> None:
+    response = await http.get("/todos?status=open,next,done")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+    for query in (
+        "/todos?status=next",
+        "/todos?status=open",
+        "/todos?status=done&order=done_desc&limit=200",
+    ):
+        answer = await http.get(query)
+        assert answer.status_code == 200, query
+        assert isinstance(answer.json(), list), query
 
 
 async def test_next_answers_as_the_page_expects(http: httpx.AsyncClient) -> None:

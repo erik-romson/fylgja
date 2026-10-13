@@ -7,6 +7,9 @@ The read needs no authentication. The three writes are mutating routes, so the m
 * ``GET /todos?ws=&project=&session=&status=``: at most one scope filter; ``status`` is a comma
   separated list of ``open``, ``next`` and ``done`` (default: every status). Deleted todos are
   never returned. The answer is a list of the ``/now`` ``Todo`` model, oldest first.
+  ``order`` is ``created`` (the default, oldest first) or ``done_desc`` (latest finished first);
+  ``limit`` (1 to 1000, default: no cap) keeps the first rows of that order. Both are **422**
+  outside their values. The Todos tab asks for ``status=done&order=done_desc&limit=200``.
 * ``POST /todos``: ``{"text": "...", "ws"|"project"|"session": "...", "status"?: "open"|"next",
   "link"?: "..."}``. Without a scope the todo belongs to the focused workspace (**409** when none is
   focused). Answers **201** with the todo.
@@ -44,6 +47,7 @@ __all__ = ["router"]
 router = APIRouter()
 
 _STATUS_NAMES: Final = ("open", "next", "done")
+_ORDER_NAMES: Final = ("created", "done_desc")
 
 
 class _Body(BaseModel):
@@ -96,8 +100,12 @@ async def list_todos(
     project: Annotated[str | None, Query(max_length=1024)] = None,
     session: Annotated[str | None, Query(max_length=1024)] = None,
     status: Annotated[str | None, Query(max_length=64)] = None,
+    order: Annotated[str, Query(max_length=16)] = "created",
+    limit: Annotated[int | None, Query(ge=1, le=1000)] = None,
 ) -> Response:
     scope = _scope(ws, project, session)
+    if order not in _ORDER_NAMES:
+        raise HTTPException(status_code=422, detail="order must be created or done_desc")
     statuses = [s for s in (status or "").split(",") if s]
     if any(s not in _STATUS_NAMES for s in statuses):
         raise HTTPException(status_code=422, detail="status must be open, next or done")
@@ -105,6 +113,8 @@ async def list_todos(
         scope_kind=None if scope is None else scope[0],
         scope_ref=None if scope is None else scope[1],
         statuses=statuses,
+        order=order,
+        limit=limit,
     )
     return json_response(dump_json([todo_model(r) for r in rows], kind=Todo))
 

@@ -1199,8 +1199,14 @@ def list_todos(
     scope_kind: str | None = None,
     scope_ref: str | None = None,
     statuses: Collection[str] = (),
+    order: str = "created",
+    limit: int | None = None,
 ) -> list[TodoRow]:
-    """Todos that are not deleted, oldest first, optionally of one scope and some statuses."""
+    """Todos that are not deleted, optionally of one scope and some statuses.
+
+    ``order`` is ``created`` (oldest first, the default) or ``done_desc`` (latest finished first);
+    ``limit`` caps the answer (default: no cap).
+    """
     clauses = ["deleted_at IS NULL"]
     params: list[str] = []
     if scope_kind is not None:
@@ -1214,8 +1220,13 @@ def list_todos(
         clauses.append(f"status IN ({', '.join('?' for _ in ordered)})")
         params.extend(ordered)
     where = " AND ".join(clauses)
-    sql = f"SELECT {_TODO_COLUMNS} FROM todos WHERE {where} ORDER BY created_at, rowid"
-    return [TodoRow.from_db(row) for row in connection.execute(sql, params)]
+    ordering = "done_at DESC, rowid DESC" if order == "done_desc" else "created_at, rowid"
+    sql = f"SELECT {_TODO_COLUMNS} FROM todos WHERE {where} ORDER BY {ordering}"
+    bound: list[str | int] = [*params]
+    if limit is not None:
+        sql += " LIMIT ?"
+        bound.append(limit)
+    return [TodoRow.from_db(row) for row in connection.execute(sql, bound)]
 
 
 # Imported lists (WP4.3). The rows of one list share a source and a ``source_ref`` prefix

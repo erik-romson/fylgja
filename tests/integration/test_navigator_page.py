@@ -68,6 +68,12 @@ STATIC_IDS = {
     "recall-search": "input",
     "recall-list": "div",
     "session-table": "table",
+    "focus-panel": "div",
+    "window-list": "div",
+    "project-table": "table",
+    "usage-table": "table",
+    "tab-todos": "section",
+    "all-todo-list": "table",
 }
 
 
@@ -252,7 +258,7 @@ def test_tabs_route_by_hash_and_load_only_the_visible_tab() -> None:
     views = set(re.findall(r'data-tab="(\w+)"', source))
     assert views
     assert views <= keys
-    assert keys == {"overview", "recall", "live"}
+    assert keys == {"overview", "recall", "live", "todos"}
 
 
 def test_the_sessions_tab_never_renders_prompt_text() -> None:
@@ -284,3 +290,35 @@ def test_recall_shows_folder_summaries_when_enabled() -> None:
     assert "itemRow(byId.get(id), itms.summaries_enabled)" in script
     assert '"/summaries/day/" + encodeURIComponent(grp.day)' in script
     assert "if (itms.summaries_enabled)" in script
+
+
+def test_live_data_fills_three_parts_from_one_now_fetch() -> None:
+    script = _script(_source())
+    body = re.search(r"async function loadLive\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/now"]
+    for part in ("renderSessions(now)", "renderWindows(now)", "renderProjects(now)"):
+        assert part in body.group(1), part
+    assert "focusWindow(win.id)" in script  # a window row focuses its window
+    # Windows and Projects are parts of Live data (Q1), not tabs of their own
+    source = _source()
+    for gone in ("loadWindows", "loadProjects", "loadSessions"):
+        assert gone not in script, gone
+    assert 'data-tab="windows"' not in source
+    assert 'data-tab="projects"' not in source
+
+
+def test_the_todos_tab_is_read_only_and_asks_the_daemon_for_each_group() -> None:
+    script = _script(_source())
+    body = re.search(r"async function loadTodos\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == [
+        "/todos?status=next",
+        "/todos?status=open",
+        "/todos?status=done&order=done_desc&limit=200",
+    ]
+    assert "Promise.all" in body.group(1)
+    assert '"Done (newest 200)"' in body.group(1)
+    # the Done button and its ids belong to Overview alone
+    assert script.count('"todo-done-"') == 1
+    assert "newest 200 shown" not in script
