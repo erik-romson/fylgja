@@ -191,6 +191,18 @@ session (decision 0050). Absent when there is none.
 marks the `default` one, shows `selected`, and clears its stored choice when `stale_choice` is true. When the default
 in effect is the `natural` floor, no choice is the default and `selected` is `natural`.
 
+## `GET /now?rank=` and `GET /view/overview?rank=`
+
+The workspace order of `/now` is "ranked by `?rank` or `[items] default_ranker`". `GET /now?rank=<name>` and
+`GET /view/overview?rank=<name>` order `workspaces[]` (the Overview: `cards[]`) by the ranker's workspace order.
+A workspace the order does not name keeps its natural place after those it does. Without `rank`, both follow
+`[items] default_ranker` (packaged `frecency`), falling back to the `natural` floor when that ranker is not
+loaded. A `rank` that names no loaded ranker and is not `natural` is a **422**, as on `GET /items`.
+
+`/now` keeps `fylgja.now/1` exactly: only the order of `workspaces[]` changes. With no spans and no state every
+score ties and the tie break is natural order, so a fresh daemon answers in today's order. A client that needs
+number order passes `?rank=workspace`. `fylgja now` and `fylgja ws` follow the default.
+
 ## Privacy
 
 Items are built from `/now` and from the stored focus spans, both redacted at ingest, so every title is one that

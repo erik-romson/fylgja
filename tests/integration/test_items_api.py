@@ -620,6 +620,58 @@ async def test_items_need_no_authentication_and_are_never_cached() -> None:
 
 
 # --------------------------------------------------------------------------------------------
+# ?rank= on /now and /view/overview
+# --------------------------------------------------------------------------------------------
+
+
+def workspace_names(body: dict[str, Any]) -> list[str]:
+    return [workspace["name"] for workspace in body["workspaces"]]
+
+
+def card_names(body: dict[str, Any]) -> list[str]:
+    return [card["name"] for card in body["cards"]]
+
+
+async def test_now_orders_workspaces_by_the_ranker() -> None:
+    async with world() as daemon:
+        natural = await get(daemon, "/now?rank=workspace")
+        ranked = await get(daemon, "/now?rank=frecency")
+    assert workspace_names(natural) == ["1", "2", "3"]
+    # the focused workspace of the latest working time comes first
+    assert workspace_names(ranked) == ["3", "2", "1"]
+    assert {k: v for k, v in natural.items() if k != "workspaces"} == {
+        k: v for k, v in ranked.items() if k != "workspaces"
+    }
+
+
+async def test_now_without_rank_uses_the_default_ranker() -> None:
+    async with world() as daemon:
+        bare = await get(daemon, "/now")
+        named = await get(daemon, f"/now?rank={daemon.effective_default_ranker}")
+        floor = await get(daemon, "/now?rank=natural")
+    assert bare == named
+    assert workspace_names(bare) == ["3", "2", "1"]
+    assert workspace_names(floor) == ["1", "2", "3"]
+
+
+@pytest.mark.parametrize("path", ["/now", "/view/overview"])
+async def test_now_with_an_unknown_rank_is_422(path: str) -> None:
+    async with world() as daemon:
+        body = await get(daemon, f"{path}?rank=nope", status=422)
+    assert "nope" not in json.dumps(body) or "rank must name a loaded ranker" in json.dumps(body)
+
+
+async def test_overview_view_orders_cards_by_the_ranker() -> None:
+    async with world() as daemon:
+        natural = await get(daemon, "/view/overview?rank=workspace")
+        ranked = await get(daemon, "/view/overview?rank=frecency")
+        bare = await get(daemon, "/view/overview")
+    assert card_names(natural) == ["2", "3"]
+    assert card_names(ranked) == ["3", "2"]
+    assert card_names(bare) == card_names(ranked)
+
+
+# --------------------------------------------------------------------------------------------
 # /rankers
 # --------------------------------------------------------------------------------------------
 

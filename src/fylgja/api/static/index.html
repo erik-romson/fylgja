@@ -318,7 +318,8 @@ function renderTodos(ov) {
 // ---- data ----
 
 async function loadOverview() {
-  const ov = await call("GET", "/view/overview");
+  if (!rankersLoaded) { await loadRankers(); }
+  const ov = await call("GET", "/view/overview" + rankQuery());
   renderNext(ov);
   renderCards(ov);
   renderTodos(ov);

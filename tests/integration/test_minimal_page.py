@@ -218,7 +218,7 @@ async def test_the_page_script_makes_the_calls_the_flow_above_mirrors() -> None:
     assert '"Content-Type"] = "application/json"' in source
     assert 'call("POST", "/todos", { text: text })' in source
     assert 'call("PATCH", "/todos/" + encodeURIComponent(id), { status: "done" })' in source
-    assert 'call("GET", "/view/overview")' in source
+    assert 'call("GET", "/view/overview" + rankQuery())' in source
     assert "card.focused" in source
     assert "ov.focused_workspace" in source
     for element in ("todo-list", "todo-input", "todo-add"):

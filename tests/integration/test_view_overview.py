@@ -77,7 +77,8 @@ async def test_the_todos_are_grouped_for_the_focused_workspace() -> None:
     async with world() as daemon:
         await daemon.todos.add("elsewhere", scope_kind="workspace", scope_ref="1")
         await daemon.settle()
-        body = await get_json(daemon, "/view/overview")
+        # the cards in workspace order: the default ranker would put the focused one first
+        body = await get_json(daemon, "/view/overview?rank=workspace")
     focused, everything, other = body["todo_groups"]
     assert (focused["kind"], focused["title"]) == ("focused", f"Focused workspace {FOCUSED}")
     assert [(t["text"], t["next"], t["can_finish"]) for t in focused["todos"]] == [

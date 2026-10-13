@@ -36,6 +36,11 @@ The view is built from the same three answers the page used to fetch itself:
   for the same state. An unchanged ranking is the same list, so the call logs no extra suggestion
   list.
 
+`?rank=<name>` names the ranker that orders `cards[]`: the cards come in the ranker's workspace order, and a
+workspace it does not name follows in `/now` order. Without `rank`, the order follows `[items] default_ranker`
+(`natural` when that ranker is not loaded). A `rank` that names no loaded ranker and is not `natural` is a
+**422**. The page passes its stored ranker choice.
+
 | Field | Type | Holds |
 |---|---|---|
 | `schema` | string | `fylgja.view.overview/1` |
@@ -43,7 +48,7 @@ The view is built from the same three answers the page used to fetch itself:
 | `focused_workspace` | string, optional | `focused.workspace`, else the first workspace flagged `focused` |
 | `next[]` | `NextEntry` | The `GET /next` items, best first |
 | `next_list_id` | string, optional | The `list_id` for `POST /next/feedback` |
-| `cards[]` | `Card` | One per workspace with a window, a session or a todo, in `/now` order |
+| `cards[]` | `Card` | One per workspace with a window, a session or a todo, in the order of `?rank=` or `[items] default_ranker` |
 | `todo_groups[]` | `TodoGroup` | The todo list, in display order |
 
 **`FocusTarget`** is what a click focuses:

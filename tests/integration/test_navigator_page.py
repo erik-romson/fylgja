@@ -192,7 +192,7 @@ def test_the_page_focuses_through_the_guarded_focus_api() -> None:
     assert "document.querySelector('meta[name=\"fylgja-secret\"]').content" in script
     assert '"card-" + card.name' in script
     assert '"session-" + cs.key' in script
-    assert 'call("GET", "/view/overview")' in script
+    assert 'call("GET", "/view/overview" + rankQuery())' in script
     # every click target is the daemon's: a session or a window, never looked up here
     assert 'ft.kind === "session" ? focusSession(ft.ref) : focusWindow(ft.ref)' in script
     for target in ("go(ne.go)", "go(card.go)", "go(cs.go)"):
@@ -223,7 +223,7 @@ def test_the_page_computes_nothing() -> None:
 
 def test_the_overview_is_one_call_to_its_view_model() -> None:
     script = _script(_source())
-    assert 'const ov = await call("GET", "/view/overview");' in script
+    assert 'const ov = await call("GET", "/view/overview" + rankQuery());' in script
     for gone in ('"/todos?"', 'call("GET", "/next")', "nextAction", "windowOf", "WAITING"):
         assert gone not in script, gone
     # the Live data tab keeps its own /now call
