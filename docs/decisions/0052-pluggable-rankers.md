@@ -54,6 +54,21 @@ included (A7), must get the same order for the same question, so a ranker must b
   its workspace order follows the first open item of each workspace.
 - **An example external ranker**, `fake_ranker` ("most places first", one setting), and `fake_ranker_bomb`, which
   raises on import, ship in the test distribution `fylgja-fake`.
+- **`frecency`** (the default ranker) scores focus in active working time. For an item's spans, `focus` is the sum of
+  `span minutes × 0.5 ^ (active_since(span end) / (half_life_active_minutes × 60))`; a span under 120 s that ended under
+  120 active s ago (a glance) is left out. `last session` is `(share of the previous work session's active time in the
+  item + 0.25 if it held that session's last span) × 60 × last_session_weight × 0.5 ^ (active seconds of the current
+  work session / 3600)`. State boosts reuse the Next-strip scores (`core/ranking.SCORES`): `waiting` 100 (permission or
+  input), `turn done` 90, `build` 70 (build failed or review requested), `todo` 80 (`next` todo), and `unfinished` +10
+  (dirty or open pull request). `forgotten` +40: at least 30 active minutes in the last 5 work sessions, none in the
+  current or previous one, and unfinished. `while away` +1000: a waiting item not focused since the latest absence began,
+  until 300 active seconds have passed since the return (an item carries no time for a waiting entry, so this is the
+  closest reading of "changed while away"). `here now` is −0.5 × focus for the item holding the open span; `stale` is
+  −0.75 × focus when no span is open and the last focus is over 16 active hours ago. The order is the score descending,
+  then active time since the last focus ascending (never focused last), then the key. A span belongs to the item that
+  holds its window as a place, else to the folder or app it was recorded in. The settings are
+  `[rankers.frecency] half_life_active_minutes` (120) and `last_session_weight` (1.0). The constants sit at the top of
+  `fylgja/rankers/frecency.py`.
 - The Next strip (`core/ranking.py`) is unchanged.
 
 ## Consequences

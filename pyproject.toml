@@ -27,6 +27,7 @@ appcontext = "fylgja.collectors.appcontext:plugin"
 [project.entry-points."fylgja.rankers"]
 workspace = "fylgja.rankers.workspace:plugin"
 recent = "fylgja.rankers.recent:plugin"
+frecency = "fylgja.rankers.frecency:plugin"
 
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8"]

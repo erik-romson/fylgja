@@ -294,10 +294,23 @@ def test_a_ranker_table_must_be_a_table() -> None:
         load_config()
 
 
-def test_no_ranker_table_by_default_means_every_flag_is_unset() -> None:
+def test_the_only_default_ranker_table_is_frecency_and_it_sets_no_flag() -> None:
     config = load_config()
     assert config.ranker_enabled("workspace") is None
     assert config.ranker_settings("workspace") == {}
+    assert config.ranker_enabled("frecency") is None
+    assert config.ranker_settings("frecency") == {
+        "half_life_active_minutes": 120,
+        "last_session_weight": 1.0,
+    }
+
+
+def test_a_user_frecency_table_overrides_one_default_and_keeps_the_other() -> None:
+    _write("[rankers.frecency]\nhalf_life_active_minutes = 60\n")
+    assert load_config().ranker_settings("frecency") == {
+        "half_life_active_minutes": 60,
+        "last_session_weight": 1.0,
+    }
 
 
 def test_defaults_table_errors_name_defaults_file() -> None:

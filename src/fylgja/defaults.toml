@@ -77,6 +77,11 @@ ticket_prefixes = ["CBS"]
 default_ranker = "frecency"
 work_session_break_minutes = 30
 
+# The frecency ranker (docs/rankers.md). Disable it with enabled = false; [items] default_ranker then falls back.
+[rankers.frecency]
+half_life_active_minutes = 120
+last_session_weight = 1.0
+
 # Absolute paths, because launchd's PATH is minimal.
 [paths]
 aerospace = "/opt/homebrew/bin/aerospace"

@@ -17,6 +17,18 @@ The built-in rankers:
 |---|---|---|---|
 | `workspace` | the `natural` floor: items by the natural order (`2` before `10`) of their newest open place's workspace, then key; workspace cards in natural order | `workspace <n>`, `no workspace` | none |
 | `recent` | active minutes since the last focus, ascending; never-focused items next (open ones first); then key. Workspace cards follow their first open item | `active min since focus <m>`, `latest focus`, `never focused` | none |
+| `frecency` | score descending: decayed focus on working time, the last work session, waiting and unfinished work; then active time since the last focus, then key. The default (`[items] default_ranker`) | `focus`, `last session`, `waiting`, `turn done`, `build`, `todo`, `unfinished`, `forgotten`, `while away`, `here now`, `stale` | `half_life_active_minutes` (120, above 0, at most 10080), `last_session_weight` (1.0, 0 to 10) |
+
+### The `frecency` settings
+
+```toml
+[rankers.frecency]
+half_life_active_minutes = 120  # focus loses half its weight after this many active minutes
+last_session_weight = 1.0       # 0 turns the last-session part off
+```
+
+A bad value leaves only `frecency` unloaded, with a `config:` error; `[items] default_ranker` then falls back. The work
+session break is `[items] work_session_break_minutes`.
 
 ## The entry point and the plugin
 

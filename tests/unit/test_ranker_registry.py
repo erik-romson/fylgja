@@ -26,6 +26,7 @@ from fylgja.rankers.base import (
     RankInput,
     default_workspace_order,
 )
+from fylgja.rankers.frecency import FrecencySettings
 from fylgja.rankers.registry import (
     MAX_ERROR,
     Origin,
@@ -326,6 +327,7 @@ def test_the_builtins_and_the_example_are_discovered_from_metadata() -> None:
     entries = {e.name: e for e in discover_rankers().entries}
     assert entries["workspace"].origin is Origin.BUILT_IN
     assert entries["recent"].origin is Origin.BUILT_IN
+    assert entries["frecency"].origin is Origin.BUILT_IN
     assert entries["fake_ranker"].origin is Origin.EXTERNAL
     assert entries["fake_ranker_bomb"].value == "fylgja_fake.ranker_bomb:plugin"
 
@@ -334,6 +336,7 @@ def test_by_default_the_builtins_load_and_the_externals_are_never_imported() -> 
     registry = {r.name: r for r in load_rankers(_config())}
     assert registry["workspace"].loaded
     assert registry["recent"].loaded
+    assert registry["frecency"].loaded
     for name in ("fake_ranker", "fake_ranker_bomb"):
         assert not registry[name].enabled
         assert not registry[name].loaded
@@ -343,8 +346,45 @@ def test_by_default_the_builtins_load_and_the_externals_are_never_imported() -> 
 
 
 def test_every_builtin_can_be_disabled() -> None:
-    names = ("workspace", "recent")
+    names = ("workspace", "recent", "frecency")
     registry = {r.name: r for r in load_rankers(_config({n: {"enabled": False} for n in names}))}
     for name in names:
         assert not registry[name].enabled
         assert not registry[name].loaded
+
+
+# --------------------------------------------------------------------------------------------
+# frecency
+# --------------------------------------------------------------------------------------------
+
+
+def test_the_packaged_defaults_validate_against_the_frecency_settings() -> None:
+    registry = {r.name: r for r in load_rankers(_config())}
+    frecency = registry["frecency"]
+    assert frecency.loaded
+    assert frecency.settings == FrecencySettings(
+        half_life_active_minutes=120, last_session_weight=1
+    )
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        {"half_life_active_minutes": 0},
+        {"half_life_active_minutes": 10081},
+        {"last_session_weight": -0.5},
+        {"unknown_key": 1},
+    ],
+)
+def test_a_bad_frecency_setting_gives_only_frecency_an_error(table: dict[str, Any]) -> None:
+    registry = {r.name: r for r in load_rankers(_config({"frecency": table}))}
+    assert _error(registry["frecency"]).startswith("config: [rankers.frecency].")
+    assert registry["workspace"].loaded
+    assert registry["recent"].loaded
+
+
+def test_frecency_can_be_disabled_and_the_others_still_load() -> None:
+    registry = {r.name: r for r in load_rankers(_config({"frecency": {"enabled": False}}))}
+    assert not registry["frecency"].enabled
+    assert not registry["frecency"].loaded
+    assert registry["workspace"].loaded
