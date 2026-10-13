@@ -58,6 +58,8 @@
   .item .buttons { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0; }
   .item details ul { margin: .25rem 0 0; padding-left: 1.2rem; }
   .item li.closed { opacity: .6; }
+  td details ul { margin: .25rem 0 0; padding-left: 1.2rem; }
+  #not-installed { margin: 0 0 .75rem; padding-left: 1.2rem; }
 </style>
 </head>
 <body>
@@ -67,6 +69,7 @@
   <a href="#recall" data-tab="recall">Recall</a>
   <a href="#live" data-tab="live">Live data</a>
   <a href="#todos" data-tab="todos">Todos</a>
+  <a href="#collectors" data-tab="collectors">Collectors</a>
 </nav>
 <select id="ranker" aria-label="Order" hidden></select>
 <p id="status" role="status"></p>
@@ -109,6 +112,17 @@
   <p class="muted intro">Next, open and the newest finished todos, in the order the daemon gives. Add and finish them on Overview.</p>
   <table id="all-todo-list"></table>
 </section>
+<section id="tab-collectors" data-tab="collectors" hidden>
+  <p class="muted intro">Health comes from each collector's own check every 30 s. Run <code>fylgja doctor</code> for the full setup check.</p>
+  <button id="collectors-refresh" type="button">Refresh</button>
+  <table id="collector-table"></table>
+  <h2>Not installed</h2>
+  <p class="muted intro">Configured collectors with no package behind them.</p>
+  <ul id="not-installed"></ul>
+  <h2>AppleScript switches</h2>
+  <p class="muted intro">Reported, never run. The check is the last one <code>fylgja doctor</code> recorded.</p>
+  <table id="switch-table"></table>
+</section>
 <script>
 "use strict";
 const secret = document.querySelector('meta[name="fylgja-secret"]').content;
@@ -123,6 +137,9 @@ const windowList = document.getElementById("window-list");
 const projectTable = document.getElementById("project-table");
 const usageTable = document.getElementById("usage-table");
 const todoTable = document.getElementById("all-todo-list");
+const collectorTable = document.getElementById("collector-table");
+const notInstalled = document.getElementById("not-installed");
+const switchTable = document.getElementById("switch-table");
 const rankerSelect = document.getElementById("ranker");
 const search = document.getElementById("recall-search");
 const awayBanner = document.getElementById("away-banner");
@@ -382,7 +399,7 @@ async function loadRankers() {
 
 rankerSelect.addEventListener("change", () => {
   localStorage.setItem(RANK_KEY, rankerSelect.value);
-  refresh();
+  refresh(true);
 });
 
 // Typing is debounced; the daemon does the searching.
@@ -699,9 +716,134 @@ async function loadTodos() {
   fillTable(todoTable, ["Todo", "Scope", "Status", "Source", "Created", "Done"], rows);
 }
 
+// ---- collectors: how collection works right now ----
+
+function healthText(hd) {
+  const parts = [hd.state];
+  if (hd.since) { parts.push("since " + fmtTime(hd.since)); }
+  if (hd.last_ok_at) { parts.push("ok " + fmtTime(hd.last_ok_at)); }
+  parts.push(hd.restarts + " restarts");
+  if (hd.last_error_kind) { parts.push(hd.last_error_kind); }
+  if (hd.detail) { parts.push(hd.detail); }
+  if (hd.retry_in_seconds !== undefined && hd.retry_in_seconds !== null) {
+    parts.push("retry in " + fmtDuration(hd.retry_in_seconds));
+  }
+  return parts.join(" · ");
+}
+
+function recordsText(rc) {
+  if (!rc) { return "does not run"; }
+  const rejected = Object.entries(rc.rejected).map(([reason, count]) => reason + " " + count);
+  const parts = [
+    rc.accepted + " accepted", rc.dropped + " dropped", rc.lost + " lost",
+    "rejected " + rejected.join(", "),
+  ];
+  if (rc.last_at) { parts.push("last " + fmtTime(rc.last_at)); }
+  return parts.join(" · ");
+}
+
+function kindLine(kc) {
+  return el("li", "", kc.entity_kind + " · " + kc.record_type + " · " + kc.accepted
+    + (kc.last_at ? " · " + fmtTime(kc.last_at) : ""));
+}
+
+// Settings and the accepted kinds sit in a details element under the collector's name.
+function collectorName(col) {
+  const box = el("div");
+  box.append(el("strong", "", col.name));
+  const lines = [];
+  for (const [key, value] of Object.entries(col.settings || {})) {
+    lines.push(el("li", "", key + " = " + JSON.stringify(value)));
+  }
+  const rc = col.records;
+  const kinds = rc ? rc.kinds.map(kindLine) : [];
+  if (lines.length > 0 || kinds.length > 0) {
+    const details = el("details");
+    details.append(el("summary", "", "Settings and kinds"));
+    if (lines.length > 0) {
+      const ul = el("ul");
+      ul.append(el("li", "muted", "Settings"), ...lines);
+      details.append(ul);
+    }
+    if (kinds.length > 0) {
+      const ul = el("ul");
+      ul.append(el("li", "muted", "Records by kind"), ...kinds);
+      details.append(ul);
+    }
+    box.append(details);
+  }
+  return box;
+}
+
+function collectorRow(col) {
+  const source = col.origin + (col.distribution
+    ? " · " + col.distribution + (col.distribution_version ? "@" + col.distribution_version : "") : "");
+  const caps = (col.capabilities || []).join(", ")
+    + (col.entity_kinds ? " → " + col.entity_kinds.join(", ") : "");
+  return {
+    cells: [
+      collectorName(col),
+      source,
+      col.state + (col.enabled ? "" : " · off") + (col.loaded ? " · loaded" : " · not loaded"),
+      col.api_version === undefined || col.api_version === null ? "" : String(col.api_version),
+      caps,
+      healthText(col.health),
+      recordsText(col.records),
+    ],
+  };
+}
+
+function switchRow(sw) {
+  const checked = sw.doctor_ok === undefined || sw.doctor_ok === null
+    ? "doctor has not checked this switch"
+    : (sw.doctor_ok ? "ok" : "failed") + (sw.doctor_at ? " " + fmtTime(sw.doctor_at) : "")
+      + (sw.doctor_reason ? " · " + sw.doctor_reason : "");
+  return { cells: [sw.name, sw.configured ? "on" : "off", checked] };
+}
+
+function renderCollectors(insp) {
+  const started = insp.started_at ? "Counted since " + fmtTime(insp.started_at) + ". " : "";
+  collectorTable.replaceChildren(el("caption", "muted", started + "As of " + fmtTime(insp.generated_at)));
+  fillTable(collectorTable,
+    ["Collector", "Origin", "State", "API", "Capabilities", "Health", "Records"],
+    insp.collectors.map(collectorRow));
+  const names = insp.not_installed.map((name) => el("li", "", name));
+  if (names.length === 0) { names.push(el("li", "muted", "none")); }
+  notInstalled.replaceChildren(...names);
+  const switches = insp.applescript.map(switchRow);
+  if (switches.length === 0) {
+    switchTable.replaceChildren(el("caption", "muted", "No switch"));
+    return;
+  }
+  fillTable(switchTable, ["Switch", "Configured", "Doctor"], switches);
+}
+
+async function loadCollectors() {
+  const insp = await call("GET", "/inspect/collectors");
+  renderCollectors(insp);
+}
+
+document.getElementById("collectors-refresh").addEventListener("click", () => { refresh(true); });
+
 // ---- tabs: one loader each, only the visible one is fetched ----
 
-const TABS = { overview: loadOverview, recall: loadRecall, live: loadLive, todos: loadTodos };
+const TABS = {
+  overview: loadOverview, recall: loadRecall, live: loadLive, todos: loadTodos,
+  collectors: loadCollectors,
+};
+
+// Diagnostic tabs reload at most this far apart after a live change. The clock only spaces reloads.
+const MIN_GAP_MS = { recall: 1000, collectors: 2000, flow: 2000, explain: 2000 };
+let lastLoad = 0;
+let later = null;
+
+// True: a reload is scheduled for later instead of running now.
+function throttled(name) {
+  const wait = (MIN_GAP_MS[name] || 0) - (Date.now() - lastLoad);
+  if (wait <= 0) { return false; }
+  if (!later) { later = setTimeout(() => { later = null; refresh(); }, wait); }
+  return true;
+}
 
 function currentTab() {
   const name = location.hash.substring(1);
@@ -719,8 +861,11 @@ function showTab(name) {
 
 let running = false;
 let again = false;
+let bypass = false;
 
-async function refresh() {
+// A reload. A tab switch, a ranker change and a Refresh button pass force and skip the throttle.
+async function refresh(force) {
+  if (force) { bypass = true; }
   if (running) { again = true; return; }
   running = true;
   try {
@@ -728,8 +873,12 @@ async function refresh() {
       again = false;
       const name = currentTab();
       showTab(name);
+      const skip = !bypass && throttled(name);
+      bypass = false;
+      if (skip) { continue; }
       try {
         await TABS[name]();
+        lastLoad = Date.now();
         say("");
       } catch (error) {
         say("Cannot load: " + error.message);
@@ -740,7 +889,7 @@ async function refresh() {
   }
 }
 
-window.addEventListener("hashchange", () => { refresh(); });
+window.addEventListener("hashchange", () => { refresh(true); });
 
 async function finish(id) {
   try {

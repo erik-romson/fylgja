@@ -48,7 +48,8 @@ COMPUTATION = (
     "Date.now() -",
     "- new Date(",
 )
-ALLOWED_COMPUTATION: tuple[str, ...] = ()
+# Date.now() only spaces the reloads of the diagnostic tabs; it measures no data the daemon sent.
+ALLOWED_COMPUTATION: tuple[str, ...] = ("Date.now() - lastLoad",)
 
 STATIC_IDS = {
     "next-strip": "ul",
@@ -74,6 +75,11 @@ STATIC_IDS = {
     "usage-table": "table",
     "tab-todos": "section",
     "all-todo-list": "table",
+    "tab-collectors": "section",
+    "collector-table": "table",
+    "switch-table": "table",
+    "not-installed": "ul",
+    "collectors-refresh": "button",
 }
 
 
@@ -258,7 +264,7 @@ def test_tabs_route_by_hash_and_load_only_the_visible_tab() -> None:
     views = set(re.findall(r'data-tab="(\w+)"', source))
     assert views
     assert views <= keys
-    assert keys == {"overview", "recall", "live", "todos"}
+    assert keys == {"overview", "recall", "live", "todos", "collectors"}
 
 
 def test_the_sessions_tab_never_renders_prompt_text() -> None:
@@ -322,3 +328,27 @@ def test_the_todos_tab_is_read_only_and_asks_the_daemon_for_each_group() -> None
     # the Done button and its ids belong to Overview alone
     assert script.count('"todo-done-"') == 1
     assert "newest 200 shown" not in script
+
+
+def test_the_collectors_tab_reads_the_inspect_route_and_the_throttle_spaces_reloads() -> None:
+    script = _script(_source())
+    body = re.search(r"async function loadCollectors\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/inspect/collectors"]
+    assert "JSON.stringify(value)" in script  # a setting is shown as JSON text
+    assert "doctor has not checked this switch" in script
+    assert (
+        "const MIN_GAP_MS = { recall: 1000, collectors: 2000, flow: 2000, explain: 2000 };"
+        in script
+    )
+    assert "const wait = (MIN_GAP_MS[name] || 0) - (Date.now() - lastLoad);" in script
+    assert "const skip = !bypass && throttled(name);" in script
+    assert 'addEventListener("hashchange", () => { refresh(true); })' in script
+    assert (
+        'getElementById("collectors-refresh").addEventListener("click", () => { refresh(true); })'
+        in script
+    )
+    # the one expression Date.now() appears in besides setting lastLoad
+    assert script.count("Date.now()") == 2
+    assert "setInterval" not in script
+    assert script.count("setTimeout(connect, delay)") == 1

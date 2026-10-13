@@ -37,6 +37,7 @@ from api_support import (
 from pydantic import BaseModel
 
 from fylgja.api.app import create_app
+from fylgja.api.inspect_models import InspectCollectors
 from fylgja.api.items_models import Items, Rankers
 from fylgja.api.view_models import Overview
 from fylgja.core.daemon import Daemon
@@ -241,6 +242,52 @@ ITEMS_FIELDS: dict[str, set[str]] = {
     "RankerChoice": {"default", "description", "name"},
 }
 
+# The Collectors tab renders ``GET /inspect/collectors`` (``fylgja.inspect.collectors/1``) only.
+INSPECT_VARIABLES: dict[str, str] = {
+    "insp": "InspectCollectors",
+    "col": "InspectCollector",
+    "hd": "HealthDetail",
+    "rc": "RecordCounts",
+    "kc": "KindCount",
+    "sw": "AppleScriptSwitch",
+}
+INSPECT_FIELDS: dict[str, set[str]] = {
+    "InspectCollectors": {
+        "applescript",
+        "collectors",
+        "generated_at",
+        "not_installed",
+        "started_at",
+    },
+    "InspectCollector": {
+        "api_version",
+        "capabilities",
+        "distribution",
+        "distribution_version",
+        "enabled",
+        "entity_kinds",
+        "health",
+        "loaded",
+        "name",
+        "origin",
+        "records",
+        "settings",
+        "state",
+    },
+    "HealthDetail": {
+        "detail",
+        "last_error_kind",
+        "last_ok_at",
+        "restarts",
+        "retry_in_seconds",
+        "since",
+        "state",
+    },
+    "RecordCounts": {"accepted", "dropped", "kinds", "last_at", "lost", "rejected"},
+    "KindCount": {"accepted", "entity_kind", "last_at", "record_type"},
+    "AppleScriptSwitch": {"configured", "doctor_at", "doctor_ok", "doctor_reason", "name"},
+}
+
 Resolver = Callable[[str, str], bool]
 """Whether a field path exists on a type: ``resolver(kind, path)``."""
 
@@ -386,8 +433,20 @@ def test_the_recall_tab_reads_nothing_from_now() -> None:
     assert re.findall(r'call\("GET", "([^"]*)"', rankers.group(1)) == ["/rankers"]
 
 
+def test_every_field_the_collectors_tab_reads_exists_in_the_inspect_model() -> None:
+    _assert_declared_fields_exist(
+        INSPECT_FIELDS, _model_resolver(InspectCollectors), "InspectCollectors"
+    )
+    schema = InspectCollectors.model_json_schema(by_alias=True, mode="serialization")
+    assert schema["properties"]["schema"]["const"] == "fylgja.inspect.collectors/1"
+
+
+def test_the_collectors_tab_reads_only_the_declared_inspect_fields_and_all_of_them() -> None:
+    _assert_reads_match(INSPECT_VARIABLES, INSPECT_FIELDS)
+
+
 def test_no_variable_name_is_in_two_tables() -> None:
-    tables = (PAGE_VARIABLES, VIEW_VARIABLES, ITEMS_VARIABLES)
+    tables = (PAGE_VARIABLES, VIEW_VARIABLES, ITEMS_VARIABLES, INSPECT_VARIABLES)
     names = [name for table in tables for name in table]
     assert len(names) == len(set(names))
 
@@ -495,6 +554,20 @@ async def test_items_and_rankers_have_what_the_recall_tab_reads(http: httpx.Asyn
     stale = (await http.get("/rankers", params={"rank": "no-such-ranker"})).json()
     assert stale["stale_choice"] is True
     assert stale["selected"] == stale["default"]
+
+
+async def test_inspect_collectors_has_every_root_field_the_page_reads(
+    http: httpx.AsyncClient,
+) -> None:
+    answer = await http.get("/inspect/collectors")
+    assert answer.status_code == 200
+    body = answer.json()
+    assert body["schema"] == "fylgja.inspect.collectors/1"
+    for name in INSPECT_FIELDS["InspectCollectors"] - {"started_at"}:
+        assert name in body, name
+    for collector in body["collectors"]:
+        assert {"name", "origin", "state", "enabled", "loaded", "health"} <= set(collector)
+        assert "state" in collector["health"]
 
 
 async def test_todos_answers_the_raw_tab(http: httpx.AsyncClient) -> None:
