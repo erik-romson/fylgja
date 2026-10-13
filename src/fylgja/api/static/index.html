@@ -42,11 +42,24 @@
   .text { flex: 1; overflow-wrap: anywhere; }
   .from { font-size: .8rem; opacity: .65; white-space: nowrap; }
   .next .text::before { content: "next: "; opacity: .65; }
+  #tabs { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 .75rem; }
+  #tabs a { color: inherit; text-decoration: none; padding-bottom: .15rem; border-bottom: 2px solid transparent; }
+  #tabs a[aria-current="page"] { font-weight: 700; border-bottom-color: currentColor; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th, td { padding: .25rem .5rem; text-align: left; vertical-align: top; overflow-wrap: anywhere;
+    border: 1px solid rgba(128, 128, 128, .3); }
+  tr.clickable { cursor: pointer; }
+  .child td:first-child { padding-left: 1.5rem; }
 </style>
 </head>
 <body>
 <h1>Fylgja</h1>
+<nav id="tabs" aria-label="Views">
+  <a href="#overview" data-tab="overview">Overview</a>
+  <a href="#live" data-tab="live">Live data</a>
+</nav>
 <p id="status" role="status"></p>
+<section id="tab-overview" data-tab="overview">
 <h2>Next</h2>
 <p class="muted intro">What needs you, most urgent first. Click one to go there.</p>
 <ul id="next-strip" aria-label="What next"></ul>
@@ -60,6 +73,12 @@
   <button id="todo-add" type="submit">Add</button>
 </form>
 <ul id="todo-list"></ul>
+</section>
+<section id="tab-live" data-tab="live" hidden>
+  <h2>Sessions</h2>
+  <p class="muted intro">Every live agent session as /now reports it. Click one to focus it.</p>
+  <table id="session-table"></table>
+</section>
 <script>
 "use strict";
 const secret = document.querySelector('meta[name="fylgja-secret"]').content;
@@ -68,6 +87,7 @@ const input = document.getElementById("todo-input");
 const statusLine = document.getElementById("status");
 const strip = document.getElementById("next-strip");
 const cards = document.getElementById("workspace-cards");
+const sessionTable = document.getElementById("session-table");
 const OPEN = "status=open,next";
 const WAITING = ["waiting", "waiting_permission", "waiting_input", "turn_done"];
 const MAX_SESSIONS = 6;
@@ -102,6 +122,35 @@ function el(tag, className, text) {
   if (className) { node.className = className; }
   if (text !== undefined && text !== null) { node.textContent = text; }
   return node;
+}
+
+// A timestamp as local time. The daemon sends the instants; the page only formats them.
+function fmtTime(iso) {
+  if (!iso) { return ""; }
+  return new Date(iso).toLocaleString(undefined, {
+    weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+// A table from a list of header strings and rows of { cells, className, onClick }.
+// A cell is a string or a node; every string goes in as text.
+function fillTable(table, head, rows) {
+  const header = el("tr");
+  header.append(...head.map((name) => el("th", "", name)));
+  const body = rows.map((entry) => {
+    const tr = el("tr", entry.className || "");
+    tr.append(...entry.cells.map((cell) => {
+      const td = el("td");
+      td.append(typeof cell === "string" ? document.createTextNode(cell) : cell);
+      return td;
+    }));
+    if (entry.onClick) {
+      tr.classList.add("clickable");
+      tr.addEventListener("click", entry.onClick);
+    }
+    return tr;
+  });
+  table.replaceChildren(header, ...body);
 }
 
 // ---- focus ----
@@ -349,6 +398,85 @@ async function refreshNext() {
   } catch (_) { /* the strip keeps what /now gave it */ }
 }
 
+async function loadOverview() {
+  const now = await call("GET", "/now");
+  current = now || current;
+  renderCards(now || {});
+  renderNext((now && now.next) || []);
+  await Promise.all([refreshTodos(now), refreshNext()]);
+}
+
+// ---- live data: the sessions /now reports ----
+
+function hostText(h) {
+  if (!h) { return ""; }
+  const parts = [];
+  if (h.kind) { parts.push(h.kind); }
+  if (h.workspace) { parts.push("ws " + h.workspace); }
+  if (h.via) { parts.push("via " + h.via); }
+  if (h.confidence) { parts.push(h.confidence); }
+  if (h.unresolved) { parts.push("unresolved"); }
+  return parts.join(" · ");
+}
+
+function tokenText(s) {
+  const parts = [];
+  if (s.tokens) { parts.push("in " + s.tokens.input + " / out " + s.tokens.output); }
+  if (s.context_pct !== undefined && s.context_pct !== null) { parts.push("ctx " + s.context_pct + "%"); }
+  return parts.join(" · ");
+}
+
+function sessionRow(s, child) {
+  const state = (s.state || "unknown") + (s.state_since ? " since " + fmtTime(s.state_since) : "");
+  const tool = (s.current_tool || "") + (s.current_target ? " " + s.current_target : "");
+  const said = (s.one_liner || "") + (s.one_liner_from ? " (" + s.one_liner_from + ")" : "");
+  const h = s.host;
+  return {
+    cells: [
+      s.key, s.kind || "", state, s.waiting_reason || "", tool, hostText(h), s.project_path || "",
+      said, tokenText(s), (s.story && s.story.state) || "", fmtTime(s.last_seen),
+    ],
+    className: child ? "child" : "",
+    onClick: () => focusSession(s.key),
+  };
+}
+
+async function loadLive() {
+  const now = await call("GET", "/now");
+  current = now || current;
+  const rows = [];
+  const walk = (items, child) => (items || []).forEach((s) => {
+    rows.push(sessionRow(s, child));
+    walk(s.children, true);
+  });
+  walk(now && now.sessions, false);
+  if (rows.length === 0) {
+    sessionTable.replaceChildren(el("caption", "muted", "No live session"));
+    return;
+  }
+  fillTable(sessionTable,
+    ["Key", "Kind", "State", "Waiting", "Tool", "Host", "Project", "One-liner", "Tokens", "Story", "Last seen"],
+    rows);
+}
+
+// ---- tabs: one loader each, only the visible one is fetched ----
+
+const TABS = { overview: loadOverview, live: loadLive };
+
+function currentTab() {
+  const name = location.hash.substring(1);
+  return Object.hasOwn(TABS, name) ? name : "overview";
+}
+
+function showTab(name) {
+  for (const view of document.querySelectorAll("section[data-tab]")) {
+    view.hidden = view.dataset.tab !== name;
+  }
+  for (const link of document.querySelectorAll("#tabs a")) {
+    link.setAttribute("aria-current", link.dataset.tab === name ? "page" : "false");
+  }
+}
+
 let running = false;
 let again = false;
 
@@ -358,13 +486,11 @@ async function refresh() {
   try {
     do {
       again = false;
+      const name = currentTab();
+      showTab(name);
       try {
-        const now = await call("GET", "/now");
-        current = now || current;
-        renderCards(now || {});
-        renderNext((now && now.next) || []);
+        await TABS[name]();
         say("");
-        await Promise.all([refreshTodos(now), refreshNext()]);
       } catch (error) {
         say("Cannot load: " + error.message);
       }
@@ -373,6 +499,8 @@ async function refresh() {
     running = false;
   }
 }
+
+window.addEventListener("hashchange", () => { refresh(); });
 
 async function finish(id) {
   try {

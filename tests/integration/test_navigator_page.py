@@ -36,6 +36,10 @@ STATIC_IDS = {
     "todo-input": "input",
     "todo-add": "button",
     "status": "p",
+    "tabs": "nav",
+    "tab-overview": "section",
+    "tab-live": "section",
+    "session-table": "table",
 }
 
 
@@ -116,7 +120,8 @@ def test_the_page_loads_nothing_from_outside() -> None:
     source = _source()
     page = _Page()
     page.feed(source)
-    assert page.assets == []
+    # a tab link is an in-page anchor ("#live"), not an asset
+    assert [asset for asset in page.assets if not asset[1].startswith("#")] == []
     assert not re.search(r"https?://", source)
     assert not re.search(r"@import|url\(", source)
     assert "document.cookie" not in source
@@ -170,3 +175,23 @@ def test_todos_are_grouped_by_scope_and_imported_ones_name_their_source() -> Non
     # an imported todo is finished where it came from: it gets a label, never a Done button
     assert '"from " + sourceLabel(todo.source)' in script
     assert "disabled" not in script
+
+
+def test_tabs_route_by_hash_and_load_only_the_visible_tab() -> None:
+    source = _source()
+    script = _script(source)
+    assert 'addEventListener("hashchange"' in script
+    assert "location.hash.substring(1)" in script
+    assert "Object.hasOwn(TABS, name)" in script
+    assert "await TABS[name]()" in script
+    literal = re.search(r"const TABS = \{(.*?)\};", script, re.DOTALL)
+    assert literal is not None
+    keys = set(re.findall(r"(\w+)\s*:", literal.group(1)))
+    views = set(re.findall(r'data-tab="(\w+)"', source))
+    assert views
+    assert views <= keys
+    assert keys == {"overview", "live"}
+
+
+def test_the_sessions_tab_never_renders_prompt_text() -> None:
+    assert "facts" not in _script(_source())
