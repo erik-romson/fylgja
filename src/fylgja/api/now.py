@@ -84,6 +84,7 @@ from fylgja.core.resolver import Placement, ProjectPlacement
 from fylgja.core.waiting import waiting_on_me
 from fylgja.models import SessionActivity
 from fylgja.models import Stage as ActivityStage
+from fylgja.rankers.base import natural_key
 from fylgja.store.rows import (
     ActivityRow,
     FocusRow,
@@ -107,13 +108,6 @@ _TODO_STATUSES: Final[Mapping[str, Literal["open", "next", "done"]]] = {
 }
 _TODO_SHOWN: Final = frozenset({"open", "next"})
 """The statuses ``/now`` shows (a done todo is not on the picture)."""
-
-
-def natural_key(name: str) -> tuple[int, int, str, str]:
-    """Sort key of a workspace name: numbers numerically first, then the rest by name."""
-    if name.isdigit():
-        return (0, int(name), "", name)
-    return (1, 0, name.casefold(), name)
 
 
 def _window_key(window: WindowRow) -> tuple[int, int, str, str]:

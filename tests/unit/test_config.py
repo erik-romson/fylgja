@@ -258,6 +258,48 @@ def test_collector_enabled_must_be_boolean() -> None:
         load_config()
 
 
+def test_ranker_tables_stay_raw() -> None:
+    _write(
+        """
+[rankers.workspace]
+enabled = false
+
+[rankers.mine]
+enabled = true
+place_weight = 2.0
+nested = { a = [1, 2] }
+"""
+    )
+    config = load_config()
+    assert config.rankers["mine"] == {"enabled": True, "place_weight": 2.0, "nested": {"a": [1, 2]}}
+    assert config.ranker_enabled("workspace") is False
+    assert config.ranker_enabled("mine") is True
+    assert config.ranker_enabled("missing") is None
+    assert config.ranker_settings("mine") == {"place_weight": 2.0, "nested": {"a": [1, 2]}}
+    assert config.ranker_settings("workspace") == {}
+    assert config.ranker_settings("missing") == {}
+    assert config.collectors.get("mine") is None
+
+
+def test_ranker_enabled_must_be_boolean() -> None:
+    _write('[rankers.mine]\nenabled = "yes"\n')
+    with pytest.raises(ConfigError, match=r"mine\.enabled") as info:
+        load_config()
+    assert info.value.key == "rankers"
+
+
+def test_a_ranker_table_must_be_a_table() -> None:
+    _write("[rankers]\nmine = 3\n")
+    with pytest.raises(ConfigError, match=r"rankers\.mine"):
+        load_config()
+
+
+def test_no_ranker_table_by_default_means_every_flag_is_unset() -> None:
+    config = load_config()
+    assert config.ranker_enabled("workspace") is None
+    assert config.ranker_settings("workspace") == {}
+
+
 def test_defaults_table_errors_name_defaults_file() -> None:
     defaults = load_defaults()
     defaults["api"]["port"] = -1

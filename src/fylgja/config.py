@@ -1,8 +1,9 @@
 """Typed configuration (``PLAN-final-plan.md`` §4.3).
 
 The packaged ``defaults.toml`` is deep-merged under the user's ``config.toml`` and validated with
-Pydantic. ``[collectors.<name>]`` tables stay raw here: the registry validates each one with that
-plugin's ``config_model``. ``enabled`` in such a table belongs to the core.
+Pydantic. ``[collectors.<name>]`` and ``[rankers.<name>]`` tables stay raw here: the registries
+validate each one with that plugin's ``config_model``. ``enabled`` in such a table belongs to the
+core.
 """
 
 from __future__ import annotations
@@ -197,8 +198,10 @@ class Config(_Section):
         ticket_prefixes=["CBS"], default_ranker="frecency", work_session_break_minutes=30
     )
     collectors: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    rankers: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    """``[rankers.<name>]``: ``enabled`` and the ranker's own settings (``docs/rankers.md``)."""
 
-    @field_validator("collectors")
+    @field_validator("collectors", "rankers")
     @classmethod
     def _enabled_is_boolean(cls, value: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         for name, table in value.items():
@@ -214,6 +217,15 @@ class Config(_Section):
     def collector_settings(self, name: str) -> dict[str, Any]:
         """The raw ``[collectors.<name>]`` table without the core-owned ``enabled`` key."""
         return {k: v for k, v in self.collectors.get(name, {}).items() if k != "enabled"}
+
+    def ranker_enabled(self, name: str) -> bool | None:
+        """The explicit ``enabled`` flag of ``[rankers.<name>]``, or ``None`` when absent."""
+        flag = self.rankers.get(name, {}).get("enabled")
+        return flag if isinstance(flag, bool) else None
+
+    def ranker_settings(self, name: str) -> dict[str, Any]:
+        """The raw ``[rankers.<name>]`` table without the core-owned ``enabled`` key."""
+        return {k: v for k, v in self.rankers.get(name, {}).items() if k != "enabled"}
 
 
 def deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:

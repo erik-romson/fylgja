@@ -23,6 +23,7 @@ from fylgja.collectors.registry import (
     load_registry,
 )
 from fylgja.config import Config, load_config
+from fylgja.rankers.registry import discover_rankers, load_rankers
 
 BOMB_MODULE = "fylgja_fake.bomb"
 
@@ -140,4 +141,95 @@ def test_the_bomb_really_fires_when_enabled_in_a_subprocess(
         env=env,
     )
     assert result.stdout.strip() == "failed import"
+    assert sentinel.read_text(encoding="utf-8") == "imported\n"
+
+
+# --------------------------------------------------------------------------------------------
+# The ranker group of the same distribution (docs/decisions/0052)
+# --------------------------------------------------------------------------------------------
+
+RANKER_BOMB_MODULE = "fylgja_fake.ranker_bomb"
+
+
+def _ranker_sentinel() -> Path:
+    return paths.state_dir() / "fake_ranker_bomb.sentinel"
+
+
+def _assert_ranker_bomb_untouched() -> None:
+    assert not _ranker_sentinel().exists()
+    assert RANKER_BOMB_MODULE not in sys.modules
+
+
+def test_the_fake_distribution_also_ships_two_rankers() -> None:
+    dist = distribution("fylgja-fake")
+    names = {ep.name for ep in dist.entry_points if ep.group == "fylgja.rankers"}
+    assert names == {"fake_ranker", "fake_ranker_bomb"}
+
+
+def test_the_ranker_group_leaves_collector_discovery_alone() -> None:
+    collectors = {e.name for e in (*discover().entries, *discover().duplicates)}
+    assert not collectors & {"fake_ranker", "fake_ranker_bomb", "workspace", "recent"}
+    rankers = {e.name for e in (*discover_rankers().entries, *discover_rankers().duplicates)}
+    assert not rankers & {"fake", "fake_import_bomb"}
+    _assert_ranker_bomb_untouched()
+
+
+def test_enabling_fake_ranker_loads_only_it_with_its_settings() -> None:
+    config = _config("[rankers.fake_ranker]\nenabled = true\nplace_weight = 3.0\n")
+    registry = {r.name: r for r in load_rankers(config)}
+    fake = registry["fake_ranker"]
+    assert fake.origin is Origin.EXTERNAL
+    assert (fake.distribution, fake.version) == ("fylgja-fake", "0.1.0")
+    assert fake.loaded
+    assert fake.settings is not None
+    assert fake.settings.model_dump() == {"place_weight": 3.0}
+    assert not registry["fake_ranker_bomb"].loaded
+    assert registry["fake_ranker_bomb"].error is None
+    _assert_ranker_bomb_untouched()
+
+
+def test_a_fresh_interpreter_loads_rankers_without_the_ranker_bomb(isolated_env: Path) -> None:
+    sentinel = isolated_env / "ranker-bomb.sentinel"
+    probe = (
+        "import sys\n"
+        "from fylgja.rankers.registry import load_rankers\n"
+        "from fylgja.config import load_config\n"
+        "load_rankers(load_config())\n"
+        "print('fylgja_fake.ranker_bomb' in sys.modules)\n"
+    )
+    env = {**os.environ, "FYLGJA_FAKE_RANKER_SENTINEL": str(sentinel)}
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=25,
+        env=env,
+    )
+    assert result.stdout.strip() == "False"
+    assert not sentinel.exists()
+
+
+def test_the_ranker_bomb_really_fires_when_enabled_in_a_subprocess(isolated_env: Path) -> None:
+    """Positive control: without it the absence checks above could pass for the wrong reason."""
+    sentinel = isolated_env / "ranker-bomb.sentinel"
+    (isolated_env / "config" / "config.toml").write_text(
+        "[rankers.fake_ranker_bomb]\nenabled = true\n", encoding="utf-8"
+    )
+    probe = (
+        "from fylgja.rankers.registry import load_rankers\n"
+        "from fylgja.config import load_config\n"
+        "item = {r.name: r for r in load_rankers(load_config())}['fake_ranker_bomb']\n"
+        "print(item.loaded, item.error.split(':')[0])\n"
+    )
+    env = {**os.environ, "FYLGJA_FAKE_RANKER_SENTINEL": str(sentinel)}
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=25,
+        env=env,
+    )
+    assert result.stdout.strip() == "False import"
     assert sentinel.read_text(encoding="utf-8") == "imported\n"

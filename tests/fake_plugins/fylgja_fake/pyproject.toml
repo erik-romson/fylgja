@@ -1,7 +1,7 @@
 [project]
 name = "fylgja-fake"
 version = "0.1.0"
-description = "Synthetic Fylgja collector distribution used by the contract and registry tests."
+description = "Synthetic Fylgja collector and ranker distribution used by the contract and registry tests."
 requires-python = ">=3.13"
 # No dependency on fylgja: the dev environment of fylgja provides it, which avoids a cycle.
 dependencies = []
@@ -9,6 +9,10 @@ dependencies = []
 [project.entry-points."fylgja.collectors"]
 fake = "fylgja_fake:plugin"
 fake_import_bomb = "fylgja_fake.bomb:plugin"
+
+[project.entry-points."fylgja.rankers"]
+fake_ranker = "fylgja_fake.ranker:plugin"
+fake_ranker_bomb = "fylgja_fake.ranker_bomb:plugin"
 
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8"]
