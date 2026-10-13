@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -313,6 +313,107 @@ async def test_jetbrains_two_projects_with_one_name_pick_the_latest_with_medium_
     await world.collector.poll()
     assert world.fields("jetbrains")["path"] == f"{HOME}/b/api"
     assert world.items("jetbrains")[0].payload.data["confidence"] == "medium"
+
+
+async def test_tier_one_resolves_the_project_path_of_every_ide_window() -> None:
+    xml = recent_projects([("work/alpha", None, 5), ("work/beta", None, 9)])
+    world = World()
+    world.fs.add_file(jetbrains_xml_path("PyCharm2026_1"), xml, mtime=1.0)
+    world.source.windows = [window("1", PYCHARM, "alpha – a.py"), window("2", PYCHARM, "beta")]
+    await world.collector.poll()  # no focus event
+    assert world.collector.tier2_runs == 0
+    by_window = {e.payload.data["window_id"]: e for e in world.items("jetbrains")}
+    assert set(by_window) == {"1", "2"}
+    assert by_window["1"].payload.data["fields"]["path"] == f"{HOME}/work/alpha"
+    assert by_window["2"].payload.data["fields"]["path"] == f"{HOME}/work/beta"
+    assert by_window["1"].payload.context_kind == "ide_project"
+
+
+async def test_recent_projects_is_read_again_only_when_its_mtime_changes() -> None:
+    path = jetbrains_xml_path("PyCharm2026_1")
+    world = World()
+    world.fs.add_file(path, recent_projects([("work/alpha", None, 5)]), mtime=1.0)
+    world.source.windows = [window("1", PYCHARM, "alpha")]
+    await world.collector.poll()
+    assert world.fs.reads.count(PurePosixPath(str(path))) == 1
+
+    await world.clock.advance(31)  # past the re-stat interval
+    await world.collector.poll()
+    assert world.fs.reads.count(PurePosixPath(str(path))) == 1  # same mtime: not parsed again
+
+    world.fs.replace_file(path, recent_projects([("work/alpha", None, 6)]), mtime=2.0)
+    await world.collector.poll()
+    assert world.fs.reads.count(PurePosixPath(str(path))) == 1  # within the interval: no re-stat
+    await world.clock.advance(31)
+    await world.collector.poll()
+    assert world.fs.reads.count(PurePosixPath(str(path))) == 2
+
+
+async def test_an_open_project_wins_over_closed_ones_with_the_same_name() -> None:
+    xml = recent_projects([("a/main", None, 9, False), ("b/main", None, 1, True)])
+    world = World()
+    world.fs.add_file(jetbrains_xml_path("PyCharm2026_1"), xml, mtime=1.0)
+    world.source.windows = [window("1", PYCHARM, "main")]
+    await world.collector.poll()
+    assert world.fields("jetbrains") == {
+        "path": f"{HOME}/b/main",
+        "via": "recentProjects.xml:opened",
+        "project": "main",
+    }
+    assert world.items("jetbrains")[0].payload.data["confidence"] == "high"
+
+
+async def test_the_frame_title_breaks_a_tie_between_open_projects_with_one_name() -> None:
+    xml = recent_projects([("a/main", "main – x.py", 9), ("b/main", "main – y.py", 1)])
+    world = World()
+    world.fs.add_file(jetbrains_xml_path("PyCharm2026_1"), xml, mtime=1.0)
+    world.source.windows = [window("1", PYCHARM, "main – y.py")]
+    await world.collector.poll()
+    assert world.fields("jetbrains")["path"] == f"{HOME}/b/main"
+    assert world.fields("jetbrains")["via"] == "recentProjects.xml:frameTitle"
+    assert world.items("jetbrains")[0].payload.data["confidence"] == "medium"
+
+
+async def test_a_window_keeps_a_high_confidence_path_when_a_later_reading_is_weaker() -> None:
+    path = jetbrains_xml_path("PyCharm2026_1")
+    world = World()
+    world.fs.add_file(path, recent_projects([("a/main", None, 1)]), mtime=1.0)
+    world.source.windows = [window("1", PYCHARM, "main")]
+    await world.collector.poll()
+    assert world.fields("jetbrains")["path"] == f"{HOME}/a/main"
+
+    xml = recent_projects([("a/main", None, 1), ("b/main", None, 5)])  # now ambiguous: medium
+    world.fs.replace_file(path, xml, mtime=2.0)
+    await world.clock.advance(31)
+    await world.collector.poll()
+    assert world.fields("jetbrains")["path"] == f"{HOME}/a/main"
+    assert len(world.items("jetbrains")) == 1  # nothing new was emitted
+
+    world.source.windows = [window("1", PYCHARM, "other")]  # a new project name replaces it
+    await world.collector.poll()
+    assert world.gone("jetbrains")
+
+
+async def test_a_closed_window_forgets_its_remembered_path() -> None:
+    path = jetbrains_xml_path("PyCharm2026_1")
+    world = World()
+    world.fs.add_file(path, recent_projects([("a/main", None, 1)]), mtime=1.0)
+    world.source.windows = [window("1", PYCHARM, "main")]
+    await world.collector.poll()
+    assert world.collector._ide_paths
+    assert world.collector._ide_seen
+
+    world.source.windows = []
+    await world.collector.poll()
+    assert not world.collector._ide_paths
+    assert not world.collector._ide_seen
+
+    xml = recent_projects([("a/main", None, 1), ("b/main", None, 5)])
+    world.fs.replace_file(path, xml, mtime=2.0)
+    await world.clock.advance(31)
+    world.source.windows = [window("1", PYCHARM, "main")]  # a new window with the same id
+    await world.collector.poll()
+    assert world.fields("jetbrains")["path"] == f"{HOME}/b/main"  # nothing remembered: medium
 
 
 async def test_jetbrains_unknown_project_gives_no_item() -> None:

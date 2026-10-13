@@ -33,9 +33,33 @@ A new focus event on an open window runs that app's second tier once. Nothing ru
 | cmux | `cmux_tab`: `cmux_workspace`, `cmux_surface`, `cwd`, `lifecycle` | `~/.cmuxterm/claude-hook-sessions.json` (`activeSessionsByWorkspace`), read-only. The selection is guessed: `confidence` is `medium` (title names the cwd, or one workspace) or `low` | none |
 | Chrome | `tab`: `url` (scheme, host, path only), `profile` | `osascript`, 3 s timeout | `[actions.applescript] chrome` |
 | Chrome history | `browser_history`: up to `history_limit` recent `visits` | `History` as `file:<path>?mode=ro&immutable=1` | `[collectors.appcontext] chrome_history` |
-| JetBrains, DataGrip | `ide_project`: `path`, `project`, `via` | the title's `[path]`, else `options/recentProjects.xml` of the newest product directory of that IDE | none |
+| JetBrains, DataGrip | `ide_project`: `path`, `project`, `via` | tier 1 for every IDE window, from a cached `options/recentProjects.xml` (open projects first, then `frameTitle`); the title's `[path]` when present. A focus change re-reads it | none |
 | Obsidian | `note`: `vault`, `vault_path`, `note`, `link` (`obsidian://open?vault=…&file=…`) | the title, and `~/Library/Application Support/obsidian/obsidian.json` | none |
 | iTerm2 | `terminal_session`: `path`, `job` | `osascript`, 3 s timeout (best effort) | `[actions.applescript] iterm2` |
+
+## JetBrains: the project path
+
+Every JetBrains window gets its `ide_project` item in tier 1, not only the focused one. The collector keeps the
+`options/recentProjects.xml` of the newest product directory per IDE in memory: it re-stats the file at most every 30 s
+(and on a focus change) and parses it again only when its location or modification time changes. A window is resolved
+again only when its title or the parsed file changes.
+
+With **Settings → Appearance & Behavior → Appearance → UI Options → "Always show full path in window header"** turned on,
+the title carries the path (`alpha [~/work/alpha/main]`), which is exact: `confidence` is `high` and `via` is `title`.
+Without the setting, checkouts that share a directory name (`~/work/alpha/main` and `~/work/beta/main`) are told apart in
+this order:
+
+| Rule | `confidence` | `via` |
+|---|---|---|
+| the title carries `[path]` | high | `title` |
+| exactly one entry has the project name | high | `recentProjects.xml` |
+| several have it and exactly one is `opened` | high | `recentProjects.xml:opened` |
+| several are open (or none is) and exactly one `frameTitle` equals the window title | medium | `recentProjects.xml:frameTitle` |
+| otherwise the newest open entry (the newest of all when none is open) | medium | `recentProjects.xml` |
+
+A window remembers its path. A later, weaker reading for the same project name does not replace it; a new project name
+does; a closed window forgets it. The setting's label was verified against `jetbrains.com/help/idea/settings-appearance.html`
+on 2026-10-08.
 
 Never read: `~/Library/Containers`, `Group Containers`, and any Teams, Slack or Outlook store.
 

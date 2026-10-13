@@ -7,7 +7,10 @@ so context follows focus within a second) and works in two tiers:
   :func:`~fylgja.collectors.appcontext.titles.parse_title` and becomes a ``title`` context item
   attached to the window. An item is emitted when it differs from the last one emitted for that
   window, and withdrawn when the title stops parsing. The windows come from the store, so the
-  titles are already redacted.
+  titles are already redacted. **JetBrains** windows also get their project path here: from the
+  title's ``[path]`` or from a cached ``recentProjects.xml`` (re-stat at most every 30 s, re-parsed
+  only when its location or mtime changes), so every IDE window has a path, not only the focused
+  one.
 * **Tier 2, on a focus change only.** A new focus event on a window that is open costs one run of
   that app's second tier: one file read per source, and one ``osascript`` call per switch that is
   on. Nothing runs between focus changes.
@@ -16,7 +19,7 @@ so context follows focus within a second) and works in two tiers:
   cmux         the selected workspace and tab with its cwd (cmux's session store)
   Chrome       the active tab URL (AppleScript, ``[actions.applescript] chrome``);
                optional history backfill (``[collectors.appcontext] chrome_history``)
-  JetBrains    the project path (title, then ``recentProjects.xml``)
+  JetBrains    the project path again, with a forced re-stat of ``recentProjects.xml``
   Obsidian     the vault path (``obsidian.json``), the note and an ``obsidian://`` link
   iTerm2       ``path`` and ``jobName`` (AppleScript, ``[actions.applescript] iterm2``)
   ============ ===================================================================
@@ -35,7 +38,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -61,6 +64,11 @@ KEY_HISTORY: Final = "history"
 KEY_JETBRAINS: Final = "jetbrains"
 KEY_OBSIDIAN: Final = "obsidian"
 KEY_ITERM2: Final = "iterm2"
+
+RECENT_PROJECTS_RECHECK: Final = 30.0
+"""Seconds between re-stats of ``recentProjects.xml`` in tier 1."""
+
+_CONFIDENCE_RANK: Final = {"low": 0, "medium": 1, "high": 2}
 
 SOURCE_STORE: Final = "store"
 """The pseudo source of the windows and focus themselves."""
@@ -88,6 +96,20 @@ class _Disabled:
     at: datetime
 
 
+@dataclass
+class _Recent:
+    """The cached ``recentProjects.xml`` of one product-prefix tuple."""
+
+    located: Path | None
+    mtime: float
+    projects: list[parse.JetBrainsProject]
+    checked_at: datetime
+    generation: int
+    """Bumps when ``(located, mtime)`` changes."""
+    error: str | None = None
+    """The code of the last failed re-stat or parse, raised again until the next re-stat."""
+
+
 Tier2 = Callable[[WindowFacts, datetime], Awaitable[None]]
 
 
@@ -105,6 +127,12 @@ class AppContextCollector:
         self._emitted: dict[tuple[str, str], str] = {}
         """``(window id, item key)`` to the fingerprint of the item last emitted for it."""
         self._focus_marker: tuple[str, datetime] | None = None
+        self._recent: dict[tuple[str, ...], _Recent] = {}
+        """Per product-prefix tuple, the cached ``recentProjects.xml``."""
+        self._ide_paths: dict[str, tuple[str, str, str, str]] = {}
+        """Window id to ``(project name, path, confidence, via)`` last resolved for it."""
+        self._ide_seen: dict[str, tuple[str | None, int]] = {}
+        """Window id to the ``(title, generation)`` tier 1 last resolved."""
         self._failures: dict[str, str] = {}
         """Source name to the code of its last failure; cleared by the next good reading."""
         self._disabled: dict[str, _Disabled] = {}
@@ -160,6 +188,10 @@ class AppContextCollector:
         present = {window.window_id for window in windows}
         for slot in [slot for slot in self._emitted if slot[0] not in present]:
             del self._emitted[slot]  # a closed window: the live view forgets its context itself
+        for gone in [wid for wid in self._ide_paths if wid not in present]:
+            del self._ide_paths[gone]
+        for gone in [wid for wid in self._ide_seen if wid not in present]:
+            del self._ide_seen[gone]
         for window in windows:
             context: TitleContext | None = None
             if window.bundle_id and window.title:
@@ -167,6 +199,8 @@ class AppContextCollector:
             self._apply(
                 window, parse.KEY_TITLE, None if context is None else parse.title_item(context), now
             )
+            if parse.jetbrains_product_prefixes(window.bundle_id or ""):
+                self._resolve_jetbrains(window, now, force=False)
 
     # -- AppleScript switches ---------------------------------------------------------------
 
@@ -280,35 +314,100 @@ class AppContextCollector:
         self._recovered(KEY_CMUX)
         self._apply(window, KEY_CMUX, item, now)
 
-    async def _jetbrains(self, window: WindowFacts, now: datetime) -> None:
-        fields = self._title_fields(window)
-        item: Item | None = None
-        home = str(self._inputs.home)
+    def _recent_projects(self, prefixes: tuple[str, ...], now: datetime, *, force: bool) -> _Recent:
+        """The cached ``recentProjects.xml`` for ``prefixes``. It is re-stat only when ``force`` is
+        set or :data:`RECENT_PROJECTS_RECHECK` seconds have passed, and re-parsed only when its
+        location or mtime changed. Raises :class:`InputError` while the last attempt failed."""
+        cached = self._recent.get(prefixes)
+        if (
+            cached is not None
+            and not force
+            and (now - cached.checked_at).total_seconds() < RECENT_PROJECTS_RECHECK
+        ):
+            if cached.error is not None:
+                raise InputError(cached.error)
+            return cached
+        generation = 0 if cached is None else cached.generation
         try:
+            located = adapter.jetbrains_recent_projects(
+                self._inputs.fs, self._inputs.home, prefixes
+            )
+            mtime = -1.0
+            if located is not None:
+                try:
+                    mtime = self._inputs.fs.stat(located).mtime
+                except FileNotFoundError:
+                    located = None
+                except OSError as exc:
+                    raise InputError("os_error") from exc
+            if (
+                cached is not None
+                and cached.error is None
+                and (cached.located, cached.mtime) == (located, mtime)
+            ):
+                cached.checked_at = now
+                return cached
             projects: list[parse.JetBrainsProject] = []
-            if "project" in fields and "path" not in fields:
-                located = adapter.jetbrains_recent_projects(
-                    self._inputs.fs,
-                    self._inputs.home,
-                    parse.jetbrains_product_prefixes(window.bundle_id or ""),
-                )
-                text = (
-                    None
-                    if located is None
-                    else adapter.read_input(self._inputs.fs, located, self._inputs.home)
-                )
+            if located is not None:
+                text = adapter.read_input(self._inputs.fs, located, self._inputs.home)
                 if text is not None:
-                    parsed = parse.parse_jetbrains_projects(text, home)
+                    parsed = parse.parse_jetbrains_projects(text, str(self._inputs.home))
                     if parsed is None:
                         raise InputError("unrecognized_format")
                     projects = parsed
-            resolved = parse.resolve_jetbrains_project(fields, projects, home)
+        except InputError as error:
+            self._recent[prefixes] = _Recent(
+                None if cached is None else cached.located,
+                -1.0 if cached is None else cached.mtime,
+                [] if cached is None else cached.projects,
+                now,
+                generation,
+                error.kind,
+            )
+            raise
+        fresh = _Recent(located, mtime, projects, now, generation + 1)
+        self._recent[prefixes] = fresh
+        return fresh
+
+    def _resolve_jetbrains(self, window: WindowFacts, now: datetime, *, force: bool) -> None:
+        """Resolve the project path of a JetBrains window and emit the ``jetbrains`` item.
+
+        Tier 1 calls it for every IDE window and skips a window whose ``(title, generation)`` is
+        unchanged; a focus change forces a re-stat of ``recentProjects.xml``. A new reading for
+        the same project never replaces a remembered one of higher confidence."""
+        fields = self._title_fields(window)
+        name = fields.get("project") or ""
+        home = str(self._inputs.home)
+        try:
+            projects: list[parse.JetBrainsProject] = []
+            generation = 0
+            if "project" in fields and "path" not in fields:
+                recent = self._recent_projects(
+                    parse.jetbrains_product_prefixes(window.bundle_id or ""), now, force=force
+                )
+                projects = recent.projects
+                generation = recent.generation
+            seen = (window.title, generation)
+            if not force and self._ide_seen.get(window.window_id) == seen:
+                return
+            self._ide_seen[window.window_id] = seen
+            resolved = parse.resolve_jetbrains_project(fields, projects, home, title=window.title)
         except InputError as error:
             self._failed_input(KEY_JETBRAINS, error)
             return
         self._recovered(KEY_JETBRAINS)
-        if resolved is not None:
+        remembered = self._ide_paths.get(window.window_id)
+        if remembered is not None and remembered[0] == name:
+            if resolved is None or (
+                _CONFIDENCE_RANK.get(resolved[1], 0) < _CONFIDENCE_RANK.get(remembered[2], 0)
+            ):
+                resolved = (remembered[1], remembered[2], remembered[3])
+        item: Item | None = None
+        if resolved is None:
+            self._ide_paths.pop(window.window_id, None)
+        else:
             path, confidence, via = resolved
+            self._ide_paths[window.window_id] = (name, path, confidence, via)
             shown: dict[str, JsonValue] = {"path": path, "via": via}
             if fields.get("project"):
                 shown["project"] = fields["project"]
@@ -321,6 +420,9 @@ class AppContextCollector:
                 confidence=confidence,
             )
         self._apply(window, KEY_JETBRAINS, item, now)
+
+    async def _jetbrains(self, window: WindowFacts, now: datetime) -> None:
+        self._resolve_jetbrains(window, now, force=True)
 
     async def _obsidian(self, window: WindowFacts, now: datetime) -> None:
         fields = self._title_fields(window)

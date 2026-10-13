@@ -163,14 +163,21 @@ def cmux_store(workspaces: dict[str, tuple[str, str, float]], *, version: int = 
     )
 
 
-def recent_projects(entries: list[tuple[str, str | None, int]]) -> str:
-    """``recentProjects.xml``: ``(path under $USER_HOME$, frame title, open timestamp)``."""
+def recent_projects(
+    entries: list[tuple[str, str | None, int] | tuple[str, str | None, int, bool]],
+) -> str:
+    """``recentProjects.xml``: ``(path under $USER_HOME$, frame title, open timestamp[, opened])``.
+
+    ``opened`` defaults to true."""
     body = ""
-    for path, title, opened in entries:
+    for entry in entries:
+        path, title, opened = entry[:3]
+        is_open = entry[3] if len(entry) == 4 else True
         meta = f' frameTitle="{title}"' if title else ""
+        flag = "true" if is_open else "false"
         body += (
             f'<entry key="$USER_HOME$/{path}"><value><RecentProjectMetaInfo{meta} '
-            f'opened="true"><option name="projectOpenTimestamp" value="{opened}"/>'
+            f'opened="{flag}"><option name="projectOpenTimestamp" value="{opened}"/>'
             "</RecentProjectMetaInfo></value></entry>"
         )
     return (

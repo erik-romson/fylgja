@@ -152,9 +152,10 @@ poll_interval_seconds = 5
 [collectors.appcontext]
 enabled = true
 # What the windows say about the work. Tier 1 parses every window title (every poll_interval_seconds).
-# Tier 2 runs on a focus change only: the selected cmux workspace and tab (cmux's session store), the
-# JetBrains project path (recentProjects.xml), the Obsidian vault and link (obsidian.json), and, behind
-# their own switches in [actions.applescript] (both off), the Chrome tab URL and iTerm2's path and job
+# Every JetBrains window also gets its project path here, from a cached recentProjects.xml (re-stat at
+# most every 30 s). Tier 2 runs on a focus change only: the selected cmux workspace and tab (cmux's
+# session store), the JetBrains path again with a forced re-read, the Obsidian vault and link
+# (obsidian.json), and, behind their own switches in [actions.applescript] (both off), the Chrome tab URL and iTerm2's path and job
 # (3 s timeout; a timeout disables that one switch until `fylgja doctor` is rerun).
 # chrome_history reads Chrome's History file read-only (immutable) for recent visits; it is off.
 # See docs/collectors/appcontext.md.

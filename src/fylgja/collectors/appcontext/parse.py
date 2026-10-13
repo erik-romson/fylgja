@@ -382,6 +382,10 @@ class JetBrainsProject:
     names: tuple[str, ...]
     """The names the IDE shows for it: its display name, its frame title and the directory name."""
     opened_ms: int = 0
+    opened: bool = False
+    """``RecentProjectMetaInfo opened="true"``: the IDE has the project open now."""
+    frame_title: str | None = None
+    """The window title the IDE last saved for the project."""
 
 
 def _expand_home(path: str, home: str) -> str:
@@ -422,9 +426,13 @@ def parse_jetbrains_projects(text: str, home: str) -> list[JetBrainsProject] | N
             continue
         path = _expand_home(key, home)
         names: list[str] = []
+        is_open = False
+        frame_title: str | None = None
         meta = entry.find(".//RecentProjectMetaInfo")
         if meta is not None:
             names += [n for n in (meta.get("displayName"), meta.get("frameTitle")) if n]
+            is_open = meta.get("opened") == "true"
+            frame_title = meta.get("frameTitle") or None
         base = PurePosixPath(path).name
         if base:
             names.append(base)
@@ -432,20 +440,30 @@ def parse_jetbrains_projects(text: str, home: str) -> list[JetBrainsProject] | N
         for option in entry.iter("option"):
             if option.get("name") in ("projectOpenTimestamp", "activationTimestamp"):
                 opened = max(opened, _int(option.get("value")))
-        projects.append(JetBrainsProject(path, tuple(names), opened))
+        projects.append(JetBrainsProject(path, tuple(names), opened, is_open, frame_title))
         if len(projects) >= MAX_PROJECTS:
             break
     return projects
 
 
 def resolve_jetbrains_project(
-    fields: Mapping[str, str], projects: Sequence[JetBrainsProject], home: str
+    fields: Mapping[str, str],
+    projects: Sequence[JetBrainsProject],
+    home: str,
+    *,
+    title: str | None = None,
 ) -> tuple[str, str, str] | None:
     """``(path, confidence, via)`` of the project a JetBrains title names, or ``None``.
 
     A title that carries the path (``<project> [~/dir]``) is exact. Otherwise the project name is
-    matched, ignoring case, against the names in ``recentProjects.xml``: one match is ``high``;
-    several (two directories with one name) give the most recently opened and ``medium``.
+    matched, ignoring case, against the names in ``recentProjects.xml``. The rules, in order:
+
+    * one match is ``high``;
+    * several matches of which exactly one is ``opened`` is ``high`` (``…:opened``);
+    * several open (or none open) matches of which exactly one has a ``frameTitle`` equal to
+      ``title`` is ``medium`` (``…:frameTitle``);
+    * otherwise the most recently opened of the open matches (all of them when none is open) is
+      ``medium``.
     """
     explicit = fields.get("path")
     if explicit:
@@ -459,7 +477,15 @@ def resolve_jetbrains_project(
         return None
     if len(matches) == 1:
         return matches[0].path, "high", "recentProjects.xml"
-    best = max(matches, key=lambda p: (p.opened_ms, p.path))
+    open_matches = [p for p in matches if p.opened]
+    if len(open_matches) == 1:
+        return open_matches[0].path, "high", "recentProjects.xml:opened"
+    pool = open_matches or matches
+    if title:
+        framed = [p for p in pool if p.frame_title == title]
+        if len(framed) == 1:
+            return framed[0].path, "medium", "recentProjects.xml:frameTitle"
+    best = max(pool, key=lambda p: (p.opened_ms, p.path))
     return best.path, "medium", "recentProjects.xml"
 
 
