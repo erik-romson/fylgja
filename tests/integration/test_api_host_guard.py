@@ -20,7 +20,15 @@ from fylgja.api.security import HostGuard, allowed_hosts
 from fylgja.config import ConfigError, parse_config
 from fylgja.core.daemon import Daemon
 
-READ_ROUTES = ("/now", "/workspaces", "/sessions", "/projects", "/collectors", "/health")
+READ_ROUTES = (
+    "/now",
+    "/workspaces",
+    "/sessions",
+    "/projects",
+    "/collectors",
+    "/health",
+    "/view/overview",
+)
 
 
 @pytest.fixture
@@ -82,7 +90,8 @@ async def test_no_response_carries_cors_headers(daemon: Daemon) -> None:
         responses += [await http.options(path, headers=preflight) for path in READ_ROUTES]
         responses.append(await http.get("/now", headers={**origin, "Host": "evil.example"}))
         responses.append(await http.get("/nowhere", headers=origin))
-    assert [r.status_code for r in responses[:6]] == [200] * 6
+    shown = len(READ_ROUTES)
+    assert [r.status_code for r in responses[:shown]] == [200] * shown
     for response in responses:
         cors = [name for name in response.headers if name.lower().startswith("access-control-")]
         assert cors == [], response.request.url

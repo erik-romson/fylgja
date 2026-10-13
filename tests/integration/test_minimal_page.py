@@ -163,6 +163,13 @@ async def test_the_scripted_flow_adds_and_finishes_a_todo(http: httpx.AsyncClien
     here = (await http.get(f"/todos?ws=2&{OPEN}")).json()
     everywhere = (await http.get(f"/todos?{OPEN}")).json()
     assert [t["id"] for t in here] == [t["id"] for t in everywhere] == [todo["id"]]
+    # the page reads them grouped from its view model: the focused workspace first
+    view = (await http.get("/view/overview")).json()
+    assert view["focused_workspace"] == "2"
+    focused, rest = view["todo_groups"]
+    assert (focused["kind"], focused["title"]) == ("focused", "Focused workspace 2")
+    assert [(t["id"], t["can_finish"]) for t in focused["todos"]] == [(todo["id"], True)]
+    assert (rest["kind"], rest["empty"], rest["todos"]) == ("all", "Nothing else open", [])
 
     done = await http.patch(
         f"/todos/{todo['id']}", headers=_page_headers(secret), json={"status": "done"}
@@ -170,6 +177,8 @@ async def test_the_scripted_flow_adds_and_finishes_a_todo(http: httpx.AsyncClien
     assert done.status_code == 200, done.text
     assert done.json()["status"] == "done"
     assert (await http.get(f"/todos?{OPEN}")).json() == []
+    view = (await http.get("/view/overview")).json()
+    assert [t for g in view["todo_groups"] for t in g["todos"]] == []
 
 
 async def test_the_same_calls_without_the_bearer_fail(http: httpx.AsyncClient) -> None:
@@ -209,14 +218,12 @@ async def test_the_page_script_makes_the_calls_the_flow_above_mirrors() -> None:
     assert '"Content-Type"] = "application/json"' in source
     assert 'call("POST", "/todos", { text: text })' in source
     assert 'call("PATCH", "/todos/" + encodeURIComponent(id), { status: "done" })' in source
-    assert 'call("GET", "/now")' in source
-    assert "w.focused" in source
-    assert "now.focused.workspace" in source
-    assert '"/todos?" + OPEN' in source
-    assert 'const OPEN = "status=open,next"' in source
+    assert 'call("GET", "/view/overview")' in source
+    assert "card.focused" in source
+    assert "ov.focused_workspace" in source
     for element in ("todo-list", "todo-input", "todo-add"):
         assert f'id="{element}"' in source
-    assert '"todo-done-" + todo.id' in source
+    assert '"todo-done-" + tr.id' in source
     # the page writes text with textContent, never as markup
     assert "innerHTML" not in source
     assert not re.search(r"https?://", source)

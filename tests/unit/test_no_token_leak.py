@@ -233,7 +233,15 @@ async def test_canaries_reach_no_log_spool_file_database_row_or_api_response(
 
         responses: list[tuple[str, bytes]] = []
         async with client(daemon) as http:
-            for route in ("/now", "/sessions", "/workspaces", "/collectors", "/health", "/"):
+            for route in (
+                "/now",
+                "/sessions",
+                "/workspaces",
+                "/collectors",
+                "/health",
+                "/view/overview",
+                "/",
+            ):
                 reply = await http.get(route)
                 responses.append((f"GET {route}", reply.content))
     finally:

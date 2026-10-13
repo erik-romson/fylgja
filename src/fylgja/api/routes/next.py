@@ -5,7 +5,8 @@
   the ``/now`` ``next[]`` items, best first, each with its ``suggestion_id``, ``kind``,
   ``target_ref``, ``score``, ``reason`` and ``rank`` (1 is the top). The list is the one ``/now``
   shows, and every list that is generated is in ``suggestions_log`` with its reasons. The list is
-  empty (and not logged) when nothing waits for the person.
+  empty (and not logged) when nothing waits for the person. :func:`next_list` builds the answer;
+  ``GET /view/overview`` shows the same list through it.
 * ``POST /next/feedback`` (a mutating route: bearer, Origin, JSON, body limit): ``{"list_id":
   "...", "rating": "good"|"bad", "suggestion_id"?: "..."}``. The rating is recorded on the list's
   top item, or on ``suggestion_id`` when it is given, with the time (``feedback_at``). A second
@@ -25,19 +26,14 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from fylgja.api.deps import current_now, daemon_of, json_response, not_found
 from fylgja.api.now import next_items
-from fylgja.api.now_models import NextItem, NowModel, dump_json
+from fylgja.api.now_models import Now, NowModel, dump_json
+from fylgja.api.view_models import NextList
+from fylgja.core.daemon import Daemon
 from fylgja.core.next_lists import SuggestionNotFound
 
-__all__ = ["NextList", "Rating", "router"]
+__all__ = ["NextList", "Rating", "next_list", "router"]
 
 router = APIRouter()
-
-
-class NextList(NowModel):
-    """The answer of ``GET /next``."""
-
-    list_id: str
-    items: list[NextItem]
 
 
 class Rating(NowModel):
@@ -58,14 +54,21 @@ class FeedbackBody(BaseModel):
     suggestion_id: str | None = None
 
 
+def next_list(daemon: Daemon, now: Now) -> NextList:
+    """The answer of ``GET /next`` for ``now``: its ``next[]`` and ``next_list_id``.
+
+    Without a ``next[]`` section it is the published empty list, which is not logged. Publishing
+    an unchanged list again returns the list before it, so a second caller logs nothing new.
+    """
+    if now.next is not None and now.next_list_id is not None:
+        return NextList(list_id=now.next_list_id, items=now.next)
+    empty = daemon.next_lists.publish([], now.generated_at)
+    return NextList(list_id=empty.list_id, items=next_items(empty))
+
+
 @router.get("/next")
 async def get_next(request: Request) -> Response:
-    now = current_now(request)
-    if now.next is not None and now.next_list_id is not None:
-        answer = NextList(list_id=now.next_list_id, items=now.next)
-    else:  # no section is shown: an empty list, which is not logged
-        empty = daemon_of(request).next_lists.publish([], now.generated_at)
-        answer = NextList(list_id=empty.list_id, items=next_items(empty))
+    answer = next_list(daemon_of(request), current_now(request))
     return json_response(dump_json(answer))
 
 

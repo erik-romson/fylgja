@@ -26,9 +26,23 @@ a CSP change.
 - **The session table omits `facts`.** Prompts, replies and file names never reach the table.
 - **Shared helpers.** `fmtTime` formats an instant as local time and does no arithmetic; `fillTable(table, head, rows)`
   builds every table, with every string entering the DOM as text.
+- **The daemon computes, the page renders.** The page may render what a route returns in the order it returns it,
+  format an instant (`fmtTime`) or a number of seconds (`fmtDuration`), map a fixed id to a label (`SOURCE_LABELS`),
+  show and hide tabs, keep UI choices in the hash or `localStorage`, debounce input and throttle reloads. It may not
+  sort, filter, group, cap, count across items, subtract times, score or decide a click target. A tab that needs more
+  than formatting gets a page-shaped view model at `GET /view/<tab>` (`fylgja.view.<tab>/1`), built by a pure function
+  in `api/views.py`; `/now` stays the frozen data contract. The Overview is the first: `GET /view/overview`
+  (`docs/api/views.md`) carries the cards, the Next strip and the todo groups with their caps, order, titles and click
+  targets, and the page makes that one call.
 
 ## Consequences
 
 - Later tabs add a section with `data-tab`, a loader and a key inside the `TABS` literal; a test checks that every
   `data-tab` is a key.
 - Tab switching has no JavaScript runtime in CI, so it is checked by hand in a browser.
+- The Overview's rules (caps, waiting sessions first, which workspaces get a card, click targets, todo groups and
+  titles) are unit-tested Python instead of untested JavaScript. `test_the_page_computes_nothing` bans `.sort(`,
+  `.filter(`, `.reduce(`, `.find(`, `.some(`, `.every(`, `.slice(`, `.flatMap(`, `const MAX_`, `Date.now() -` and
+  `- new Date(` in the script; an allowed exception is listed verbatim in its `ALLOWED_COMPUTATION`.
+- The data-contract test resolves each variable table against its own schema: `/now` fields against
+  `docs/api/now.schema.json`, view-model fields against the model's in-memory JSON Schema.

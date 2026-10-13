@@ -74,6 +74,9 @@ __all__ = [
     "MAX_TEXT_CHARS",
     "NATIVE_SOURCE",
     "SCOPE_KINDS",
+    "SCOPE_PROJECT",
+    "SCOPE_SESSION",
+    "SCOPE_WORKSPACE",
     "STATUSES",
     "ImportList",
     "ImportedItem",
@@ -91,7 +94,12 @@ __all__ = [
 
 NATIVE_SOURCE: Final = "fylgja"
 """The ``source`` of Fylgja's own todos; every other source is an import."""
-SCOPE_KINDS: Final = ("workspace", "project", "session")
+SCOPE_WORKSPACE: Final = "workspace"
+SCOPE_PROJECT: Final = "project"
+SCOPE_SESSION: Final = "session"
+SCOPE_KINDS: Final = (SCOPE_WORKSPACE, SCOPE_PROJECT, SCOPE_SESSION)
+"""The scopes a todo belongs to. ``api/`` compares with these names, never with the literals:
+``project`` is also a collector name, which ``api/`` must not dispatch on."""
 STATUSES: Final = ("open", "next", "done")
 ACTIVE_STATUSES: Final = frozenset({"open", "next"})
 MAX_TEXT_CHARS: Final = 1000

@@ -2,7 +2,9 @@
 
 ``/`` renders over the real guarded app with every element id the page and its tests use, the meta
 secret and no outside asset. The JavaScript is checked statically: titles and other daemon text go
-in with ``textContent``, never as markup; the page listens on ``/events`` and has no polling loop.
+in with ``textContent``, never as markup; the page listens on ``/events`` and has no polling loop;
+and it computes nothing (``docs/decisions/0047``): the daemon sorts, filters, caps, counts and picks
+targets, and the page renders.
 """
 
 from __future__ import annotations
@@ -29,6 +31,25 @@ from fylgja.api.routes.page import PLACEHOLDER
 from fylgja.core.daemon import Daemon
 
 SECRET = "k7Qz-test-secret-9fA2xLmN0pRsTuVwXyZ_abcdefghij"
+
+# What the page may not do (principle 1: the daemon computes, the page renders): sort, filter,
+# reduce, search, slice, flatten, cap or subtract times. Each match the rule allows is listed in
+# ALLOWED_COMPUTATION, verbatim, and removed from the script before the scan.
+COMPUTATION = (
+    ".sort(",
+    ".filter(",
+    ".reduce(",
+    ".find(",
+    ".some(",
+    ".every(",
+    ".slice(",
+    ".flatMap(",
+    "const MAX_",
+    "Date.now() -",
+    "- new Date(",
+)
+ALLOWED_COMPUTATION: tuple[str, ...] = ()
+
 STATIC_IDS = {
     "next-strip": "ul",
     "workspace-cards": "div",
@@ -162,19 +183,53 @@ def test_the_page_focuses_through_the_guarded_focus_api() -> None:
     assert '"Authorization"] = "Bearer " + secret' in script
     assert '"Content-Type"] = "application/json"' in script
     assert "document.querySelector('meta[name=\"fylgja-secret\"]').content" in script
-    assert '"card-" + w.name' in script
-    assert '"session-" + s.key' in script
-    assert 'call("GET", "/next")' in script
+    assert '"card-" + card.name' in script
+    assert '"session-" + cs.key' in script
+    assert 'call("GET", "/view/overview")' in script
+    # every click target is the daemon's: a session or a window, never looked up here
+    assert 'ft.kind === "session" ? focusSession(ft.ref) : focusWindow(ft.ref)' in script
+    for target in ("go(ne.go)", "go(card.go)", "go(cs.go)"):
+        assert target in script, target
 
 
 def test_todos_are_grouped_by_scope_and_imported_ones_name_their_source() -> None:
     script = _script(_source())
-    assert "for (const scope of byScope(rest))" in script
-    assert "scopeTitle(scope.kind, scope.ref, sessions, projects)" in script
-    assert "s.title || s.one_liner || s.name" in script
+    # the daemon groups the todos and titles each group (api/views.py); the page renders them
+    assert "for (const tg of ov.todo_groups)" in script
+    assert 'el("li", tg.kind === "scope" ? "group sub" : "group", tg.title)' in script
+    assert "byScope" not in script
+    assert "scopeTitle" not in script
     # an imported todo is finished where it came from: it gets a label, never a Done button
-    assert '"from " + sourceLabel(todo.source)' in script
+    assert "if (!tr.can_finish)" in script
+    assert '"from " + sourceLabel(tr.source)' in script
     assert "disabled" not in script
+
+
+def test_the_page_computes_nothing() -> None:
+    script = _script(_source())
+    for allowed in ALLOWED_COMPUTATION:
+        assert allowed in script, f"stale allow-list entry: {allowed!r}"
+        script = script.replace(allowed, "")
+    found = [banned for banned in COMPUTATION if banned in script]
+    assert not found, f"the page computes; move it into the daemon: {found}"
+
+
+def test_the_overview_is_one_call_to_its_view_model() -> None:
+    script = _script(_source())
+    assert 'const ov = await call("GET", "/view/overview");' in script
+    for gone in ('"/todos?"', 'call("GET", "/next")', "nextAction", "windowOf", "WAITING"):
+        assert gone not in script, gone
+    # the Live data tab keeps its own /now call
+    assert script.count('call("GET", "/now")') == 1
+
+
+def test_times_and_durations_are_only_formatted() -> None:
+    script = _script(_source())
+    assert "function fmtTime(iso)" in script
+    assert "function fmtDuration(seconds)" in script
+    assert 'return hours + " h " + minutes + " m";' in script
+    assert 'return minutes + " m";' in script
+    assert 'return total + " s";' in script
 
 
 def test_tabs_route_by_hash_and_load_only_the_visible_tab() -> None:

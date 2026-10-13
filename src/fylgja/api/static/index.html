@@ -88,15 +88,6 @@ const statusLine = document.getElementById("status");
 const strip = document.getElementById("next-strip");
 const cards = document.getElementById("workspace-cards");
 const sessionTable = document.getElementById("session-table");
-const OPEN = "status=open,next";
-const WAITING = ["waiting", "waiting_permission", "waiting_input", "turn_done"];
-const MAX_SESSIONS = 6;
-const MAX_CONTEXT = 3;
-const MAX_TODOS = 4;
-
-// What the last /now said, for the clicks that look a target up.
-let current = { workspaces: [], sessions: [], projects: [] };
-let openTodos = [];
 
 function say(message) { statusLine.textContent = message || ""; }
 
@@ -124,6 +115,10 @@ function el(tag, className, text) {
   return node;
 }
 
+// The daemon computes, the page renders: every list arrives capped, ordered and grouped, with its
+// click targets decided. The page formats instants and durations, maps fixed ids to labels, and
+// renders in the order it is given.
+
 // A timestamp as local time. The daemon sends the instants; the page only formats them.
 function fmtTime(iso) {
   if (!iso) { return ""; }
@@ -132,23 +127,33 @@ function fmtTime(iso) {
   });
 }
 
+// A number of seconds the daemon sent, as "3 h 20 m", "45 m" or "30 s".
+function fmtDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) { return hours + " h " + minutes + " m"; }
+  if (minutes > 0) { return minutes + " m"; }
+  return total + " s";
+}
+
 // A table from a list of header strings and rows of { cells, className, onClick }.
 // A cell is a string or a node; every string goes in as text.
 function fillTable(table, head, rows) {
   const header = el("tr");
   header.append(...head.map((name) => el("th", "", name)));
   const body = rows.map((entry) => {
-    const tr = el("tr", entry.className || "");
-    tr.append(...entry.cells.map((cell) => {
+    const line = el("tr", entry.className || "");
+    line.append(...entry.cells.map((cell) => {
       const td = el("td");
       td.append(typeof cell === "string" ? document.createTextNode(cell) : cell);
       return td;
     }));
     if (entry.onClick) {
-      tr.classList.add("clickable");
-      tr.addEventListener("click", entry.onClick);
+      line.classList.add("clickable");
+      line.addEventListener("click", entry.onClick);
     }
-    return tr;
+    return line;
   });
   table.replaceChildren(header, ...body);
 }
@@ -167,42 +172,17 @@ async function focusPath(path) {
 function focusWindow(id) { return focusPath("/focus/window/" + encodeURIComponent(id)); }
 function focusSession(key) { return focusPath("/focus/session/" + encodeURIComponent(key)); }
 
-function windowOf(w) {
-  const wins = w.windows || [];
-  const here = wins.find((win) => win.focused) || wins[0];
-  return here ? here.id : null;
-}
-
-function focusWorkspace(name) {
-  const target = (current.workspaces || []).find((w) => w.name === name);
-  const id = target ? windowOf(target) : null;
-  if (id === null) { say("Nothing to focus in workspace " + name); return Promise.resolve(); }
-  return focusWindow(id);
-}
+// A click target the daemon decided: a session or a window.
+function go(ft) { return ft.kind === "session" ? focusSession(ft.ref) : focusWindow(ft.ref); }
 
 // ---- the "next" strip ----
 
-function nextAction(n) {
-  const key = n.target_ref;
-  if ((current.sessions || []).some((s) => s.key === key)) { return () => focusSession(key); }
-  const p = (current.projects || []).find((p) => p.path === key);
-  if (p && p.workspace) { return () => focusWorkspace(p.workspace); }
-  for (const w of current.workspaces || []) {
-    if ((w.windows || []).some((win) => win.id === key)) { return () => focusWindow(key); }
-    if (w.name === key) { return () => focusWorkspace(key); }
-  }
-  const todo = openTodos.find((t) => t.id === key);
-  if (todo && todo.scope_kind === "workspace") { return () => focusWorkspace(todo.scope_ref); }
-  return null;
-}
-
-function renderNext(items) {
-  const entries = (items || []).map((n) => {
-    const li = el("li", n.rank === 1 ? "top" : "");
-    li.id = "next-" + n.rank;
-    li.append(el("span", "kind", String(n.kind || "").replaceAll("_", " ")),el("span", "", n.reason));
-    const action = nextAction(n);
-    if (action) { li.addEventListener("click", action); } else { li.style.cursor = "default"; }
+function renderNext(ov) {
+  const entries = ov.next.map((ne) => {
+    const li = el("li", ne.rank === 1 ? "top" : "");
+    li.id = "next-" + ne.rank;
+    li.append(el("span", "kind", String(ne.kind || "").replaceAll("_", " ")), el("span", "", ne.reason));
+    if (ne.go) { li.addEventListener("click", () => go(ne.go)); } else { li.style.cursor = "default"; }
     return li;
   });
   if (entries.length === 0) {
@@ -213,87 +193,63 @@ function renderNext(items) {
 
 // ---- workspace cards ----
 
-function label(w) { return w.label || w.inferred_label || ""; }
-
-function projectLine(p) {
+function projectLine(cp) {
   const line = el("li", "project");
-  const parts = [p.name || p.path];
-  if (p.branch) { parts.push(p.branch); }
-  if (p.dirty) { parts.push("dirty"); }
-  if (p.pr && p.pr.number) { parts.push("PR #" + p.pr.number + (p.pr.checks ? " " + p.pr.checks : "")); }
+  const parts = [cp.name];
+  if (cp.branch) { parts.push(cp.branch); }
+  if (cp.dirty) { parts.push("dirty"); }
+  if (cp.pr_number) { parts.push("PR #" + cp.pr_number + (cp.pr_checks ? " " + cp.pr_checks : "")); }
   line.textContent = parts.join(" · ");
-  if (p.build && p.build.state) {
-    const build = el("span", p.build.state === "failed" ? "state bad" : "state", " build " + p.build.state);
-    line.append(build);
+  if (cp.build_state) {
+    line.append(el("span", cp.build_failed ? "state bad" : "state", " build " + cp.build_state));
   }
   return line;
 }
 
-function sessionLine(s) {
-  const li = el("li", WAITING.includes(s.state) ? "session waiting" : "session");
-  li.id = "session-" + s.key;
-  li.append(el("span", "state", s.state || "unknown"));
-  li.append(el("span", "", s.one_liner || s.title || s.name || s.kind));
-  li.addEventListener("click", (event) => { event.stopPropagation(); focusSession(s.key); });
+function sessionLine(cs) {
+  const li = el("li", cs.waiting ? "session waiting" : "session");
+  li.id = "session-" + cs.key;
+  li.append(el("span", "state", cs.state));
+  li.append(el("span", "", cs.text));
+  li.addEventListener("click", (event) => { event.stopPropagation(); go(cs.go); });
   return li;
 }
 
-function contextLine(c) {
-  const li = el("li", "context", c.title || c.kind);
-  if (c.unread) { li.prepend(el("span", "state", "unread")); }
+function contextLine(cc) {
+  const li = el("li", "context", cc.text);
+  if (cc.unread) { li.prepend(el("span", "state", "unread")); }
   return li;
 }
 
-function todoLine(todo) {
-  return el("li", todo.status === "next" ? "todo next" : "todo", todo.text);
+function todoLine(ct) {
+  return el("li", ct.next ? "todo next" : "todo", ct.text);
 }
 
-function section(card, title, lines) {
+function section(box, title, lines) {
   if (lines.length === 0) { return; }
   const ul = el("ul");
   ul.append(...lines);
-  card.append(el("div", "part", title), ul);
+  box.append(el("div", "part", title), ul);
 }
 
-function workspaceCard(w, sessions, projects) {
-  const card = el("div", w.focused ? "card focused" : "card");
-  card.id = "card-" + w.name;
+function workspaceCard(card) {
+  const box = el("div", card.focused ? "card focused" : "card");
+  box.id = "card-" + card.name;
   const title = el("h3");
-  title.append(el("span", "", w.name + (label(w) ? " " + label(w) : "")));
-  title.append(el("span", "muted", (w.windows || []).length + " windows"));
-  card.append(title);
-  if (w.one_liner) { card.append(el("p", "oneliner", w.one_liner)); }
-  const mine = (w.sessions || []).map((key) => sessions.get(key)).filter(Boolean);
-  mine.sort((a, b) => WAITING.includes(b.state) - WAITING.includes(a.state));
-  const where = (w.projects || []).map((path) => projects.get(path)).filter(Boolean);
-  const context = (w.windows || []).flatMap((win) => win.context || []);
-  section(card, "Projects", where.map(projectLine));
-  section(card, "Sessions", mine.slice(0, MAX_SESSIONS).map(sessionLine));
-  section(card, "Context", context.slice(0, MAX_CONTEXT).map(contextLine));
-  section(card, "Todos", (w.todos || []).slice(0, MAX_TODOS).map(todoLine));
-  const id = windowOf(w);
-  if (id !== null) { card.addEventListener("click", () => focusWindow(id)); }
-  return card;
+  title.append(el("span", "", card.name + (card.label ? " " + card.label : "")));
+  title.append(el("span", "muted", card.windows + " windows"));
+  box.append(title);
+  if (card.one_liner) { box.append(el("p", "oneliner", card.one_liner)); }
+  section(box, "Projects", card.projects.map(projectLine));
+  section(box, "Sessions", card.sessions.map(sessionLine));
+  section(box, "Context", card.context.map(contextLine));
+  section(box, "Todos", card.todos.map(todoLine));
+  if (card.go) { box.addEventListener("click", () => go(card.go)); }
+  return box;
 }
 
-function busy(w) {
-  return (w.windows || []).length + (w.sessions || []).length + (w.todos || []).length > 0;
-}
-
-function sessionsByKey(now) {
-  const sessions = new Map();
-  const walk = (items) => (items || []).forEach((s) => { sessions.set(s.key, s); walk(s.children); });
-  walk(now.sessions);
-  return sessions;
-}
-
-function projectsByPath(now) { return new Map((now.projects || []).map((p) => [p.path, p])); }
-
-function renderCards(now) {
-  const sessions = sessionsByKey(now);
-  const projects = projectsByPath(now);
-  const shown = (now.workspaces || []).filter(busy);
-  const nodes = shown.map((w) => workspaceCard(w, sessions, projects));
+function renderCards(ov) {
+  const nodes = ov.cards.map((card) => workspaceCard(card));
   if (nodes.length === 0) { nodes.push(el("p", "muted", "No workspace has anything in it")); }
   cards.replaceChildren(...nodes);
 }
@@ -305,105 +261,43 @@ const SOURCE_LABELS = { "project-todo-md": "TODO.md" };
 
 function sourceLabel(source) { return SOURCE_LABELS[source] || source.split("-")[0]; }
 
-function baseName(path) { return String(path || "").split("/").filter(Boolean).pop() || ""; }
-
-function tail(text, max) { return text.length > max ? "…" + text.slice(1 - max) : text; }
-
-// The heading a group of todos goes under: the session, project or workspace they belong to.
-function scopeTitle(kind, ref, sessions, projects) {
-  const projectName = (path) => (projects.get(path) || {}).name || baseName(path);
-  if (kind === "session") {
-    const s = sessions.get(ref);
-    if (!s) { return "Session " + tail(ref, 40); }
-    return [s.title || s.one_liner || s.name, projectName(s.project_path), s.kind].filter(Boolean).join(" · ");
-  }
-  if (kind === "project") { return "Project " + projectName(ref); }
-  if (kind === "workspace") {
-    const w = (current.workspaces || []).find((w) => w.name === ref);
-    return "Workspace " + ref + (w && label(w) ? " " + label(w) : "");
-  }
-  return "No scope";
-}
-
-function byScope(todos) {
-  const groups = new Map();
-  for (const todo of todos) {
-    const key = (todo.scope_kind || "") + " " + (todo.scope_ref || "");
-    if (!groups.has(key)) { groups.set(key, { kind: todo.scope_kind, ref: todo.scope_ref, todos: [] }); }
-    groups.get(key).todos.push(todo);
-  }
-  return [...groups.values()];
-}
-
-function row(todo) {
-  const li = el("li", todo.status === "next" ? "next" : "");
-  li.append(el("span", "text", todo.text));
-  if (todo.source && todo.source !== "fylgja") {
-    const from = el("span", "from", "from " + sourceLabel(todo.source));
-    from.title = "Imported: finish it in " + sourceLabel(todo.source);
+function todoRow(tr) {
+  const li = el("li", tr.next ? "next" : "");
+  li.append(el("span", "text", tr.text));
+  if (!tr.can_finish) {
+    const from = el("span", "from", "from " + sourceLabel(tr.source));
+    from.title = "Imported: finish it in " + sourceLabel(tr.source);
     li.append(from);
     return li;
   }
   const done = el("button", "", "Done");
-  done.id = "todo-done-" + todo.id;
+  done.id = "todo-done-" + tr.id;
   done.type = "button";
-  done.addEventListener("click", () => finish(todo.id));
+  done.addEventListener("click", () => finish(tr.id));
   li.append(done);
   return li;
 }
 
-function group(title, className) { return el("li", className || "group", title); }
-
-function render(todos, workspace) {
-  const here = todos.filter((t) => workspace && t.scope_kind === "workspace" && t.scope_ref === workspace);
-  const rest = todos.filter((t) => !here.includes(t));
-  const sessions = sessionsByKey(current);
-  const projects = projectsByPath(current);
+// The groups arrive in order: the focused workspace, then "All workspaces" and one per scope.
+function renderTodos(ov) {
   const items = [];
-  if (workspace) {
-    items.push(group("Focused workspace " + workspace));
-    if (here.length === 0) { items.push(group("Nothing open here", "empty")); }
-    items.push(...here.map(row));
-  }
-  items.push(group("All workspaces"));
-  if (rest.length === 0) { items.push(group("Nothing else open", "empty")); }
-  for (const scope of byScope(rest)) {
-    items.push(group(scopeTitle(scope.kind, scope.ref, sessions, projects), "group sub"));
-    items.push(...scope.todos.map(row));
+  for (const tg of ov.todo_groups) {
+    items.push(el("li", tg.kind === "scope" ? "group sub" : "group", tg.title));
+    if (tg.empty) { items.push(el("li", "empty", tg.empty)); }
+    for (const tr of tg.todos) { items.push(todoRow(tr)); }
   }
   list.replaceChildren(...items);
+  const where = ov.focused_workspace ? "workspace " + ov.focused_workspace : "focused workspace";
+  input.placeholder = "What next? (" + where + ")";
 }
 
 // ---- data ----
 
-function focusedName(now) {
-  const flagged = ((now && now.workspaces) || []).find((w) => w.focused);
-  return (now && now.focused && now.focused.workspace) || (flagged ? flagged.name : null);
-}
-
-async function refreshTodos(now) {
-  try {
-    const todos = await call("GET", "/todos?" + OPEN);
-    openTodos = Array.isArray(todos) ? todos : [];
-    render(openTodos, focusedName(now));
-  } catch (error) {
-    say("Cannot load: " + error.message);
-  }
-}
-
-async function refreshNext() {
-  try {
-    const answer = await call("GET", "/next");
-    renderNext(answer && Array.isArray(answer.items) ? answer.items : []);
-  } catch (_) { /* the strip keeps what /now gave it */ }
-}
-
 async function loadOverview() {
-  const now = await call("GET", "/now");
-  current = now || current;
-  renderCards(now || {});
-  renderNext((now && now.next) || []);
-  await Promise.all([refreshTodos(now), refreshNext()]);
+  const ov = await call("GET", "/view/overview");
+  renderNext(ov);
+  renderCards(ov);
+  renderTodos(ov);
 }
 
 // ---- live data: the sessions /now reports ----
@@ -443,7 +337,6 @@ function sessionRow(s, child) {
 
 async function loadLive() {
   const now = await call("GET", "/now");
-  current = now || current;
   const rows = [];
   const walk = (items, child) => (items || []).forEach((s) => {
     rows.push(sessionRow(s, child));

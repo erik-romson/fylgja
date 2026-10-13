@@ -1,10 +1,12 @@
 """The data the navigator page uses (WP7.1, A19; ``PLAN-final-plan.md`` §4.2).
 
-Two checks. The page's JavaScript reads ``/now`` fields through a few fixed variable names; the
-declared table below lists them, and the test asserts that every one exists in
-``docs/api/now.schema.json`` and that the script reads no other. Then the endpoints the page calls
-(``/now``, ``/next``, ``/events`` and the focus routes) answer as the page expects when called the
-way the page calls them: the page's own ``Origin`` and the meta secret as the bearer.
+Two checks. The page's JavaScript reads fields through fixed variable names, one table per
+contract: ``/now`` fields (``PAGE_VARIABLES``, checked against ``docs/api/now.schema.json``) and
+the Overview's view model (``VIEW_VARIABLES``, checked against the in-memory schema of
+:class:`~fylgja.api.view_models.Overview`). The tests assert that every declared field exists in
+its schema and that the script reads no other. Then the endpoints the page calls (``/now``,
+``/view/overview``, ``/next``, ``/events`` and the focus routes) answer as the page expects when
+called the way the page calls them: the page's own ``Origin`` and the meta secret as the bearer.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -32,8 +34,10 @@ from api_support import (
     windows_collector,
     workspace_snapshot,
 )
+from pydantic import BaseModel
 
 from fylgja.api.app import create_app
+from fylgja.api.view_models import Overview
 from fylgja.core.daemon import Daemon
 from fylgja.testing.fakes import FakeProcessRunner
 
@@ -44,7 +48,8 @@ SCHEMA = Path(__file__).parents[2] / "docs" / "api" / "now.schema.json"
 
 # The JS variable that holds each /now type, and the field paths the page reads on it. Keep this
 # table in step with ``api/static/index.html``: the test fails when either side has a path the
-# other lacks.
+# other lacks. A name stays in its table after the page stops using it, so no later table reuses it
+# for another type.
 ROOT = "<now>"
 PAGE_VARIABLES: dict[str, str] = {
     "now": ROOT,
@@ -63,25 +68,7 @@ PAGE_VARIABLES: dict[str, str] = {
     "n": "NextItem",
 }
 PAGE_FIELDS: dict[str, set[str]] = {
-    ROOT: {
-        "focused",
-        "focused.workspace",
-        "next",
-        "projects",
-        "sessions",
-        "workspaces",
-    },
-    "Workspace": {
-        "focused",
-        "inferred_label",
-        "label",
-        "name",
-        "one_liner",
-        "projects",
-        "sessions",
-        "todos",
-        "windows",
-    },
+    ROOT: {"sessions"},
     "Session": {
         "children",
         "context_pct",
@@ -91,7 +78,6 @@ PAGE_FIELDS: dict[str, set[str]] = {
         "key",
         "kind",
         "last_seen",
-        "name",
         "one_liner",
         "one_liner_from",
         "project_path",
@@ -99,37 +85,62 @@ PAGE_FIELDS: dict[str, set[str]] = {
         "state_since",
         "story",
         "story.state",
-        "title",
         "tokens",
         "tokens.input",
         "tokens.output",
         "waiting_reason",
     },
     "Host": {"confidence", "kind", "unresolved", "via", "workspace"},
-    "Project": {
+}
+
+# The Overview renders ``GET /view/overview`` (``fylgja.view.overview/1``) only. Its variables, the
+# view-model type each holds and the fields the page reads on it.
+VIEW_VARIABLES: dict[str, str] = {
+    "ov": "Overview",
+    "card": "Card",
+    "cs": "CardSession",
+    "cp": "CardProject",
+    "cc": "CardContext",
+    "ct": "CardTodo",
+    "ne": "NextEntry",
+    "tg": "TodoGroup",
+    "tr": "TodoRow",
+    "ft": "FocusTarget",
+}
+VIEW_FIELDS: dict[str, set[str]] = {
+    "Overview": {"cards", "focused_workspace", "next", "todo_groups"},
+    "Card": {
+        "context",
+        "focused",
+        "go",
+        "label",
+        "name",
+        "one_liner",
+        "projects",
+        "sessions",
+        "todos",
+        "windows",
+    },
+    "CardSession": {"go", "key", "state", "text", "waiting"},
+    "CardProject": {
         "branch",
-        "build",
-        "build.state",
+        "build_failed",
+        "build_state",
         "dirty",
         "name",
-        "path",
-        "pr",
-        "pr.checks",
-        "pr.number",
-        "workspace",
+        "pr_checks",
+        "pr_number",
     },
-    "Window": {"context", "focused", "id"},
-    "ContextItem": {"kind", "title", "unread"},
-    "Todo": {
-        "id",
-        "scope_kind",
-        "scope_ref",
-        "source",
-        "status",
-        "text",
-    },
-    "NextItem": {"kind", "rank", "reason", "target_ref"},
+    "CardContext": {"text", "unread"},
+    "CardTodo": {"next", "text"},
+    "NextEntry": {"go", "kind", "rank", "reason"},
+    "TodoGroup": {"empty", "kind", "title", "todos"},
+    "TodoRow": {"can_finish", "id", "next", "source", "text"},
+    "FocusTarget": {"kind", "ref"},
 }
+
+Resolver = Callable[[str, str], bool]
+"""Whether a field path exists on a type: ``resolver(kind, path)``."""
 
 
 def _source() -> str:
@@ -142,19 +153,24 @@ def _script() -> str:
     return match.group(1)
 
 
-def _js_reads() -> dict[str, set[str]]:
-    """The field paths the script reads, per type, from ``variable.field.path`` expressions."""
-    names = "|".join(sorted(PAGE_VARIABLES, key=len, reverse=True))
+def _js_reads(variables: Mapping[str, str]) -> dict[str, set[str]]:
+    """The field paths the script reads, per type, from ``variable.field.path`` expressions over
+    the variable names of ``variables`` (a table of variable name to type)."""
+    names = "|".join(sorted(variables, key=len, reverse=True))
     found: dict[str, set[str]] = {}
     for match in re.finditer(rf"(?<![\w.\"'])({names})((?:\.[a-z_]+)+)(?!\w*\()", _script()):
         path = match.group(2)[1:]
-        found.setdefault(PAGE_VARIABLES[match.group(1)], set()).add(path)
+        found.setdefault(variables[match.group(1)], set()).add(path)
     return found
 
 
-def _resolve(schema: dict[str, Any], kind: str, path: str) -> bool:
-    """Whether ``path`` exists on ``kind`` in the schema (following ``$ref`` and ``anyOf``)."""
-    node: dict[str, Any] = schema if kind == ROOT else schema["$defs"][kind]
+def _resolve(schema: dict[str, Any], kind: str, path: str, *, root: str = ROOT) -> bool:
+    """Whether ``path`` exists on ``kind`` in the schema (following ``$ref`` and ``anyOf``);
+    ``root`` names the schema's own type."""
+    definitions = schema.get("$defs", {})
+    if kind != root and kind not in definitions:
+        return False
+    node: dict[str, Any] = schema if kind == root else definitions[kind]
     for part in path.split("."):
         node = _deref(schema, node)
         properties = node.get("properties", {})
@@ -176,28 +192,91 @@ def _deref(schema: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
-def test_every_field_the_page_reads_exists_in_the_now_schema() -> None:
-    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-    for kind, paths in PAGE_FIELDS.items():
+def _file_resolver(path: Path) -> Resolver:
+    """Resolves against a JSON Schema file whose root type is :data:`ROOT`."""
+    schema = json.loads(path.read_text(encoding="utf-8"))
+    return lambda kind, field: _resolve(schema, kind, field)
+
+
+def _model_resolver(*models: type[BaseModel]) -> Resolver:
+    """Resolves against the in-memory schemas of ``models``: a model's own name is the root of its
+    schema, any other name is one of its ``$defs``."""
+    schemas = {
+        model.__name__: model.model_json_schema(by_alias=True, mode="serialization")
+        for model in models
+    }
+
+    def resolve(kind: str, path: str) -> bool:
+        return any(_resolve(schema, kind, path, root=name) for name, schema in schemas.items())
+
+    return resolve
+
+
+def _assert_declared_fields_exist(
+    fields: Mapping[str, set[str]], resolve: Resolver, where: str
+) -> None:
+    for kind, paths in fields.items():
         for path in sorted(paths):
-            assert _resolve(schema, kind, path), f"{kind}.{path} is not in now.schema.json"
-    assert schema["properties"]["schema"]["const"] == "fylgja.now/1"
+            assert resolve(kind, path), f"{kind}.{path} is not in {where}"
 
 
-def test_the_script_reads_only_the_declared_fields_and_all_of_them() -> None:
-    reads = _js_reads()
-    assert set(reads) <= set(PAGE_FIELDS)
+def _assert_reads_match(variables: Mapping[str, str], fields: Mapping[str, set[str]]) -> None:
+    reads = _js_reads(variables)
+    assert set(reads) <= set(fields)
     for kind, paths in reads.items():
-        # a declared path also declares its parents: now.focused.workspace reads now.focused
-        extra = {p for p in paths if p not in PAGE_FIELDS[kind]}
+        # a declared path also declares its parents: s.story.state reads s.story
+        extra = {p for p in paths if p not in fields[kind]}
         assert not extra, f"the page reads undeclared {kind} fields: {sorted(extra)}"
-    for kind, declared in PAGE_FIELDS.items():
+    for kind, declared in fields.items():
         # fields the script touches only through a prefix are covered by their longer path
         used = reads.get(kind, set())
         unused = {
             d for d in declared if d not in used and not any(u.startswith(d + ".") for u in used)
         }
         assert not unused, f"declared but not read on {kind}: {sorted(unused)}"
+
+
+def test_every_field_the_page_reads_exists_in_the_now_schema() -> None:
+    _assert_declared_fields_exist(PAGE_FIELDS, _file_resolver(SCHEMA), "now.schema.json")
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    assert schema["properties"]["schema"]["const"] == "fylgja.now/1"
+
+
+def test_the_script_reads_only_the_declared_fields_and_all_of_them() -> None:
+    _assert_reads_match(PAGE_VARIABLES, PAGE_FIELDS)
+
+
+def test_every_field_the_overview_reads_exists_in_its_view_model() -> None:
+    _assert_declared_fields_exist(VIEW_FIELDS, _model_resolver(Overview), "Overview")
+    schema = Overview.model_json_schema(by_alias=True, mode="serialization")
+    assert schema["properties"]["schema"]["const"] == "fylgja.view.overview/1"
+
+
+def test_the_overview_reads_only_the_declared_view_fields_and_all_of_them() -> None:
+    _assert_reads_match(VIEW_VARIABLES, VIEW_FIELDS)
+
+
+def test_the_overview_reads_nothing_from_now() -> None:
+    script = _script()
+    body = re.search(r"async function loadOverview\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/view/overview"]
+
+
+def test_no_variable_name_is_in_two_tables() -> None:
+    assert not set(PAGE_VARIABLES) & set(VIEW_VARIABLES)
+
+
+def test_the_resolvers_reject_what_the_schemas_lack() -> None:
+    view = _model_resolver(Overview)
+    assert view("Card", "sessions")
+    assert view("Overview", "todo_groups")
+    assert not view("Card", "windows.id")
+    assert not view("Card", "nope")
+    assert not view("Workspace", "name")  # a /now type is not in the view model
+    now = _file_resolver(SCHEMA)
+    assert now("Workspace", "name")
+    assert not now("Card", "name")
 
 
 @pytest.fixture
