@@ -71,6 +71,7 @@
   <a href="#todos" data-tab="todos">Todos</a>
   <a href="#collectors" data-tab="collectors">Collectors</a>
   <a href="#flow" data-tab="flow">Data flow</a>
+  <a href="#explain" data-tab="explain">Explain</a>
 </nav>
 <select id="ranker" aria-label="Order" hidden></select>
 <p id="status" role="status"></p>
@@ -139,6 +140,27 @@
   <h2>Records by collector and kind</h2>
   <table id="flow-matrix"></table>
 </section>
+<section id="tab-explain" data-tab="explain" hidden>
+  <p id="explain-resolver" class="muted intro"></p>
+  <h2>Workspace labels</h2>
+  <p class="muted intro">How each workspace got its name.</p>
+  <table id="label-table"></table>
+  <h2>Placements</h2>
+  <p class="muted intro">Where the resolver put each project and each session, and how sure it is.</p>
+  <table id="placement-table"></table>
+  <h2>Next list</h2>
+  <p class="muted intro">The current Next list with the reason for each entry.</p>
+  <table id="ranking-table"></table>
+  <h2>Ranking rules</h2>
+  <p class="muted intro">The score of each kind of Next candidate.</p>
+  <table id="score-table"></table>
+  <h2>Waiting</h2>
+  <p class="muted intro">What waits on you, most urgent first.</p>
+  <table id="waiting-table"></table>
+  <h2>Item ranking</h2>
+  <p id="item-ranking-note" class="muted intro"></p>
+  <table id="item-ranking-table"></table>
+</section>
 <script>
 "use strict";
 const secret = document.querySelector('meta[name="fylgja-secret"]').content;
@@ -158,6 +180,14 @@ const notInstalled = document.getElementById("not-installed");
 const switchTable = document.getElementById("switch-table");
 const flowSide = document.getElementById("flow-side");
 const flowMatrix = document.getElementById("flow-matrix");
+const explainResolver = document.getElementById("explain-resolver");
+const labelTable = document.getElementById("label-table");
+const placementTable = document.getElementById("placement-table");
+const rankingTable = document.getElementById("ranking-table");
+const scoreTable = document.getElementById("score-table");
+const waitingTable = document.getElementById("waiting-table");
+const itemRankingNote = document.getElementById("item-ranking-note");
+const itemRankingTable = document.getElementById("item-ranking-table");
 const rankerSelect = document.getElementById("ranker");
 const search = document.getElementById("recall-search");
 const awayBanner = document.getElementById("away-banner");
@@ -895,11 +925,87 @@ async function loadFlow() {
     pipe.flows.map(flowRow));
 }
 
+// ---- Explain: why the page looks the way it does, from /inspect/explain and /items ----
+
+const LABEL_RULES = {
+  project: "most sessions placed here belong to this project",
+  "app-title": "the app with most windows, plus the word most of its titles share",
+  app: "the app with most windows (its titles share no word)",
+  none: "nothing to name it by",
+};
+
+function labelRow(lab) {
+  return {
+    cells: [lab.workspace, lab.label, lab.label_source, lab.inferred_label || "",
+      lab.rule ? (LABEL_RULES[lab.rule] || lab.rule) : ""],
+  };
+}
+
+function projectPlacementRow(pp) {
+  return {
+    cells: ["project", pp.name, pp.workspace || "", pp.via, pp.confidence,
+      pp.sessions + " sessions, " + pp.windows + " windows", pp.unresolved || ""],
+  };
+}
+
+function sessionPlacementRow(sp) {
+  return {
+    cells: ["session", sp.session_key, sp.workspace || "", sp.via, sp.confidence,
+      "project " + sp.project_via + ", " + sp.project_confidence + (sp.window_id ? ", window " + sp.window_id : ""),
+      sp.unresolved || sp.note || ""],
+  };
+}
+
+function nextRow(n) {
+  return { cells: [String(n.rank || ""), String(n.score), n.kind, n.reason, n.target_ref] };
+}
+
+function ruleRow(rr) {
+  return { cells: [rr.kind, String(rr.score)] };
+}
+
+function waitingRow(wt) {
+  return { cells: [wt.kind, wt.target, wt.reason, fmtTime(wt.since)] };
+}
+
+function scorePartsText(it) {
+  return it.parts.map((spt) => spt.name + (spt.value ? " " + spt.value : "")).join(" · ");
+}
+
+function renderExplain(ex) {
+  explainResolver.textContent = ex.resolved
+    ? "As of " + fmtTime(ex.generated_at) + "."
+    : "The resolver has not run yet. Labels and placements appear after its first pass.";
+  fillTable(labelTable, ["Workspace", "Label", "Source", "Inferred", "Rule"], ex.labels.map(labelRow));
+  fillTable(placementTable, ["Kind", "Name", "Workspace", "Via", "Confidence", "Detail", "Unresolved or note"],
+    ex.projects.map(projectPlacementRow).concat(ex.sessions.map(sessionPlacementRow)));
+  fillTable(rankingTable, ["Rank", "Score", "Kind", "Reason", "Target"], ex.next.map(nextRow));
+  const rules = ex.ranking.map(ruleRow);
+  rules.push({ cells: ["A workspace is a way back after", fmtDuration(ex.idle_window_seconds) + " idle"] });
+  rules.push({ cells: ["At most", ex.max_items + " items"] });
+  fillTable(scoreTable, ["Kind", "Score"], rules);
+  fillTable(waitingTable, ["Kind", "Target", "Reason", "Since"], ex.waiting.map(waitingRow));
+}
+
+function renderItemRanking(itms) {
+  itemRankingNote.textContent = "Ranker: " + itms.ranker + ". Ages are active working time.";
+  fillTable(itemRankingTable, ["Rank", "Name", "Score", "Parts"],
+    itms.items.map((it, at) => ({ cells: [String(at + 1), it.name, String(it.score), scorePartsText(it)] })));
+}
+
+async function loadExplain() {
+  if (!rankersLoaded) { await loadRankers(); }
+  const ex = await call("GET", "/inspect/explain");
+  renderExplain(ex);
+  const itms = await call("GET", "/items" + itemsQuery({ limit: 20 }));
+  renderItemRanking(itms);
+}
+
 // ---- tabs: one loader each, only the visible one is fetched ----
 
 const TABS = {
   overview: loadOverview, recall: loadRecall, live: loadLive, todos: loadTodos,
-  collectors: loadCollectors, flow: loadFlow,
+  collectors: loadCollectors, flow: loadFlow, explain: loadExplain,
 };
 
 // Diagnostic tabs reload at most this far apart after a live change. The clock only spaces reloads.

@@ -9,6 +9,9 @@ uv run fylgja now            # in a second terminal
 open http://127.0.0.1:7319/  # the navigator page
 ```
 
+The page has seven tabs: Overview, Recall, Live data, Todos, Collectors, Data flow and Explain.
+[`docs/api/inspect.md`](docs/api/inspect.md) describes the read routes behind Collectors, Data flow and Explain.
+
 No configuration is needed to try it. Data lands in `~/.local/share/fylgja`; the log is
 `~/.local/state/fylgja/fylgja.log`.
 

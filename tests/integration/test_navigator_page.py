@@ -91,6 +91,13 @@ STATIC_IDS = {
     "flow-api": "li",
     "flow-side": "div",
     "flow-matrix": "table",
+    "tab-explain": "section",
+    "label-table": "table",
+    "placement-table": "table",
+    "ranking-table": "table",
+    "score-table": "table",
+    "waiting-table": "table",
+    "item-ranking-table": "table",
 }
 
 
@@ -275,7 +282,7 @@ def test_tabs_route_by_hash_and_load_only_the_visible_tab() -> None:
     views = set(re.findall(r'data-tab="(\w+)"', source))
     assert views
     assert views <= keys
-    assert keys == {"overview", "recall", "live", "todos", "collectors", "flow"}
+    assert keys == {"overview", "recall", "live", "todos", "collectors", "flow", "explain"}
 
 
 def test_the_sessions_tab_never_renders_prompt_text() -> None:
@@ -373,3 +380,20 @@ def test_the_flow_tab_reads_the_pipeline_route_and_has_one_throttle() -> None:
     assert "flow: loadFlow" in script
     assert script.count("MIN_GAP_MS =") == 1
     assert "Set [summaries] enabled = true" in script
+
+
+def test_the_explain_tab_reads_the_explain_route_and_the_top_twenty_items() -> None:
+    script = _script(_source())
+    body = re.search(r"async function loadExplain\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/inspect/explain", "/items"]
+    assert "itemsQuery({ limit: 20 })" in body.group(1)
+    assert "explain: loadExplain" in script
+    assert "const LABEL_RULES = {" in script
+    assert "The resolver has not run yet" in script
+    assert "Ages are active working time." in script
+    assert script.count("MIN_GAP_MS =") == 1
+
+
+def test_the_page_stays_one_file_within_its_size_budget() -> None:
+    assert len(_source().splitlines()) <= 1550
