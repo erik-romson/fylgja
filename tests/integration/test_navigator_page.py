@@ -60,6 +60,13 @@ STATIC_IDS = {
     "tabs": "nav",
     "tab-overview": "section",
     "tab-live": "section",
+    "ranker": "select",
+    "tab-recall": "section",
+    "away-banner": "p",
+    "while-away": "ul",
+    "last-session": "div",
+    "recall-search": "input",
+    "recall-list": "div",
     "session-table": "table",
 }
 
@@ -245,8 +252,25 @@ def test_tabs_route_by_hash_and_load_only_the_visible_tab() -> None:
     views = set(re.findall(r'data-tab="(\w+)"', source))
     assert views
     assert views <= keys
-    assert keys == {"overview", "live"}
+    assert keys == {"overview", "recall", "live"}
 
 
 def test_the_sessions_tab_never_renders_prompt_text() -> None:
     assert "facts" not in _script(_source())
+
+
+def test_recall_reads_items_and_rankers() -> None:
+    script = _script(_source())
+    assert 'call("GET", "/items" + itemsQuery(' in script
+    assert 'call("GET", "/rankers" + rankQuery())' in script
+    assert "{ q: search.value }" in script  # the server searches; the page sends the text
+    assert "localStorage.getItem(RANK_KEY)" in script
+    assert "searchLater = setTimeout(refresh, 250)" in script
+    # the page renders the daemon's page-ready fields: the choices, the one selected, whether the
+    # stored choice is stale, and the counts
+    for read in ("rks.choices", "rks.selected", "rks.stale_choice", "itms.shown", "itms.total"):
+        assert read in script, read
+    # it neither filters the rankers nor counts the items
+    for banned in ("rks.rankers", "rk.loaded", "itms.items.length"):
+        assert banned not in script, banned
+    assert script.count("setTimeout(connect, delay)") == 1

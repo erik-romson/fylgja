@@ -50,14 +50,24 @@
     border: 1px solid rgba(128, 128, 128, .3); }
   tr.clickable { cursor: pointer; }
   .child td:first-child { padding-left: 1.5rem; }
+  #ranker { font-size: .9rem; margin: 0 0 .75rem; }
+  #recall-search { width: 100%; box-sizing: border-box; padding: .5rem; font-size: 1rem; margin: .5rem 0; }
+  .item { border: 1px solid rgba(128, 128, 128, .4); border-radius: .6rem; padding: .6rem .8rem; margin: 0 0 .6rem; }
+  .item .head { display: flex; gap: .75rem; align-items: baseline; }
+  .item .parts { margin: .2rem 0; overflow-wrap: anywhere; }
+  .item .buttons { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0; }
+  .item details ul { margin: .25rem 0 0; padding-left: 1.2rem; }
+  .item li.closed { opacity: .6; }
 </style>
 </head>
 <body>
 <h1>Fylgja</h1>
 <nav id="tabs" aria-label="Views">
   <a href="#overview" data-tab="overview">Overview</a>
+  <a href="#recall" data-tab="recall">Recall</a>
   <a href="#live" data-tab="live">Live data</a>
 </nav>
+<select id="ranker" aria-label="Order" hidden></select>
 <p id="status" role="status"></p>
 <section id="tab-overview" data-tab="overview">
 <h2>Next</h2>
@@ -74,6 +84,13 @@
 </form>
 <ul id="todo-list"></ul>
 </section>
+<section id="tab-recall" data-tab="recall" hidden>
+  <p id="away-banner" class="muted"></p>
+  <ul id="while-away"></ul>
+  <div id="last-session"></div>
+  <input id="recall-search" type="search" placeholder="Search" aria-label="Search">
+  <div id="recall-list"></div>
+</section>
 <section id="tab-live" data-tab="live" hidden>
   <h2>Sessions</h2>
   <p class="muted intro">Every live agent session as /now reports it. Click one to focus it.</p>
@@ -88,6 +105,13 @@ const statusLine = document.getElementById("status");
 const strip = document.getElementById("next-strip");
 const cards = document.getElementById("workspace-cards");
 const sessionTable = document.getElementById("session-table");
+const rankerSelect = document.getElementById("ranker");
+const search = document.getElementById("recall-search");
+const awayBanner = document.getElementById("away-banner");
+const whileAway = document.getElementById("while-away");
+const lastSession = document.getElementById("last-session");
+const recallList = document.getElementById("recall-list");
+let searchLater = null;
 
 function say(message) { statusLine.textContent = message || ""; }
 
@@ -300,6 +324,140 @@ async function loadOverview() {
   renderTodos(ov);
 }
 
+// ---- recall: the navigation items /items ranks ----
+
+// The ranker choice lives in localStorage; the daemon applies it and falls back when it is gone.
+const RANK_KEY = "fylgja.ranker";
+
+function rankQuery() {
+  const r = localStorage.getItem(RANK_KEY);
+  return r ? "?rank=" + encodeURIComponent(r) : "";
+}
+
+// The ranker choice plus the parameters given, as a query string.
+function itemsQuery(extra) {
+  const params = new URLSearchParams(extra || {});
+  const r = localStorage.getItem(RANK_KEY);
+  if (r) { params.set("rank", r); }
+  const text = params.toString();
+  return text ? "?" + text : "";
+}
+
+let rankersLoaded = false;
+
+// The dropdown lists the choices the daemon reports, in its order, and shows the one it selected.
+async function loadRankers() {
+  const rks = await call("GET", "/rankers" + rankQuery());
+  if (rks.stale_choice) { localStorage.removeItem(RANK_KEY); }
+  const options = rks.choices.map((rk) => {
+    const option = el("option", "", rk.name + (rk.default ? " (default)" : ""));
+    option.value = rk.name;
+    if (rk.description) { option.title = rk.description; }
+    return option;
+  });
+  rankerSelect.replaceChildren(...options);
+  rankerSelect.value = rks.selected;
+  rankerSelect.hidden = false;
+  rankersLoaded = true;
+}
+
+rankerSelect.addEventListener("change", () => {
+  localStorage.setItem(RANK_KEY, rankerSelect.value);
+  refresh();
+});
+
+// Typing is debounced; the daemon does the searching.
+search.addEventListener("input", () => {
+  clearTimeout(searchLater);
+  searchLater = setTimeout(refresh, 250);
+});
+
+function goButton(label, gt, id) {
+  const button = el("button", "", label);
+  button.id = id;
+  button.type = "button";
+  button.addEventListener("click", () => go(gt));
+  return button;
+}
+
+function placeLine(pl) {
+  const parts = [pl.label];
+  if (pl.title) { parts.push(pl.title); }
+  if (pl.workspace) { parts.push("ws " + pl.workspace); }
+  parts.push(pl.open ? "open" : "closed");
+  if (pl.last_focus_at) { parts.push(fmtTime(pl.last_focus_at)); }
+  return el("li", pl.open ? "" : "closed", parts.join(" · "));
+}
+
+function itemRow(it) {
+  const box = el("div", "item");
+  box.id = "item-" + it.id;
+  const head = el("div", "head");
+  head.append(el("strong", "", it.name), el("span", "muted", fmtDuration(it.seconds_today) + " today"));
+  const states = it.state.join(" · ");
+  if (states) { head.append(el("span", "state", states)); }
+  box.append(head);
+  box.append(el("div", "parts muted", it.explanation));
+  if (it.summary) { box.append(el("div", "parts", it.summary)); }
+  const buttons = el("div", "buttons");
+  if (it.go) { buttons.append(goButton("Go", it.go, "go-" + it.id)); }
+  if (it.go_ide) { buttons.append(goButton("IDE", it.go_ide, "go-ide-" + it.id)); }
+  if (it.go_agent) { buttons.append(goButton("Agent", it.go_agent, "go-agent-" + it.id)); }
+  if (it.go_terminal) { buttons.append(goButton("Terminal", it.go_terminal, "go-terminal-" + it.id)); }
+  box.append(buttons);
+  const places = it.places.map(placeLine);
+  if (places.length > 0) {
+    const ul = el("ul");
+    ul.append(...places);
+    const details = el("details");
+    details.append(el("summary", "", "Places"), ul);
+    box.append(details);
+  }
+  return box;
+}
+
+function renderAway(itms) {
+  const since = itms.activity.away_since;
+  const until = itms.activity.away_until;
+  awayBanner.textContent = since
+    ? "Away since " + fmtTime(since) + (until ? ", back " + fmtTime(until) : "")
+    : "";
+  const lines = itms.while_away.map((chg) => {
+    const li = el("li", "", chg.name + " · " + chg.kind + " · " + chg.reason + (chg.since ? " · " + fmtTime(chg.since) : ""));
+    if (chg.go) {
+      li.style.cursor = "pointer";
+      li.addEventListener("click", () => go(chg.go));
+    }
+    return li;
+  });
+  whileAway.replaceChildren(...lines);
+  const ls = itms.last_session;
+  lastSession.replaceChildren(...(ls
+    ? [el("p", "muted", "Last session: " + fmtTime(ls.start) + " – " + fmtTime(ls.end) + ", " + fmtDuration(ls.active_seconds))]
+    : []));
+}
+
+// The items arrive in rank order, grouped by day; the page puts each id on its item and renders.
+function renderRecall(itms) {
+  renderAway(itms);
+  const byId = new Map();
+  for (const it of itms.items) { byId.set(it.id, it); }
+  const fallback = itms.ranker_fallback ? " · ranker failed, " + itms.ranker_fallback + " order" : "";
+  const nodes = [el("p", "muted", itms.shown + " of " + itms.total + fallback)];
+  for (const grp of itms.days) {
+    nodes.push(el("h3", "", grp.day));
+    for (const id of grp.items) { nodes.push(itemRow(byId.get(id))); }
+  }
+  if (itms.shown === 0) { nodes.push(el("p", "muted", "No items")); }
+  recallList.replaceChildren(...nodes);
+}
+
+async function loadRecall() {
+  if (!rankersLoaded) { await loadRankers(); }
+  const itms = await call("GET", "/items" + itemsQuery(search.value ? { q: search.value } : {}));
+  renderRecall(itms);
+}
+
 // ---- live data: the sessions /now reports ----
 
 function hostText(h) {
@@ -354,7 +512,7 @@ async function loadLive() {
 
 // ---- tabs: one loader each, only the visible one is fetched ----
 
-const TABS = { overview: loadOverview, live: loadLive };
+const TABS = { overview: loadOverview, recall: loadRecall, live: loadLive };
 
 function currentTab() {
   const name = location.hash.substring(1);

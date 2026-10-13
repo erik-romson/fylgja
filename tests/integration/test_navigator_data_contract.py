@@ -37,6 +37,7 @@ from api_support import (
 from pydantic import BaseModel
 
 from fylgja.api.app import create_app
+from fylgja.api.items_models import Items, Rankers
 from fylgja.api.view_models import Overview
 from fylgja.core.daemon import Daemon
 from fylgja.testing.fakes import FakeProcessRunner
@@ -137,6 +138,53 @@ VIEW_FIELDS: dict[str, set[str]] = {
     "TodoGroup": {"empty", "kind", "title", "todos"},
     "TodoRow": {"can_finish", "id", "next", "source", "text"},
     "FocusTarget": {"kind", "ref"},
+}
+
+# The Recall tab renders ``GET /items`` (``fylgja.items/1``) and ``GET /rankers``
+# (``fylgja.rankers/1``) only. ``rk`` is a ``RankerChoice``, the page-ready ranker: nothing of
+# ``RankerInfo`` (``loaded``, ``enabled``, ``error``) is declared, so a read of it fails.
+ITEMS_VARIABLES: dict[str, str] = {
+    "itms": "Items",
+    "it": "NavItem",
+    "pl": "ItemPlace",
+    "gt": "GoTarget",
+    "grp": "DayGroup",
+    "chg": "AwayChange",
+    "ls": "LastSession",
+    "rks": "Rankers",
+    "rk": "RankerChoice",
+}
+ITEMS_FIELDS: dict[str, set[str]] = {
+    "Items": {
+        "activity.away_since",
+        "activity.away_until",
+        "days",
+        "items",
+        "last_session",
+        "ranker_fallback",
+        "shown",
+        "total",
+        "while_away",
+    },
+    "NavItem": {
+        "explanation",
+        "go",
+        "go_agent",
+        "go_ide",
+        "go_terminal",
+        "id",
+        "name",
+        "places",
+        "seconds_today",
+        "state",
+        "summary",
+    },
+    "ItemPlace": {"label", "last_focus_at", "open", "title", "workspace"},
+    "DayGroup": {"day", "items"},
+    "AwayChange": {"go", "kind", "name", "reason", "since"},
+    "LastSession": {"active_seconds", "end", "start"},
+    "Rankers": {"choices", "selected", "stale_choice"},
+    "RankerChoice": {"default", "description", "name"},
 }
 
 Resolver = Callable[[str, str], bool]
@@ -263,8 +311,31 @@ def test_the_overview_reads_nothing_from_now() -> None:
     assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/view/overview"]
 
 
+def test_every_field_recall_reads_exists_in_the_items_and_rankers_models() -> None:
+    _assert_declared_fields_exist(ITEMS_FIELDS, _model_resolver(Items, Rankers), "Items, Rankers")
+    resolve = _model_resolver(Items, Rankers)
+    assert not resolve("RankerChoice", "loaded")  # a diagnostic field is not page-ready
+    assert not resolve("RankerChoice", "error")
+
+
+def test_recall_reads_only_the_declared_items_fields_and_all_of_them() -> None:
+    _assert_reads_match(ITEMS_VARIABLES, ITEMS_FIELDS)
+
+
+def test_the_recall_tab_reads_nothing_from_now() -> None:
+    script = _script()
+    body = re.search(r"async function loadRecall\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/items"]
+    rankers = re.search(r"async function loadRankers\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert rankers is not None
+    assert re.findall(r'call\("GET", "([^"]*)"', rankers.group(1)) == ["/rankers"]
+
+
 def test_no_variable_name_is_in_two_tables() -> None:
-    assert not set(PAGE_VARIABLES) & set(VIEW_VARIABLES)
+    tables = (PAGE_VARIABLES, VIEW_VARIABLES, ITEMS_VARIABLES)
+    names = [name for table in tables for name in table]
+    assert len(names) == len(set(names))
 
 
 def test_the_resolvers_reject_what_the_schemas_lack() -> None:
@@ -277,6 +348,10 @@ def test_the_resolvers_reject_what_the_schemas_lack() -> None:
     now = _file_resolver(SCHEMA)
     assert now("Workspace", "name")
     assert not now("Card", "name")
+
+
+def _root_fields(fields: set[str]) -> set[str]:
+    return {path.split(".")[0] for path in fields}
 
 
 @pytest.fixture
@@ -341,6 +416,31 @@ async def test_now_has_what_the_page_reads(http: httpx.AsyncClient) -> None:
     assert "claude:s-1" in sessions
     assert "claude:s-1" in workspaces["2"]["sessions"]
     assert {"key", "kind"} <= set(sessions["claude:s-1"])
+
+
+async def test_items_and_rankers_have_what_the_recall_tab_reads(http: httpx.AsyncClient) -> None:
+    items = (await http.get("/items")).json()
+    assert items["schema"] == "fylgja.items/1"
+    schema = Items.model_json_schema(by_alias=True, mode="serialization")
+    # a field without a value is absent, so only the always-present ones must be there
+    for name in _root_fields(ITEMS_FIELDS["Items"]) & set(schema["required"]):
+        assert name in items, name
+    assert set(items) <= set(schema["properties"])
+    assert items["shown"] == len(items["items"])
+    assert items["total"] >= items["shown"]
+    for item in items["items"]:
+        for name in ("id", "name", "explanation", "seconds_today", "state", "places"):
+            assert name in item, name
+    rankers = (await http.get("/rankers")).json()
+    assert rankers["schema"] == "fylgja.rankers/1"
+    for name in ITEMS_FIELDS["Rankers"]:
+        assert name in rankers, name
+    for choice in rankers["choices"]:
+        assert {"name", "default"} <= set(choice)
+    assert rankers["selected"] in {choice["name"] for choice in rankers["choices"]} | {"natural"}
+    stale = (await http.get("/rankers", params={"rank": "no-such-ranker"})).json()
+    assert stale["stale_choice"] is True
+    assert stale["selected"] == stale["default"]
 
 
 async def test_next_answers_as_the_page_expects(http: httpx.AsyncClient) -> None:
