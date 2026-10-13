@@ -73,6 +73,10 @@ class FakeClock:
     def monotonic(self) -> float:
         return self._mono
 
+    def suspend(self, seconds: float) -> None:
+        """The machine sleeps: wall time jumps, monotonic time does not."""
+        self._origin += timedelta(seconds=seconds)
+
     @property
     def pending(self) -> int:
         """Sleeps that have not reached their deadline."""

@@ -7,8 +7,9 @@ and §12 Phase 5. The module holds three layers.
 reads no clock and does no I/O. A span
 
 * **opens** on a focus event for a window (a focus event that names no window opens nothing);
-* **closes** on the next focus change (``focus``), on idle (``idle``), on a screen lock (``lock``)
-  and on shutdown (``shutdown``).
+* **closes** on the next focus change (``focus``), on idle (``idle``), on a screen lock (``lock``),
+  on a suspended machine (``idle``: a wall-clock jump between two daemon ticks, see
+  :meth:`SpanTracker.gap`) and on shutdown (``shutdown``).
 
 An ``idle.start`` event is stamped when the idle threshold was crossed, so the idle period began
 ``threshold`` seconds before its ``observed_at`` and the span ends *there*, not when the event was
@@ -250,6 +251,13 @@ class SpanTracker:
         self._suspended.discard(EndReason.LOCK)
         return self._start(at)
 
+    def gap(self, last_seen: datetime, resumed: datetime) -> list[Action]:
+        """The machine was suspended between ``last_seen`` and ``resumed`` (a wall-clock jump):
+        the open span ends at ``last_seen`` (``idle``), and the focused window opens a new span at
+        ``resumed`` unless idle or lock still hold."""
+        actions = self._close(last_seen, EndReason.IDLE)
+        return actions + self._start(resumed)
+
     def shutdown(self, at: datetime) -> list[Action]:
         """The daemon stops. Nothing stays focused: the next focus event starts a span."""
         actions = self._close(at, EndReason.SHUTDOWN)
@@ -355,6 +363,10 @@ class SpanEngine:
         if event.entity_id == LOCK_ENTITY:
             return tracker.lock_start(at) if state == "locked" else tracker.lock_end(at)
         return []
+
+    def gap(self, last_seen: datetime, resumed: datetime) -> None:
+        """The machine slept between ``last_seen`` and ``resumed``: split the open span there."""
+        self._write(self.tracker.gap(last_seen, resumed))
 
     def private_focus(self, at: datetime) -> None:
         """Focus moved to a window the privacy filter ignores (an ignored app or title).

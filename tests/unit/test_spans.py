@@ -131,6 +131,28 @@ def test_idle_that_began_before_the_span_leaves_a_zero_length_span_that_is_dropp
     assert dropped.span.started_at == at(10)
 
 
+def test_a_gap_closes_the_open_span_at_the_last_tick_and_reopens_it() -> None:
+    t = tracker()
+    t.focus(at(0), target("a"))
+    actions = t.gap(at(2), at(62))  # the machine slept from 2 to 62 minutes
+    assert kinds(actions) == ["Closed", "Opened"]
+    done = closed(actions)
+    assert (done.started_at, done.ended_at, done.end_reason) == (at(0), at(2), "idle")
+    reopened = actions[1]
+    assert isinstance(reopened, Opened)
+    assert (reopened.span.window_id, reopened.span.started_at) == ("a", at(62))
+    assert t.open_span == reopened.span
+
+
+def test_a_gap_while_idle_opens_nothing() -> None:
+    t = tracker()
+    t.focus(at(0), target("a"))
+    t.idle_start(at(10))  # the span ended at 05
+    assert t.gap(at(11), at(70)) == []
+    assert t.open_span is None
+    assert t.suspended == {EndReason.IDLE}
+
+
 def test_a_focus_change_while_idle_is_remembered_and_starts_at_the_end_of_idle() -> None:
     t = tracker()
     t.focus(at(0), target("a"))

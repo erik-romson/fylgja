@@ -627,8 +627,16 @@ class Daemon:
             logger.exception("resolver refresh failed")
 
     async def _tick_loop(self) -> None:
+        last = self.clock.now()
+        limit = timedelta(seconds=self._tick + self.config.spans.idle_threshold_seconds)
         while True:
             await self.clock.sleep(self._tick)
+            now = self.clock.now()
+            if now - last > limit:
+                # The wall clock jumped further than a tick plus the idle threshold: the machine
+                # slept. Sleep is not focus time (docs/decisions/0049).
+                self.spans.gap(last, now)
+            last = now
             self.gate.refresh()
             self._mark_dirty()
 

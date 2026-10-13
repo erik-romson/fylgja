@@ -238,6 +238,40 @@ async def test_the_prompt_history_is_a_secondary_signal_of_worked_on_projects(
     assert earlier["total_seconds"] == 9900.0
 
 
+async def test_a_suspended_machine_is_not_focus_time() -> None:
+    world = make_daemon(
+        windows_collector(),
+        sessions_collector(),
+        Synthetic("pres", frozenset({Capability.CONTEXT})),
+        tick=30,
+    )
+    await world.start()
+    try:
+        wm = world.sink("wm")
+        wm.emit(workspace_snapshot("wm", ["3"], T0, focused="3"))
+        wm.emit(window_snapshot("wm", [Win("100", "3", "Term", 500)], T0))
+        await world.settle()
+        wm.emit(focus_event("wm", "100", "3", T0))
+        await world.settle()
+        clock: Any = world.clock
+        await clock.advance(60)
+        clock.suspend(3600)  # the machine sleeps for an hour
+        await clock.advance(30)  # the first tick after the jump reopens the span
+        await clock.advance(30)
+        await world.settle()
+        async with client(world) as http:
+            body = await history(http, f"?since={iso(T0)}&until={iso(T0 + timedelta(hours=2))}")
+    finally:
+        await world.stop()
+    spans = body["spans"]
+    assert [brief(s) for s in spans] == [
+        ("100", "12:00", "12:01", "idle", 60.0, False, False),
+        ("100", "13:01", "13:02", None, 30.0, True, False),
+    ]
+    assert spans[1]["start"] == iso(T0 + timedelta(seconds=3690))
+    assert body["total_seconds"] == 90.0  # the hour of sleep is not counted
+
+
 # --- since and until -------------------------------------------------------------------------
 
 

@@ -60,6 +60,7 @@ time. The command prints the window, three totals tables (workspace, project, ap
 ## How spans are made
 
 See `src/fylgja/core/spans.py` and decision 0042. A span opens on a focus event for a window and closes on the next
-focus change, on idle (back-dated to the start of the idle period), on lock and on shutdown. When idle or the lock ends,
+focus change, on idle (back-dated to the start of the idle period), on lock and on shutdown; `idle` also covers a suspended machine, which the daemon detects as a wall-clock jump between
+two ticks. When idle or the lock ends,
 a span for the still-focused window starts again. A daemon that died leaves an open span; the next start closes it at
 the last time the store observed anything.
