@@ -64,3 +64,8 @@ focus change, on idle (back-dated to the start of the idle period), on lock and 
 two ticks. When idle or the lock ends,
 a span for the still-focused window starts again. A daemon that died leaves an open span; the next start closes it at
 the last time the store observed anything.
+
+A span's `project_path` and `session_key` come from the live session the resolver placed in its window. A window
+without one falls back to the git root of the folder its context names (an `ide_project`, `cmux_tab` or
+`terminal_session` item's absolute `path` or `cwd`), with no `session_key`; see decision 0049. So the project totals
+include IDE and terminal time.

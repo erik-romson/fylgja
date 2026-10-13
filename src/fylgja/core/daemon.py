@@ -73,6 +73,7 @@ from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.core.todos import TodoService
 from fylgja.core.usage_view import UsageMemory, UsageMeta
 from fylgja.core.waiting import start_of_day
+from fylgja.core.window_folders import WindowFolders
 from fylgja.core.writer import Writer, WriterClosed, session_key, split_session_key
 from fylgja.messaging.service import MessageService, WriterReceipts
 from fylgja.models import (
@@ -393,13 +394,17 @@ class Daemon:
         self.writer = Writer(database, clock=self.clock, on_commit=self.view.apply)
         self.memory = SessionMemory()
         self.contexts = ContextMemory()
+        self.locator = ProjectLocator(filesystem)
+        """Git roots and draupnir groups, shared by the resolver and the window folders."""
+        self.window_folders = WindowFolders(self.contexts, self.locator)
+        """The git root of an IDE or terminal window's folder (docs/decisions/0049)."""
         self.usage = UsageMemory()
         self.session_state = SessionStateEngine(self.writer.submit, self._window_of)
         self.resolver = Resolver(
             self.writer,
             self.view,
             hosts=self._load_hosts,
-            locator=ProjectLocator(filesystem),
+            locator=self.locator,
             clock=self.clock,
             focus_time=self.focus_time,
         )
@@ -646,16 +651,19 @@ class Daemon:
         return None if row is None else row.window_id
 
     def _attribute(self, window_id: str) -> tuple[str | None, str | None]:
-        """The project and session of a focused window, from the resolver's placements: the live
-        session in that window that was active most recently. ``(None, None)`` for a window no
-        session is placed in."""
+        """The project and session of a focused window.
+
+        The resolver's placements come first: the live session in that window that was active
+        most recently gives its project and its key. A window no session is placed in falls back
+        to the git root of the folder its context names (an IDE project, a terminal tab's cwd),
+        with no session (docs/decisions/0049). ``(None, None)`` when neither is known."""
         here = [
             row
             for row in self.view.sessions.values()
             if row.window_id == window_id and row.ended_at is None
         ]
         if not here:
-            return None, None
+            return self.window_folders.folder_of(window_id), None
         newest = max(here, key=lambda row: (row.state_since or row.first_seen, row.session_key))
         return newest.project_path, newest.session_key
 

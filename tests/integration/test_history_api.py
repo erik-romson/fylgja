@@ -54,6 +54,7 @@ from fylgja.models import (
     PresencePayload,
 )
 from fylgja.store import db, queries
+from fylgja.testing.fakes import FakeFS
 
 DAY = datetime(2026, 10, 5, tzinfo=UTC)
 
@@ -215,6 +216,132 @@ async def test_spans_are_attributed_to_the_project_and_session_through_the_resol
         {"project_path": "/work/alpha", "name": "alpha", "seconds": 6600.0},
         {"seconds": 3300.0},
     ]
+
+
+def folder_item(
+    window_id: str, kind: str, fields: dict[str, Any], at: datetime
+) -> ContextItemEvent:
+    """A context item that names the window's folder, as an IDE or terminal source emits it."""
+    return ContextItemEvent(
+        source="pres",
+        entity_id=f"{window_id}:folder",
+        observed_at=at,
+        payload=ContextItemPayload(
+            context_kind=kind,
+            data={
+                "window_id": window_id,
+                "key": "folder",
+                "tier": 2,
+                "confidence": "high",
+                "fields": fields,
+            },
+        ),
+    )
+
+
+def folder_world(*repositories: str) -> Daemon:
+    fs = FakeFS()
+    for root in repositories:
+        fs.add_dir(f"{root}/.git")
+    return make_daemon(
+        windows_collector(),
+        sessions_collector(),
+        Synthetic("pres", frozenset({Capability.CONTEXT})),
+        fs=fs,
+    )
+
+
+async def focus_for_ten_minutes(world: Daemon, window_id: str, workspace: str) -> None:
+    """Focus ``window_id`` at the daemon's now, then window 200 ten minutes later."""
+    wm = world.sink("wm")
+    wm.emit(focus_event("wm", window_id, workspace, T0))
+    await world.settle()
+    clock: Any = world.clock
+    await clock.advance(600)
+    wm.emit(focus_event("wm", "200", "4", T0 + timedelta(seconds=600)))
+    await world.settle()
+
+
+async def history_of(world: Daemon) -> dict[str, Any]:
+    async with client(world) as http:
+        return await history(http, f"?since={iso(T0)}&until={iso(T0 + timedelta(seconds=600))}")
+
+
+async def test_ide_focus_time_is_attributed_to_the_git_root_of_the_ide_project() -> None:
+    world = folder_world("/work/alpha")
+    await world.start()
+    try:
+        wm, ctx = world.sink("wm"), world.sink("pres")
+        wm.emit(workspace_snapshot("wm", ["3", "4"], T0, focused="3"))
+        ide = Win("300", "3", "PyCharm", 800, bundle="com.jetbrains.pycharm")
+        wm.emit(window_snapshot("wm", [ide, Win("200", "4", "Safari", 600)], T0))
+        ctx.emit(folder_item("300", "ide_project", {"path": "/work/alpha/src"}, T0))
+        await world.settle()
+        await focus_for_ten_minutes(world, "300", "3")
+        body = await history_of(world)
+    finally:
+        await world.stop()
+    span = next(s for s in body["spans"] if s["window_id"] == "300")
+    assert span["project_path"] == "/work/alpha"  # the git root, not the IDE's subdirectory
+    assert "session_key" not in span  # no session is placed in an IDE window
+    assert body["projects"][0]["project_path"] == "/work/alpha"
+    assert body["projects"][0]["seconds"] == 600.0
+
+
+async def test_a_terminal_folder_that_arrives_after_the_focus_is_filled_in_at_close() -> None:
+    world = folder_world("/work/beta")
+    await world.start()
+    try:
+        wm, ctx = world.sink("wm"), world.sink("pres")
+        wm.emit(workspace_snapshot("wm", ["3", "4"], T0, focused="3"))
+        wm.emit(
+            window_snapshot("wm", [Win("100", "3", "Term", 500), Win("200", "4", "S", 600)], T0)
+        )
+        await world.settle()
+        wm.emit(focus_event("wm", "100", "3", T0))
+        await world.settle()
+        # the second tier lands a moment after the focus event
+        ctx.emit(folder_item("100", "cmux_tab", {"cwd": "/work/beta/docs"}, T0))
+        await world.settle()
+        clock: Any = world.clock
+        await clock.advance(600)
+        wm.emit(focus_event("wm", "200", "4", T0 + timedelta(seconds=600)))
+        await world.settle()
+        body = await history_of(world)
+    finally:
+        await world.stop()
+    span = next(s for s in body["spans"] if s["window_id"] == "100")
+    assert span["project_path"] == "/work/beta"
+    assert body["projects"][0]["project_path"] == "/work/beta"
+
+
+async def test_a_session_in_the_window_wins_over_the_window_folder() -> None:
+    world = folder_world("/work/alpha", "/work/beta")
+    await world.start()
+    try:
+        wm, agents, ctx = world.sink("wm"), world.sink("agents"), world.sink("pres")
+        wm.emit(workspace_snapshot("wm", ["3", "4"], T0, focused="3"))
+        wm.emit(
+            window_snapshot("wm", [Win("100", "3", "Term", 500), Win("200", "4", "S", 600)], T0)
+        )
+        agents.emit(
+            session_snapshot(
+                "agents",
+                [session("claude", "abc-123", pid=501, cwd="/work/alpha", host_pid=500)],
+                T0,
+            )
+        )
+        ctx.emit(folder_item("100", "cmux_tab", {"cwd": "/work/beta"}, T0))
+        await world.settle()
+        assert world.view.sessions["claude:abc-123"].window_id == "100"
+        assert world.window_folders.folder_of("100") == "/work/beta"
+        await focus_for_ten_minutes(world, "100", "3")
+        body = await history_of(world)
+    finally:
+        await world.stop()
+    span = next(s for s in body["spans"] if s["window_id"] == "100")
+    assert (span["project_path"], span["session_key"]) == ("/work/alpha", "claude:abc-123")
+    assert [p.get("project_path") for p in body["projects"]] == ["/work/alpha"]
 
 
 async def test_the_answer_follows_the_serialization_rule_and_is_not_cached(
