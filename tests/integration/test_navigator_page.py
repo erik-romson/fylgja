@@ -135,7 +135,6 @@ def test_titles_and_text_go_in_as_text_never_as_markup() -> None:
         "new Function",
     ):
         assert banned not in script, banned
-    assert script.count("textContent") >= 5
     assert "node.textContent = text" in script  # the one helper every card line goes through
     assert "el(" in script
 
@@ -161,3 +160,13 @@ def test_the_page_focuses_through_the_guarded_focus_api() -> None:
     assert '"card-" + w.name' in script
     assert '"session-" + s.key' in script
     assert 'call("GET", "/next")' in script
+
+
+def test_todos_are_grouped_by_scope_and_imported_ones_name_their_source() -> None:
+    script = _script(_source())
+    assert "for (const scope of byScope(rest))" in script
+    assert "scopeTitle(scope.kind, scope.ref, sessions, projects)" in script
+    assert "s.title || s.one_liner || s.name" in script
+    # an imported todo is finished where it came from: it gets a label, never a Done button
+    assert '"from " + sourceLabel(todo.source)' in script
+    assert "disabled" not in script

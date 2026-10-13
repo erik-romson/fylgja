@@ -29,6 +29,7 @@
   .session.waiting { background: rgba(199, 119, 0, .22); font-weight: 600; }
   .state { font-size: .8rem; opacity: .75; margin-right: .4rem; }
   .muted { opacity: .65; font-size: .85rem; }
+  .intro { margin: 0 0 .5rem; }
   .bad { color: #b00020; }
   form { display: flex; gap: .5rem; margin-bottom: .75rem; }
   #todo-input { flex: 1; padding: .5rem; font-size: 1rem; }
@@ -36,15 +37,21 @@
   #todo-list li { display: flex; align-items: baseline; gap: .6rem; padding: .35rem 0;
     border-bottom: 1px solid rgba(128, 128, 128, .25); }
   #todo-list li.group { display: block; font-weight: 600; border-bottom: 0; padding-top: 1rem; }
+  #todo-list li.sub { font-weight: 500; font-size: .9rem; opacity: .8; padding-top: .75rem; }
+  #todo-list li.empty { display: block; border-bottom: 0; opacity: .65; font-size: .9rem; }
   .text { flex: 1; overflow-wrap: anywhere; }
-  .scope { font-size: .8rem; opacity: .65; }
+  .from { font-size: .8rem; opacity: .65; white-space: nowrap; }
   .next .text::before { content: "next: "; opacity: .65; }
 </style>
 </head>
 <body>
 <h1>Fylgja</h1>
 <p id="status" role="status"></p>
+<h2>Next</h2>
+<p class="muted intro">What needs you, most urgent first. Click one to go there.</p>
 <ul id="next-strip" aria-label="What next"></ul>
+<h2>Workspaces</h2>
+<p class="muted intro">One card per AeroSpace workspace with something in it. Click a card to focus it.</p>
 <div id="workspace-cards"></div>
 <h2>Todos</h2>
 <form id="todo-form" autocomplete="off">
@@ -144,7 +151,7 @@ function renderNext(items) {
   const entries = (items || []).map((n) => {
     const li = el("li", n.rank === 1 ? "top" : "");
     li.id = "next-" + n.rank;
-    li.append(el("span", "kind", n.kind), el("span", "", n.reason));
+    li.append(el("span", "kind", String(n.kind || "").replaceAll("_", " ")),el("span", "", n.reason));
     const action = nextAction(n);
     if (action) { li.addEventListener("click", action); } else { li.style.cursor = "default"; }
     return li;
@@ -224,11 +231,18 @@ function busy(w) {
   return (w.windows || []).length + (w.sessions || []).length + (w.todos || []).length > 0;
 }
 
-function renderCards(now) {
+function sessionsByKey(now) {
   const sessions = new Map();
   const walk = (items) => (items || []).forEach((s) => { sessions.set(s.key, s); walk(s.children); });
   walk(now.sessions);
-  const projects = new Map((now.projects || []).map((p) => [p.path, p]));
+  return sessions;
+}
+
+function projectsByPath(now) { return new Map((now.projects || []).map((p) => [p.path, p])); }
+
+function renderCards(now) {
+  const sessions = sessionsByKey(now);
+  const projects = projectsByPath(now);
   const shown = (now.workspaces || []).filter(busy);
   const nodes = shown.map((w) => workspaceCard(w, sessions, projects));
   if (nodes.length === 0) { nodes.push(el("p", "muted", "No workspace has anything in it")); }
@@ -237,54 +251,77 @@ function renderCards(now) {
 
 // ---- todos (step 36) ----
 
-function scopeOf(todo) {
-  if (!todo.scope_kind) { return ""; }
-  const ref = String(todo.scope_ref || "");
-  return todo.scope_kind + " " + (ref.length > 40 ? "…" + ref.slice(-38) : ref);
+// Import sources are "<collector>-<list kind>"; the collector names where a todo is finished.
+const SOURCE_LABELS = { "project-todo-md": "TODO.md" };
+
+function sourceLabel(source) { return SOURCE_LABELS[source] || source.split("-")[0]; }
+
+function baseName(path) { return String(path || "").split("/").filter(Boolean).pop() || ""; }
+
+function tail(text, max) { return text.length > max ? "…" + text.slice(1 - max) : text; }
+
+// The heading a group of todos goes under: the session, project or workspace they belong to.
+function scopeTitle(kind, ref, sessions, projects) {
+  const projectName = (path) => (projects.get(path) || {}).name || baseName(path);
+  if (kind === "session") {
+    const s = sessions.get(ref);
+    if (!s) { return "Session " + tail(ref, 40); }
+    return [s.title || s.one_liner || s.name, projectName(s.project_path), s.kind].filter(Boolean).join(" · ");
+  }
+  if (kind === "project") { return "Project " + projectName(ref); }
+  if (kind === "workspace") {
+    const w = (current.workspaces || []).find((w) => w.name === ref);
+    return "Workspace " + ref + (w && label(w) ? " " + label(w) : "");
+  }
+  return "No scope";
+}
+
+function byScope(todos) {
+  const groups = new Map();
+  for (const todo of todos) {
+    const key = (todo.scope_kind || "") + " " + (todo.scope_ref || "");
+    if (!groups.has(key)) { groups.set(key, { kind: todo.scope_kind, ref: todo.scope_ref, todos: [] }); }
+    groups.get(key).todos.push(todo);
+  }
+  return [...groups.values()];
 }
 
 function row(todo) {
-  const li = document.createElement("li");
-  if (todo.status === "next") { li.className = "next"; }
-  const text = document.createElement("span");
-  text.className = "text";
-  text.textContent = todo.text;
-  const scope = document.createElement("span");
-  scope.className = "scope";
-  scope.textContent = scopeOf(todo);
-  const done = document.createElement("button");
+  const li = el("li", todo.status === "next" ? "next" : "");
+  li.append(el("span", "text", todo.text));
+  if (todo.source && todo.source !== "fylgja") {
+    const from = el("span", "from", "from " + sourceLabel(todo.source));
+    from.title = "Imported: finish it in " + sourceLabel(todo.source);
+    li.append(from);
+    return li;
+  }
+  const done = el("button", "", "Done");
   done.id = "todo-done-" + todo.id;
   done.type = "button";
-  done.textContent = "Done";
-  if (todo.source && todo.source !== "fylgja") {
-    done.disabled = true;
-    done.title = "Imported from " + todo.source + ": finish it there";
-  } else {
-    done.addEventListener("click", () => finish(todo.id));
-  }
-  li.append(text, scope, done);
+  done.addEventListener("click", () => finish(todo.id));
+  li.append(done);
   return li;
 }
 
-function group(title) {
-  const li = document.createElement("li");
-  li.className = "group";
-  li.textContent = title;
-  return li;
-}
+function group(title, className) { return el("li", className || "group", title); }
 
 function render(todos, workspace) {
   const here = todos.filter((t) => workspace && t.scope_kind === "workspace" && t.scope_ref === workspace);
   const rest = todos.filter((t) => !here.includes(t));
+  const sessions = sessionsByKey(current);
+  const projects = projectsByPath(current);
   const items = [];
   if (workspace) {
     items.push(group("Focused workspace " + workspace));
-    if (here.length === 0) { items.push(group("Nothing open here")); }
+    if (here.length === 0) { items.push(group("Nothing open here", "empty")); }
     items.push(...here.map(row));
   }
   items.push(group("All workspaces"));
-  if (rest.length === 0) { items.push(group("Nothing else open")); }
-  items.push(...rest.map(row));
+  if (rest.length === 0) { items.push(group("Nothing else open", "empty")); }
+  for (const scope of byScope(rest)) {
+    items.push(group(scopeTitle(scope.kind, scope.ref, sessions, projects), "group sub"));
+    items.push(...scope.todos.map(row));
+  }
   list.replaceChildren(...items);
 }
 

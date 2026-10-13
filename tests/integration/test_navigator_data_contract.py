@@ -87,6 +87,7 @@ PAGE_FIELDS: dict[str, set[str]] = {
         "kind",
         "name",
         "one_liner",
+        "project_path",
         "state",
         "title",
     },
