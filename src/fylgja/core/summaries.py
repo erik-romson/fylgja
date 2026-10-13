@@ -838,6 +838,10 @@ class SummaryService:
     def cached(self, scope: str, ref: str) -> CachedSummary | None:
         return self._cache.get((scope, ref))
 
+    def counts(self) -> tuple[int, int]:
+        """``(cached entries, queued or running jobs)``."""
+        return len(self._cache), len(self._jobs)
+
     def add_listener(self, listener: Listener) -> Callable[[], None]:
         """Call ``listener`` when a job finishes; returns the function that stops it."""
         self._listeners.append(listener)

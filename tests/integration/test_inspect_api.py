@@ -29,7 +29,7 @@ from api_support import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from fylgja.api.inspect_models import INSPECT_COLLECTORS_SCHEMA
+from fylgja.api.inspect_models import INSPECT_COLLECTORS_SCHEMA, INSPECT_PIPELINE_SCHEMA
 from fylgja.collectors.appcontext import switches
 from fylgja.collectors.base import Capability
 from fylgja.core.daemon import Daemon
@@ -197,3 +197,37 @@ async def test_a_switch_file_is_read_up_to_its_size_limit() -> None:
     target.write_text(" " * switches.MAX_STATE_BYTES + text, encoding="utf-8")
     body = await _inspect(_daemon())
     assert "doctor_ok" not in body["applescript"][0]  # the record lies past the limit
+
+
+async def test_the_pipeline_route_reports_counters_and_no_privacy_values() -> None:
+    daemon = _daemon()
+    await daemon.start()
+    try:
+        daemon.sink("wm").emit(workspace_snapshot("wm", ["1"], T0, focused="1"))
+        daemon.sink("wm").emit(window_snapshot("wm", [Win("10", "1", "App", 100)], T0))
+        daemon.sink("agents").emit(
+            session_snapshot("agents", [session("k", "1", pid=200, cwd="/work/alpha/main")], T0)
+        )
+        await daemon.settle()
+        async with client(daemon) as http:
+            response = await http.get("/inspect/pipeline")
+    finally:
+        await daemon.stop()
+
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert list(nulls(body)) == []
+    assert body["schema"] == INSPECT_PIPELINE_SCHEMA
+    assert body["gate"]["accepted"] >= 3
+    assert body["writer"]["transactions"] >= 1
+    assert body["live_view"]["rows"]["windows"] == 1
+    assert body["summaries"]["enabled"] is False
+    assert body["messaging_enabled"] is False
+    assert "start:writer" in body["lifecycle"]
+    assert body["collectors_running"] == 2
+    assert body["events"]["max_clients"] == 16
+    assert body["events"]["clients"] == 0
+    assert set(body["privacy"]) == {"redact_patterns", "ignore_bundle_ids", "ignore_title_patterns"}
+    assert all(isinstance(value, int) for value in body["privacy"].values())
+    assert "sk-" not in str(body["privacy"])

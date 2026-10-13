@@ -25,11 +25,19 @@ from pydantic import BaseModel, JsonValue
 
 from fylgja.api.inspect_models import (
     AppleScriptSwitch,
+    EventsInfo,
+    FlowCount,
+    GateTotals,
     HealthDetail,
     InspectCollector,
     InspectCollectors,
+    InspectPipeline,
     KindCount,
+    LiveViewInfo,
+    PrivacyInfo,
     RecordCounts,
+    SummariesInfo,
+    WriterInfo,
 )
 from fylgja.collectors.appcontext.switches import SWITCHES, SwitchRecord
 from fylgja.collectors.registry import Origin, RegisteredCollector
@@ -37,9 +45,12 @@ from fylgja.collectors.supervisor import CollectorHealth
 from fylgja.config import Config
 from fylgja.core.daemon import CollectorState
 from fylgja.core.ingest import PluginStats, Rejection
+from fylgja.core.live_view import Collection, LiveView
+from fylgja.core.summaries import SummaryService
+from fylgja.core.writer import Writer
 from fylgja.privacy import REDACTED, PrivacyFilter
 
-__all__ = ["SECRET_KEY", "build_collectors", "redact_settings"]
+__all__ = ["SECRET_KEY", "build_collectors", "build_pipeline", "redact_settings"]
 
 SECRET_KEY: Final = re.compile(
     r"(?i)(^|_)(secret|token|password|passwd|key|auth|credential|cookie)s?($|_)"
@@ -211,4 +222,99 @@ def build_collectors(
         collectors=collectors,
         not_installed=sorted(set(config.collectors) - {item.name for item in registry}),
         applescript=applescript,
+    )
+
+
+def _flows(stats: Mapping[str, PluginStats]) -> list[FlowCount]:
+    found = [
+        FlowCount(
+            collector=name,
+            entity_kind=kind.value,
+            record_type=record_type,
+            accepted=count,
+            last_at=counts.last_at.get((kind, record_type)),
+        )
+        for name, counts in stats.items()
+        for (kind, record_type), count in counts.kinds.items()
+    ]
+    return sorted(found, key=lambda flow: (flow.collector, flow.entity_kind, flow.record_type))
+
+
+def _gate(stats: Mapping[str, PluginStats]) -> GateTotals:
+    return GateTotals(
+        accepted=sum(item.accepted for item in stats.values()),
+        dropped=sum(item.dropped for item in stats.values()),
+        lost=sum(item.lost for item in stats.values()),
+        rejected={
+            reason.value: sum(item.rejected[reason] for item in stats.values())
+            for reason in Rejection
+        },
+    )
+
+
+def _writer(writer: Writer) -> WriterInfo:
+    sizes = list(writer.stats.batch_sizes)
+    return WriterInfo(
+        running=writer.running,
+        pending=writer.pending,
+        transactions=writer.stats.transactions,
+        items=writer.stats.items,
+        duplicates=writer.stats.duplicates,
+        failed_items=writer.stats.failed_items,
+        failed_transactions=writer.stats.failed_transactions,
+        batch_max=max(sizes, default=0),
+        batch_mean=sum(sizes) / len(sizes) if sizes else 0.0,
+    )
+
+
+def build_pipeline(
+    stats: Mapping[str, PluginStats],
+    writer: Writer,
+    view: LiveView,
+    summaries: SummaryService,
+    config: Config,
+    *,
+    sse_clients: int,
+    sse_max_clients: int,
+    lifecycle: Sequence[str],
+    generated_at: datetime,
+    started_at: datetime | None,
+) -> InspectPipeline:
+    """The ``fylgja.inspect.pipeline/1`` answer.
+
+    ``stats`` are the ingest gate's counters by collector name. ``sse_clients`` and
+    ``sse_max_clients`` come from the route, because :mod:`fylgja.api.sse` imports FastAPI.
+    Privacy lists are reported as counts only.
+    """
+    flows = _flows(stats)
+    cached, jobs = summaries.counts()
+    settings = config.summaries
+    return InspectPipeline(
+        generated_at=generated_at,
+        started_at=started_at,
+        lifecycle=list(lifecycle),
+        collectors_running=len({flow.collector for flow in flows}),
+        gate=_gate(stats),
+        flows=flows,
+        writer=_writer(writer),
+        live_view=LiveViewInfo(
+            version=view.version,
+            rows={collection.value: len(view.table(collection)) for collection in Collection},
+        ),
+        events=EventsInfo(clients=sse_clients, max_clients=sse_max_clients),
+        privacy=PrivacyInfo(
+            redact_patterns=len(config.privacy.redact_patterns),
+            ignore_bundle_ids=len(config.privacy.ignore_bundle_ids),
+            ignore_title_patterns=len(config.privacy.ignore_title_patterns),
+        ),
+        summaries=SummariesInfo(
+            enabled=summaries.enabled,
+            ttl_seconds=settings.ttl_seconds,
+            max_concurrent=settings.max_concurrent,
+            running=summaries.running,
+            calls=summaries.calls,
+            cached=cached,
+            jobs=jobs,
+        ),
+        messaging_enabled=config.actions.message.enabled,
     )

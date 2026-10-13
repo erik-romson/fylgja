@@ -118,6 +118,7 @@ async def test_a_first_request_queues_a_job_that_stores_arc_and_now() -> None:
         first = daemon.summaries.request(inputs)
         assert first.state is SummaryState.PENDING
         assert daemon.summaries.pending("session", SESSION_KEY)
+        assert daemon.summaries.counts() == (0, 1)
         await daemon.summaries.drain()
 
         answer = daemon.summaries.answer("session", SESSION_KEY, inputs)
@@ -128,6 +129,7 @@ async def test_a_first_request_queues_a_job_that_stores_arc_and_now() -> None:
         assert answer.error_kind is None
         assert len(runner.calls) == 1
         assert daemon.summaries.calls == 1
+        assert daemon.summaries.counts() == (1, 0)
 
         rows = stored(daemon)
         assert [(r["scope_kind"], r["scope_ref"], r["kind"], r["text"]) for r in rows] == [

@@ -20,8 +20,12 @@ import pytest
 from api_support import HOME, Dist, EntryPoint, config, nulls
 from pydantic import BaseModel
 
-from fylgja.api.inspect import SECRET_KEY, build_collectors, redact_settings
-from fylgja.api.inspect_models import INSPECT_COLLECTORS_SCHEMA, InspectCollectors
+from fylgja.api.inspect import SECRET_KEY, build_collectors, build_pipeline, redact_settings
+from fylgja.api.inspect_models import (
+    INSPECT_COLLECTORS_SCHEMA,
+    INSPECT_PIPELINE_SCHEMA,
+    InspectCollectors,
+)
 from fylgja.api.now_models import dump_json
 from fylgja.collectors.appcontext.switches import SWITCHES, SwitchRecord
 from fylgja.collectors.base import COLLECTOR_API_MAJOR, Capability, CollectorPlugin
@@ -30,6 +34,7 @@ from fylgja.collectors.supervisor import CollectorHealth
 from fylgja.config import Config
 from fylgja.core.daemon import CollectorState
 from fylgja.core.ingest import PluginStats, Rejection
+from fylgja.core.live_view import Collection
 from fylgja.models import EntityKind, HealthReport, HealthState
 from fylgja.privacy import REDACTED, PrivacyFilter
 
@@ -399,3 +404,134 @@ def test_states_must_match_the_registry() -> None:
             generated_at=T0,
             started_at=None,
         )
+
+
+# --------------------------------------------------------------------------------------------
+# build_pipeline
+# --------------------------------------------------------------------------------------------
+
+
+class _Stats:
+    def __init__(self, sizes: list[int]) -> None:
+        self.transactions = len(sizes)
+        self.items = sum(sizes)
+        self.duplicates = 1
+        self.failed_items = 2
+        self.failed_transactions = 3
+        self.batch_sizes = sizes
+
+
+class _Writer:
+    def __init__(self, sizes: list[int]) -> None:
+        self.running = True
+        self.pending = 4
+        self.stats = _Stats(sizes)
+
+
+class _View:
+    version = 17
+
+    def table(self, collection: Collection) -> dict[str, object]:
+        return {"a": 1, "b": 2} if collection is Collection.WINDOWS else {}
+
+
+class _Summaries:
+    enabled = False
+    running = 1
+    calls = 5
+
+    def counts(self) -> tuple[int, int]:
+        return 6, 2
+
+
+_PRIVACY_CONFIG = config({"privacy": {"redact_patterns": ["a", "b"], "ignore_bundle_ids": ["x.y"]}})
+
+
+def _pipeline(sizes: list[int]) -> dict[str, object]:
+    stats = _wm_stats()
+    other = PluginStats(accepted=1, dropped=2, lost=3)
+    other.rejected[Rejection.SOURCE] += 1
+    other.rejected[Rejection.SCHEMA] += 4
+    other.kinds = Counter({(EntityKind.SESSION, "snapshot"): 1})
+    body = build_pipeline(
+        {"wm": stats, "agents": other, "idle": PluginStats()},
+        _Writer(sizes),  # type: ignore[arg-type]
+        _View(),  # type: ignore[arg-type]
+        _Summaries(),  # type: ignore[arg-type]
+        _PRIVACY_CONFIG,
+        sse_clients=2,
+        sse_max_clients=16,
+        lifecycle=["start:writer", "start:gate"],
+        generated_at=T0 + timedelta(minutes=1),
+        started_at=T0,
+    )
+    data = json.loads(dump_json(body))
+    assert isinstance(data, dict)
+    return data
+
+
+def test_the_pipeline_sums_the_gate_and_sorts_the_flows() -> None:
+    data = _pipeline([2, 4])
+    assert data["schema"] == INSPECT_PIPELINE_SCHEMA
+    assert data["lifecycle"] == ["start:writer", "start:gate"]
+    assert data["collectors_running"] == 2
+    assert data["gate"] == {
+        "accepted": 4,
+        "dropped": 3,
+        "lost": 3,
+        "rejected": {"schema": 4, "source": 3, "entity_kind": 0, "timestamp": 0},
+    }
+    flows = data["flows"]
+    assert isinstance(flows, list)
+    assert [(f["collector"], f["entity_kind"], f["record_type"], f["accepted"]) for f in flows] == [
+        ("agents", "session", "snapshot", 1),
+        ("wm", "focus", "event", 1),
+        ("wm", "window", "snapshot", 2),
+    ]
+    assert "last_at" not in flows[0]
+    assert "last_at" in flows[1]
+
+
+def test_the_pipeline_reports_writer_view_events_privacy_and_summaries() -> None:
+    data = _pipeline([2, 4])
+    assert data["writer"] == {
+        "running": True,
+        "pending": 4,
+        "transactions": 2,
+        "items": 6,
+        "duplicates": 1,
+        "failed_items": 2,
+        "failed_transactions": 3,
+        "batch_max": 4,
+        "batch_mean": 3.0,
+    }
+    live_view = data["live_view"]
+    assert isinstance(live_view, dict)
+    assert live_view["version"] == 17
+    assert live_view["rows"]["windows"] == 2  # type: ignore[index]
+    assert live_view["rows"]["todos"] == 0  # type: ignore[index]
+    assert data["events"] == {"clients": 2, "max_clients": 16}
+    privacy = _PRIVACY_CONFIG.privacy
+    assert data["privacy"] == {
+        "redact_patterns": len(privacy.redact_patterns),
+        "ignore_bundle_ids": len(privacy.ignore_bundle_ids),
+        "ignore_title_patterns": len(privacy.ignore_title_patterns),
+    }
+    summaries = data["summaries"]
+    assert isinstance(summaries, dict)
+    assert (summaries["enabled"], summaries["running"], summaries["calls"]) == (False, 1, 5)
+    assert (summaries["cached"], summaries["jobs"]) == (6, 2)
+    assert data["messaging_enabled"] is False
+    assert "started_at" in data
+    assert "generated_at" in data
+
+
+def test_an_empty_batch_window_is_zero_and_privacy_values_never_appear() -> None:
+    data = _pipeline([])
+    writer = data["writer"]
+    assert isinstance(writer, dict)
+    assert (writer["batch_max"], writer["batch_mean"]) == (0, 0.0)
+    assert list(nulls(data)) == []
+    privacy = data["privacy"]
+    assert isinstance(privacy, dict)
+    assert all(isinstance(value, int) for value in privacy.values())

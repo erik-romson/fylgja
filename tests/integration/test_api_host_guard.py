@@ -31,6 +31,7 @@ READ_ROUTES = (
     "/items",
     "/rankers",
     "/inspect/collectors",
+    "/inspect/pipeline",
 )
 
 

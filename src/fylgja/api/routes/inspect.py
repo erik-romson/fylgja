@@ -8,6 +8,9 @@ Reads: no authentication, Host-checked like every route. Each answer has its own
   redacted settings, what the ingest gate accepted per record kind and when, the
   ``[collectors.<name>]`` tables with no collector installed, and the AppleScript switches with
   doctor's recorded check. The switches are reported, never run.
+* ``GET /inspect/pipeline`` (``fylgja.inspect.pipeline/1``): the ingest gate's totals, the
+  collector × kind flow matrix, the writer, the live view, the ``/events`` clients, the summary
+  service, the ``[privacy]`` lists as counts only and the daemon lifecycle.
 
 No route runs ``fylgja doctor`` or ``osascript``, or reads SQLite. The one file read is doctor's
 small switch state file (at most :data:`~fylgja.collectors.appcontext.switches.MAX_STATE_BYTES`),
@@ -21,8 +24,9 @@ import asyncio
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
+from fylgja.api import sse
 from fylgja.api.deps import daemon_of, json_response
-from fylgja.api.inspect import build_collectors
+from fylgja.api.inspect import build_collectors, build_pipeline
 from fylgja.api.now_models import dump_json
 from fylgja.collectors.appcontext import switches
 
@@ -53,6 +57,24 @@ async def inspect_collectors(request: Request) -> Response:
         privacy=daemon.privacy,
         home=daemon.home,
         switch_records=records,
+        generated_at=daemon.clock.now(),
+        started_at=daemon.started_at,
+    )
+    return json_response(dump_json(body))
+
+
+@router.get("/pipeline")
+async def inspect_pipeline(request: Request) -> Response:
+    daemon = daemon_of(request)
+    body = build_pipeline(
+        daemon.gate.all_stats(),
+        daemon.writer,
+        daemon.view,
+        daemon.summaries,
+        daemon.config,
+        sse_clients=sse.hub_of(request).clients,
+        sse_max_clients=sse.MAX_CLIENTS,
+        lifecycle=daemon.lifecycle,
         generated_at=daemon.clock.now(),
         started_at=daemon.started_at,
     )

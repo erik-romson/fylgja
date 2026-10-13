@@ -25,16 +25,28 @@ from fylgja.models import HealthState
 
 __all__ = [
     "INSPECT_COLLECTORS_SCHEMA",
+    "INSPECT_PIPELINE_SCHEMA",
     "AppleScriptSwitch",
+    "EventsInfo",
+    "FlowCount",
+    "GateTotals",
     "HealthDetail",
     "InspectCollector",
     "InspectCollectors",
+    "InspectPipeline",
     "KindCount",
+    "LiveViewInfo",
+    "PrivacyInfo",
     "RecordCounts",
+    "SummariesInfo",
+    "WriterInfo",
 ]
 
 INSPECT_COLLECTORS_SCHEMA: Final = "fylgja.inspect.collectors/1"
 """The version string ``/inspect/collectors`` carries in ``schema``."""
+
+INSPECT_PIPELINE_SCHEMA: Final = "fylgja.inspect.pipeline/1"
+"""The version string ``/inspect/pipeline`` carries in ``schema``."""
 
 
 class HealthDetail(NowModel):
@@ -133,3 +145,107 @@ class InspectCollectors(NowModel):
     """``[collectors.<name>]`` tables with no entry point behind them, sorted."""
     applescript: list[AppleScriptSwitch]
     """Reported, never run: in the order doctor checks them."""
+
+
+class FlowCount(NowModel):
+    """One cell of the collector × kind matrix: what the gate accepted."""
+
+    collector: str
+    entity_kind: str
+    record_type: Literal["event", "snapshot"]
+    accepted: int
+    last_at: AwareDatetime | None = None
+    """When the last one was accepted (the daemon's clock)."""
+
+
+class GateTotals(NowModel):
+    """The ingest gate's counters, summed over every collector."""
+
+    accepted: int
+    dropped: int
+    """Dropped by the privacy filter (ignored app or title)."""
+    lost: int
+    """Accepted, but not queued because the writer was stopped."""
+    rejected: dict[str, int]
+    """Per gate reason (every reason, zero included)."""
+
+
+class WriterInfo(NowModel):
+    """The single writer: its queue and its transactions since the daemon started."""
+
+    running: bool
+    pending: int
+    """Items queued, not yet in a transaction."""
+    transactions: int
+    items: int
+    duplicates: int
+    failed_items: int
+    failed_transactions: int
+    batch_max: int
+    """The largest of the recent transactions' item counts; ``0`` when there are none."""
+    batch_mean: float
+    """The mean of the recent transactions' item counts; ``0`` when there are none."""
+
+
+class LiveViewInfo(NowModel):
+    """The in-memory live view."""
+
+    version: int
+    rows: dict[str, int]
+    """Collection name → row count."""
+
+
+class PrivacyInfo(NowModel):
+    """The ``[privacy]`` configuration as counts only: a pattern can name a customer."""
+
+    redact_patterns: int
+    ignore_bundle_ids: int
+    ignore_title_patterns: int
+
+
+class SummariesInfo(NowModel):
+    """The summary service."""
+
+    enabled: bool
+    ttl_seconds: int
+    max_concurrent: int
+    running: int
+    """Jobs calling the model right now."""
+    calls: int
+    """Model calls started since the daemon started."""
+    cached: int
+    jobs: int
+    """Jobs queued or running."""
+
+
+class EventsInfo(NowModel):
+    """The ``/events`` change stream."""
+
+    clients: int
+    max_clients: int
+
+
+class InspectPipeline(NowModel):
+    """The answer of ``GET /inspect/pipeline``."""
+
+    schema_: Literal["fylgja.inspect.pipeline/1"] = Field(
+        default=INSPECT_PIPELINE_SCHEMA, alias="schema"
+    )
+    """The contract version."""
+    generated_at: AwareDatetime
+    started_at: AwareDatetime | None = None
+    """When the daemon started; the counters count from here."""
+    lifecycle: list[str]
+    """The daemon's start and stop steps so far, in order (``start:writer``, …)."""
+    collectors_running: int
+    """Distinct collectors in ``flows``; counted here, not in the page."""
+    gate: GateTotals
+    flows: list[FlowCount]
+    """Sorted by collector, entity kind, record type."""
+    writer: WriterInfo
+    live_view: LiveViewInfo
+    events: EventsInfo
+    privacy: PrivacyInfo
+    summaries: SummariesInfo
+    messaging_enabled: bool
+    """``[actions.message] enabled``."""

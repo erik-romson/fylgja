@@ -8,6 +8,7 @@ from the daemon's memory: no route runs `fylgja doctor` or `osascript`, or reads
 | Route | Schema | Shows |
 |---|---|---|
 | `GET /inspect/collectors` | `fylgja.inspect.collectors/1` | Each collector's state, redacted settings and accepted records per kind; the tables with no collector installed; the AppleScript switches |
+| `GET /inspect/pipeline` | `fylgja.inspect.pipeline/1` | The ingest gate's totals, the collector × kind flow matrix, the writer, the live view, the `/events` clients, the summary service and the `[privacy]` lists as counts |
 
 A field without a value is absent, never `null`. **Every counter starts at zero when the daemon starts** (`started_at`);
 nothing is persisted.
@@ -106,3 +107,76 @@ nothing is persisted.
 
 Nested tables and lists take the same rules; numbers and booleans are shown as they are. A health `detail` and a
 `doctor_reason` take rules 2 and 3.
+
+## `GET /inspect/pipeline`
+
+The data flow in numbers, from the collectors to the page. Every number is already held in memory; the answer reads
+nothing else. Counters start at zero when the daemon starts.
+
+```json
+{
+  "schema": "fylgja.inspect.pipeline/1",
+  "generated_at": "2026-10-05T12:00:00Z",
+  "started_at": "2026-10-05T08:00:00Z",
+  "lifecycle": ["start:writer", "start:gate"],
+  "collectors_running": 1,
+  "gate": {
+    "accepted": 3,
+    "dropped": 0,
+    "lost": 0,
+    "rejected": { "schema": 0, "source": 0, "entity_kind": 0, "timestamp": 0 }
+  },
+  "flows": [
+    {
+      "collector": "wm",
+      "entity_kind": "window",
+      "record_type": "snapshot",
+      "accepted": 2,
+      "last_at": "2026-10-05T11:59:50Z"
+    }
+  ],
+  "writer": {
+    "running": true,
+    "pending": 0,
+    "transactions": 2,
+    "items": 3,
+    "duplicates": 0,
+    "failed_items": 0,
+    "failed_transactions": 0,
+    "batch_max": 2,
+    "batch_mean": 1.5
+  },
+  "live_view": { "version": 4, "rows": { "windows": 1, "sessions": 0 } },
+  "events": { "clients": 1, "max_clients": 16 },
+  "privacy": { "redact_patterns": 3, "ignore_bundle_ids": 2, "ignore_title_patterns": 1 },
+  "summaries": {
+    "enabled": false,
+    "ttl_seconds": 900,
+    "max_concurrent": 2,
+    "running": 0,
+    "calls": 0,
+    "cached": 0,
+    "jobs": 0
+  },
+  "messaging_enabled": false
+}
+```
+
+- `lifecycle` is the daemon's start and stop steps so far, in order. `started_at` is absent before the daemon starts.
+- **Gate** (stage 1): `gate` sums the ingest gate's counters over every collector. `accepted` passed validation and
+  the privacy filter. `dropped` were dropped by the privacy filter. `lost` were accepted but not queued because the
+  writer was stopped. `rejected` has one count per gate reason, every reason present, zeros included.
+- `flows` is the collector × kind matrix: one entry per collector, entity kind and record type that was accepted,
+  sorted by those three. `last_at` is when the last one was accepted. `collectors_running` is the number of distinct
+  collectors in `flows`, counted by the daemon.
+- **Writer** (stage 2): `pending` is the items queued. `transactions`, `items`, `duplicates`, `failed_items` and
+  `failed_transactions` count since the start. `batch_max` and `batch_mean` come from the item counts of the most
+  recent transactions (at most 1024); both are `0` before the first one.
+- **Live view** (stage 3): `version` is the view's change counter; `rows` has the row count of each collection.
+- **Events** (stage 4): `clients` is the open `/events` streams, `max_clients` the limit (a further client gets `503`).
+- `privacy` has counts only: the number of `redact_patterns`, `ignore_bundle_ids` and `ignore_title_patterns`. The
+  values are never shown, because a pattern can name a customer.
+- `summaries` is the summary service: `enabled`, the `[summaries]` `ttl_seconds` and `max_concurrent`, the jobs calling
+  the model now (`running`), the model calls started (`calls`), the cached entries (`cached`) and the jobs queued or
+  running (`jobs`).
+- `messaging_enabled` is `[actions.message] enabled`.
