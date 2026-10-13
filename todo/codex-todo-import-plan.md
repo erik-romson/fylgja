@@ -69,24 +69,32 @@ tool.
 PLAN_SOURCE: Final = "codex-plan"
 """The ``todos.source`` of an imported Codex plan step (decision 0047)."""
 PLAN_TOOL: Final = "update_plan"
-PLAN_TEXT_CHARS: Final = 1000          # == core.todo_import.MAX_TEXT_CHARS
+PLAN_TEXT_CHARS: Final = 1000  # == core.todo_import.MAX_TEXT_CHARS
 PLAN_STATUSES: Final = frozenset({"pending", "in_progress", "completed"})
+
 
 @dataclass(frozen=True)
 class PlanStep:
-    key: str      # "step-<n>", n = 0-based position in the call's plan list
-    status: str   # Codex's own status, one of PLAN_STATUSES
-    text: str     # raw step text cut to PLAN_TEXT_CHARS (may be blank)
+    key: str  # "step-<n>", n = 0-based position in the call's plan list
+    status: str  # Codex's own status, one of PLAN_STATUSES
+    text: str  # raw step text cut to PLAN_TEXT_CHARS (may be blank)
+
 
 def plan_steps(arguments: object) -> tuple[PlanStep, ...] | None: ...
-def plan_call(entry: Mapping[str, Any]) -> tuple[PlanStep, ...] | None: ...   # None = not a valid call
+def plan_call(
+    entry: Mapping[str, Any],
+) -> tuple[PlanStep, ...] | None: ...  # None = not a valid call
+
 
 class PlanScan:
     """The newest valid plan of the rollout read so far (pure fold, no I/O)."""
-    steps: tuple[PlanStep, ...]   # () until a valid call is seen
-    calls: int                    # valid update_plan calls folded
-    ignored: int                  # update_plan calls whose arguments did not parse
+
+    steps: tuple[PlanStep, ...]  # () until a valid call is seen
+    calls: int  # valid update_plan calls folded
+    ignored: int  # update_plan calls whose arguments did not parse
+
     def feed(self, entries: Iterable[Mapping[str, Any]]) -> None: ...
+
 
 def plan_snapshot(key: str, steps: Iterable[PlanStep], observed_at: datetime) -> TodoSnapshot: ...
 ```
@@ -187,20 +195,26 @@ After:
 # adapter.py
 class RolloutPlan:
     """Reads one rollout from byte 0, incrementally, and folds its update_plan calls."""
+
     def __init__(self, fs: FileSystem, path: Path, *, max_read: int) -> None:
-        self._tail = TranscriptTail(fs, path, max_read=max_read)   # fylgja.collectors.claude.transcript
+        self._tail = TranscriptTail(
+            fs, path, max_read=max_read
+        )  # fylgja.collectors.claude.transcript
         self.scan = parse.PlanScan()
-        self.backlog = False                       # bytes left to read
+        self.backlog = False  # bytes left to read
         self.present = True
-    def update(self) -> None:                      # OSError propagates to the collector
+
+    def update(self) -> None:  # OSError propagates to the collector
         update = self._tail.poll()
         if update.reset or not update.exists:
             self.scan = parse.PlanScan()
         self.present, self.backlog = update.exists, update.more
         self.scan.feed(update.entries)
+
     @property
     def whole(self) -> bool:
         return self.present and not self.backlog
+
 
 # collector.py, poll()
 emitted = self._emit(listed)
