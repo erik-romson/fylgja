@@ -390,7 +390,16 @@ function placeLine(pl) {
   return el("li", pl.open ? "" : "closed", parts.join(" · "));
 }
 
-function itemRow(it) {
+async function summarize(id) {
+  try {
+    await call("POST", "/summaries/folder/" + encodeURIComponent(id), {});
+    say("");
+  } catch (error) {
+    say("Cannot summarize: " + error.message);
+  }
+}
+
+function itemRow(it, summariesEnabled) {
   const box = el("div", "item");
   box.id = "item-" + it.id;
   const head = el("div", "head");
@@ -399,8 +408,15 @@ function itemRow(it) {
   if (states) { head.append(el("span", "state", states)); }
   box.append(head);
   box.append(el("div", "parts muted", it.explanation));
-  if (it.summary) { box.append(el("div", "parts", it.summary)); }
+  const story = it.story && it.story.text ? it.story.text : it.summary;
+  if (story) { box.append(el("div", "parts", story)); }
   const buttons = el("div", "buttons");
+  if (summariesEnabled) {
+    const summarizeButton = el("button", "", "Summarize");
+    summarizeButton.id = "summarize-" + it.id;
+    summarizeButton.addEventListener("click", () => summarize(it.id));
+    buttons.append(summarizeButton);
+  }
   if (it.go) { buttons.append(goButton("Go", it.go, "go-" + it.id)); }
   if (it.go_ide) { buttons.append(goButton("IDE", it.go_ide, "go-ide-" + it.id)); }
   if (it.go_agent) { buttons.append(goButton("Agent", it.go_agent, "go-agent-" + it.id)); }
@@ -446,8 +462,18 @@ function renderRecall(itms) {
   const fallback = itms.ranker_fallback ? " · ranker failed, " + itms.ranker_fallback + " order" : "";
   const nodes = [el("p", "muted", itms.shown + " of " + itms.total + fallback)];
   for (const grp of itms.days) {
-    nodes.push(el("h3", "", grp.day));
-    for (const id of grp.items) { nodes.push(itemRow(byId.get(id))); }
+    const heading = el("h3");
+    if (itms.summaries_enabled) {
+      const dayLink = el("a", "", grp.day);
+      dayLink.setAttribute("href", "/summaries/day/" + encodeURIComponent(grp.day));
+      dayLink.setAttribute("target", "_blank");
+      dayLink.setAttribute("rel", "noopener");
+      heading.append(dayLink);
+    } else {
+      heading.textContent = grp.day;
+    }
+    nodes.push(heading);
+    for (const id of grp.items) { nodes.push(itemRow(byId.get(id), itms.summaries_enabled)); }
   }
   if (itms.shown === 0) { nodes.push(el("p", "muted", "No items")); }
   recallList.replaceChildren(...nodes);

@@ -274,3 +274,13 @@ def test_recall_reads_items_and_rankers() -> None:
     for banned in ("rks.rankers", "rk.loaded", "itms.items.length"):
         assert banned not in script, banned
     assert script.count("setTimeout(connect, delay)") == 1
+
+
+def test_recall_shows_folder_summaries_when_enabled() -> None:
+    script = _script(_source())
+    assert 'call("POST", "/summaries/folder/" + encodeURIComponent(id), {})' in script
+    assert "it.story && it.story.text ? it.story.text : it.summary" in script
+    assert "if (summariesEnabled)" in script
+    assert "itemRow(byId.get(id), itms.summaries_enabled)" in script
+    assert '"/summaries/day/" + encodeURIComponent(grp.day)' in script
+    assert "if (itms.summaries_enabled)" in script
