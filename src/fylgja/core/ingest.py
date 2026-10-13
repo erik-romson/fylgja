@@ -16,6 +16,10 @@ Every record a collector emits passes, in order:
 6. **dedup** happens in the writer: ``events.dedup_key`` is unique and a duplicate changes
    nothing.
 
+Accepted records are counted per plugin, entity kind and record type, with the time of the last
+one (:attr:`PluginStats.kinds`, :attr:`PluginStats.last_at`); ``GET /inspect/collectors`` shows them
+(``docs/decisions/0048``). The counters live in memory and start again at zero with the daemon.
+
 Rejections are counted per plugin and reason. More than 20 rejections within a minute mark the
 plugin ``degraded`` (``last_error_kind = "ingest_rejections"``); it recovers once its last minute
 holds no more than that. The gate merges this with the supervisor's health
@@ -34,11 +38,12 @@ from __future__ import annotations
 
 import logging
 from collections import Counter, deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Final, NoReturn, Protocol
+from types import MappingProxyType
+from typing import Any, Final, Literal, NoReturn, Protocol
 
 from pydantic import BaseModel
 
@@ -53,9 +58,11 @@ from fylgja.store.rows import HealthRow
 __all__ = [
     "DEGRADED_ERROR_KIND",
     "IngestGate",
+    "KindKey",
     "PluginSink",
     "PluginStats",
     "RecordRejected",
+    "RecordType",
     "RecordWriter",
     "Rejection",
 ]
@@ -74,6 +81,11 @@ class Rejection(StrEnum):
     SOURCE = "source"
     ENTITY_KIND = "entity_kind"
     TIMESTAMP = "timestamp"
+
+
+RecordType = Literal["event", "snapshot"]
+KindKey = tuple[EntityKind, RecordType]
+"""``(entity_kind, record_type)``; the record type is ``event`` or ``snapshot``."""
 
 
 class RecordRejected(ValueError):
@@ -105,6 +117,10 @@ class PluginStats:
     lost: int = 0
     """Accepted records ``emit`` could not queue because the writer was stopped."""
     rejected: Counter[Rejection] = field(default_factory=Counter)
+    kinds: Counter[KindKey] = field(default_factory=Counter)
+    """Accepted records per entity kind and record type, since the daemon started."""
+    last_at: dict[KindKey, datetime] = field(default_factory=dict)
+    """When each entity kind and record type was last accepted (the gate's clock)."""
 
     @property
     def rejected_total(self) -> int:
@@ -179,6 +195,10 @@ class IngestGate:
     def stats(self, name: str) -> PluginStats:
         return self._stats[name]
 
+    def all_stats(self) -> Mapping[str, PluginStats]:
+        """Every registered plugin's counters, read-only (read on the event loop thread)."""
+        return MappingProxyType(self._stats)
+
     def is_degraded(self, name: str) -> bool:
         return name in self._degraded_since
 
@@ -210,6 +230,9 @@ class IngestGate:
                 self._tell_private_focus(hook, valid.observed_at)
         else:
             stats.accepted += 1
+            key: KindKey = (filtered.entity_kind, filtered.record_type)
+            stats.kinds[key] += 1
+            stats.last_at[key] = self._clock.now()
         self._evaluate(name)
         return filtered
 

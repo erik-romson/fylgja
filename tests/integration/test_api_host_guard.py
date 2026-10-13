@@ -30,6 +30,7 @@ READ_ROUTES = (
     "/view/overview",
     "/items",
     "/rankers",
+    "/inspect/collectors",
 )
 
 

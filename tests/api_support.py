@@ -73,8 +73,8 @@ class Settings(BaseModel):
 
 @dataclass
 class Synthetic:
-    """A plugin a test controls: what ``doctor`` reports, whether ``run`` crashes, and an
-    optional ``emit`` hook run once at start."""
+    """A plugin a test controls: what ``doctor`` reports, whether ``run`` crashes, an optional
+    ``emit`` hook run once at start, and the settings model of its ``[collectors.<name>]`` table."""
 
     name: str
     capabilities: frozenset[Capability]
@@ -82,6 +82,7 @@ class Synthetic:
     doctor_state: HealthState = HealthState.OK
     crash: bool = False
     emit: Callable[[CollectorContext], None] | None = None
+    config_model: type[BaseModel] = Settings
     contexts: list[CollectorContext] = field(default_factory=list)
 
     def plugin(self) -> CollectorPlugin:
@@ -89,7 +90,7 @@ class Synthetic:
             name=self.name,
             api_major=COLLECTOR_API_MAJOR,
             capabilities=self.capabilities,
-            config_model=Settings,
+            config_model=self.config_model,
             factory=self._factory,
         )
 

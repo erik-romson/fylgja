@@ -80,6 +80,8 @@ MODULES = [
     "fylgja.api.item_inputs",
     "fylgja.api.view_models",
     "fylgja.api.views",
+    "fylgja.api.inspect_models",
+    "fylgja.api.inspect",
     "fylgja.logsetup",
     "fylgja.cli.client",
     "fylgja.cli.render",

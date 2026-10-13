@@ -46,6 +46,7 @@ from fylgja.core.daemon import Daemon, SessionMemory, _Tap, _UnroutedSink
 from fylgja.core.hosts import HostData
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.models import (
+    EntityKind,
     HealthState,
     HookEvent,
     HookEventPayload,
@@ -459,6 +460,19 @@ async def test_collector_states_rows_and_reports() -> None:
     assert rows["vendor"].api_version == "not_loaded"
     assert rows["wm"].health != "not_loaded"
     assert set(daemon.health_reports()) == {"wm", "vendor"}
+
+
+async def test_the_gate_redacts_with_the_daemon_s_privacy_filter_and_counts_per_kind() -> None:
+    daemon = make_daemon(windows_collector(), user_config={"privacy": {"redact_patterns": ["q+"]}})
+    assert daemon.home == HOME
+    assert daemon.privacy.redact("aqqqb") == "a[redacted]b"
+    assert daemon.gate.check("wm", window_snapshot("wm", [Win("1", "1", "App", 10, "qq")], T0))
+    stats = daemon.gate.all_stats()["wm"]
+    assert dict(stats.kinds) == {(EntityKind.WINDOW, "snapshot"): 1}
+    assert stats.last_at == {(EntityKind.WINDOW, "snapshot"): T0}
+    shown = daemon.gate.check("wm", window_snapshot("wm", [Win("1", "1", "App", 10, "qq")], T0))
+    assert shown is not None
+    assert shown.items[0].payload.title == "[redacted]"  # type: ignore[union-attr]
 
 
 async def test_a_duplicate_name_is_reported_failed_and_never_supervised() -> None:

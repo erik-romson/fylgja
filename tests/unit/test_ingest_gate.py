@@ -16,11 +16,15 @@ from fylgja.core.ingest import (
     DEGRADED_ERROR_KIND,
     IngestGate,
     PluginSink,
+    PluginStats,
     RecordRejected,
     Rejection,
 )
 from fylgja.core.writer import WriterClosed
 from fylgja.models import (
+    EntityKind,
+    FocusEvent,
+    FocusPayload,
     HealthState,
     Record,
     SessionActivity,
@@ -302,6 +306,80 @@ def test_a_stopped_writer_counts_lost_records(gate: IngestGate, writer: StubWrit
     gate.emit("aero", window())
     assert gate.stats("aero").lost == 1
     gate.observe_health(CollectorHealth("aero", HealthState.OK, since=T0))  # logged, not raised
+
+
+# --------------------------------------------------------------------------------------------
+# Counts per entity kind and record type (docs/decisions/0048)
+# --------------------------------------------------------------------------------------------
+
+
+def _window_snapshot(observed_at: datetime = T0) -> WindowSnapshot:
+    return WindowSnapshot(
+        source="aero",
+        entity_id="all",
+        observed_at=observed_at,
+        complete=True,
+        items=(SnapshotItem(entity_id="w1", payload=WindowPayload(title="editor")),),
+    )
+
+
+def _focus(observed_at: datetime = T0) -> FocusEvent:
+    return FocusEvent(
+        source="aero",
+        entity_id="focus",
+        observed_at=observed_at,
+        payload=FocusPayload(window_id="w1", workspace="1"),
+    )
+
+
+def test_accepted_records_are_counted_per_kind_and_record_type(
+    gate: IngestGate, clock: FakeClock
+) -> None:
+    gate.emit("aero", _window_snapshot())
+    clock.advance(5)
+    gate.emit("aero", _focus(T0 + timedelta(seconds=5)))
+    gate.emit("aero", window(observed_at=T0 + timedelta(seconds=5)))
+    clock.advance(5)
+    gate.emit("aero", _window_snapshot(T0 + timedelta(seconds=10)))
+    stats = gate.stats("aero")
+    assert stats.accepted == 4
+    assert stats.kinds == {
+        (EntityKind.WINDOW, "snapshot"): 2,
+        (EntityKind.FOCUS, "event"): 1,
+        (EntityKind.WINDOW, "event"): 1,
+    }
+    assert stats.last_at == {
+        (EntityKind.WINDOW, "snapshot"): T0 + timedelta(seconds=10),
+        (EntityKind.FOCUS, "event"): T0 + timedelta(seconds=5),
+        (EntityKind.WINDOW, "event"): T0 + timedelta(seconds=5),
+    }
+    assert gate.stats("claude").kinds == {}
+
+
+def test_dropped_and_rejected_records_do_not_count_as_kinds(
+    gate: IngestGate, writer: StubWriter
+) -> None:
+    gate.emit("aero", window(app_bundle_id="com.example.vault"))  # dropped by the privacy filter
+    gate.emit("aero", window(source="claude"))  # rejected: source
+    gate.emit("aero", window(observed_at=T0 + timedelta(hours=1)))  # rejected: timestamp
+    stats = gate.stats("aero")
+    assert (stats.accepted, stats.dropped, stats.rejected_total) == (0, 1, 2)
+    assert stats.kinds == {}
+    assert stats.last_at == {}
+    writer.closed = True
+    gate.emit("aero", window())  # accepted and counted, then lost by the stopped writer
+    assert stats.lost == 1
+    assert stats.kinds == {(EntityKind.WINDOW, "event"): 1}
+
+
+def test_all_stats_is_a_read_only_view_of_every_plugin(gate: IngestGate) -> None:
+    gate.emit("aero", window())
+    every = gate.all_stats()
+    assert set(every) == {"aero", "claude"}
+    assert every["aero"] is gate.stats("aero")
+    assert every["aero"].accepted == 1
+    with pytest.raises(TypeError):
+        every["other"] = PluginStats()  # type: ignore[index]
 
 
 # --------------------------------------------------------------------------------------------

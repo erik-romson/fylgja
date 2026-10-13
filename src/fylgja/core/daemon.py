@@ -503,6 +503,9 @@ class Daemon:
         self.contexts.on_change = self.view.touch
         self._touched: dict[str, datetime] = {}
         self._focus_today: dict[str, float] = {}
+        self.privacy = PrivacyFilter.from_config(config.privacy)
+        """The ``[privacy]`` filter of the ingest gate; ``GET /inspect/collectors`` redacts the
+        collector settings with it too (docs/decisions/0048)."""
         self.gate = IngestGate(
             _Tap(
                 self.writer,
@@ -516,7 +519,7 @@ class Daemon:
                 (self.session_state.apply,),
             ),
             [item.plugin for item in self.registry if item.runnable and item.plugin is not None],
-            privacy=PrivacyFilter.from_config(config.privacy),
+            privacy=self.privacy,
             clock=self.clock,
             on_private_focus=self.spans.private_focus,
         )
@@ -591,6 +594,11 @@ class Daemon:
     def started(self) -> bool:
         """``start()`` was called (the daemon may have stopped since)."""
         return self._phase != "new"
+
+    @property
+    def home(self) -> str:
+        """The home directory the host adapters and the inspect routes use."""
+        return self._home
 
     @property
     def resolution(self) -> Resolution | None:

@@ -10,8 +10,8 @@ shutdown; a daemon the caller already started is left to the caller.
 * ``GET /`` serves the minimal page with the secret in a ``<meta>`` tag (WP4.4).
 * The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/todos``,
   ``/collectors``, ``/health``, ``/history``, ``/next``, ``GET /summaries/{scope}/{ref}``,
-  ``/view/overview``, ``/items``, ``/rankers`` and the ``/events`` change stream) need no
-  authentication. The interactive docs and the OpenAPI document are off.
+  ``/view/overview``, ``/items``, ``/rankers``, ``/inspect/*`` and the ``/events`` change stream)
+  need no authentication. The interactive docs and the OpenAPI document are off.
 * A finished summary job publishes ``summary.ready`` (``{scope, ref, state}``) on ``/events``.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
 
@@ -34,6 +34,7 @@ from fylgja.api.routes import (
     focus,
     health,
     history,
+    inspect,
     items,
     messages,
     now,
@@ -71,6 +72,7 @@ _ROUTERS = (
     todos.router,
     views.router,
     items.router,
+    inspect.router,
     sse.router,
 )
 
