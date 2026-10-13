@@ -244,6 +244,7 @@ async def test_canaries_reach_no_log_spool_file_database_row_or_api_response(
                 "/rankers",
                 "/inspect/collectors",
                 "/inspect/pipeline",
+                "/inspect/explain",
                 "/summaries/folder/0123456789abcdef",
                 "/",
             ):

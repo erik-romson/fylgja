@@ -20,13 +20,19 @@ import pytest
 from api_support import HOME, Dist, EntryPoint, config, nulls
 from pydantic import BaseModel
 
-from fylgja.api.inspect import SECRET_KEY, build_collectors, build_pipeline, redact_settings
+from fylgja.api.inspect import (
+    SECRET_KEY,
+    build_collectors,
+    build_explain,
+    build_pipeline,
+    redact_settings,
+)
 from fylgja.api.inspect_models import (
     INSPECT_COLLECTORS_SCHEMA,
     INSPECT_PIPELINE_SCHEMA,
     InspectCollectors,
 )
-from fylgja.api.now_models import dump_json
+from fylgja.api.now_models import LabelSource, NextItem, Now, Waiting, Workspace, dump_json
 from fylgja.collectors.appcontext.switches import SWITCHES, SwitchRecord
 from fylgja.collectors.base import COLLECTOR_API_MAJOR, Capability, CollectorPlugin
 from fylgja.collectors.registry import DiscoveredEntry, RegisteredCollector
@@ -34,7 +40,10 @@ from fylgja.collectors.supervisor import CollectorHealth
 from fylgja.config import Config
 from fylgja.core.daemon import CollectorState
 from fylgja.core.ingest import PluginStats, Rejection
+from fylgja.core.labels import InferredLabel
 from fylgja.core.live_view import Collection
+from fylgja.core.ranking import SCORES
+from fylgja.core.resolver import Placement, ProjectPlacement, Resolution
 from fylgja.models import EntityKind, HealthReport, HealthState
 from fylgja.privacy import REDACTED, PrivacyFilter
 
@@ -535,3 +544,157 @@ def test_an_empty_batch_window_is_zero_and_privacy_values_never_appear() -> None
     privacy = data["privacy"]
     assert isinstance(privacy, dict)
     assert all(isinstance(value, int) for value in privacy.values())
+
+
+# --------------------------------------------------------------------------------------------
+# build_explain
+# --------------------------------------------------------------------------------------------
+
+
+def _workspace(name: str, label: str, source: LabelSource, inferred: str | None) -> Workspace:
+    return Workspace(
+        name=name,
+        label=label,
+        label_source=source,
+        inferred_label=inferred,
+        one_liner=label,
+        windows=[],
+        projects=[],
+        sessions=[],
+    )
+
+
+def _placement(key: str, *, note: str = "", workspace: str | None = "1") -> Placement:
+    return Placement(
+        session_key=key,
+        project_path="/work/alpha/main",
+        project_via="git-root",
+        project_confidence="high",
+        group_name=None,
+        host_kind=None,
+        host_ref=None,
+        window_id="10",
+        workspace=workspace,
+        via="ancestry",
+        confidence="high",
+        note=note,
+    )
+
+
+def _project(path: str, name: str) -> ProjectPlacement:
+    return ProjectPlacement(
+        path=path,
+        name=name,
+        repo_root=path,
+        group_name=None,
+        sessions=1,
+        windows=1,
+        workspace="1",
+        via="sessions",
+        confidence="high",
+    )
+
+
+def _picture() -> Now:
+    return Now(
+        generated_at=T0,
+        workspaces=[
+            _workspace("10", "Docs", LabelSource.INFERRED, "Safari docs"),
+            _workspace("2", "My label", LabelSource.MANUAL, "alpha"),
+            _workspace("1", "alpha", LabelSource.INFERRED, "alpha"),
+        ],
+        waiting=[Waiting(kind="input", target="claude:k", reason="asks")],
+        next=[
+            NextItem(
+                suggestion_id="nl-1.1",
+                kind="input",
+                target_ref="claude:k",
+                score=100.0,
+                reason="asks",
+                rank=1,
+            )
+        ],
+        collectors=[],
+        degraded=[],
+    )
+
+
+def _resolution() -> Resolution:
+    return Resolution(
+        sessions={
+            "claude:b": _placement("claude:b", note="two windows"),
+            "claude:a": _placement("claude:a"),
+        },
+        projects={
+            "/work/beta/main": _project("/work/beta/main", "beta"),
+            "/work/alpha/main": _project("/work/alpha/main", "alpha"),
+        },
+        labels={
+            "1": InferredLabel("alpha", "project"),
+            "10": InferredLabel("Safari docs", "app-title"),
+            "2": InferredLabel("alpha", "project"),
+        },
+    )
+
+
+def test_explain_gives_the_rule_source_and_natural_order_of_each_label() -> None:
+    body = build_explain(_picture(), _resolution(), generated_at=T0)
+    assert body.resolved is True
+    assert [(w.workspace, w.label_source, w.rule) for w in body.labels] == [
+        ("1", LabelSource.INFERRED, "project"),
+        ("2", LabelSource.MANUAL, "project"),
+        ("10", LabelSource.INFERRED, "app-title"),
+    ]
+    assert body.labels[1].label == "My label"
+    assert body.labels[1].inferred_label == "alpha"
+
+
+def test_explain_sorts_placements_and_leaves_an_empty_note_out() -> None:
+    body = build_explain(_picture(), _resolution(), generated_at=T0)
+    assert [p.path for p in body.projects] == ["/work/alpha/main", "/work/beta/main"]
+    assert [s.session_key for s in body.sessions] == ["claude:a", "claude:b"]
+    data = json.loads(dump_json(body))
+    assert "note" not in data["sessions"][0]
+    assert data["sessions"][1]["note"] == "two windows"
+    assert list(_nulls(data)) == []
+
+
+def test_explain_before_the_first_resolution_has_no_rule_and_no_placements() -> None:
+    body = build_explain(_picture(), None, generated_at=T0)
+    assert body.resolved is False
+    assert [w.rule for w in body.labels] == [None, None, None]
+    assert (body.projects, body.sessions) == ([], [])
+    assert "rule" not in json.loads(dump_json(body))["labels"][0]
+
+
+def test_explain_carries_the_ranking_rules_and_the_next_and_waiting_lists() -> None:
+    body = build_explain(_picture(), None, generated_at=T0)
+    assert body.schema_ == "fylgja.inspect.explain/1"
+    assert body.generated_at == T0
+    assert body.ranking[0].kind == "permission"
+    assert body.ranking[0].score == 100.0
+    assert [r.kind for r in body.ranking] == list(SCORES)
+    assert len(body.ranking) == 8
+    assert body.idle_window_seconds == 3600.0
+    assert body.max_items == 10
+    assert [i.suggestion_id for i in body.next] == ["nl-1.1"]
+    assert [w.target for w in body.waiting] == ["claude:k"]
+
+
+def test_explain_of_a_bare_picture_has_empty_lists() -> None:
+    bare = Now(generated_at=T0, collectors=[], degraded=[])
+    body = build_explain(bare, None, generated_at=T0)
+    assert (body.labels, body.next, body.waiting) == ([], [], [])
+
+
+def _nulls(value: object, path: str = "$") -> list[str]:
+    if value is None:
+        return [path]
+    found: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found += _nulls(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found += _nulls(item, f"{path}[{index}]")
+    return found

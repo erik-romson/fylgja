@@ -30,6 +30,7 @@ CHECKED = (
     "rankers/base.py",
     "rankers/registry.py",
     "api/deps.py",
+    "api/inspect.py",
     "api/item_inputs.py",
     "api/items_models.py",
     "api/now.py",

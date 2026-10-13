@@ -9,6 +9,7 @@ from the daemon's memory: no route runs `fylgja doctor` or `osascript`, or reads
 |---|---|---|
 | `GET /inspect/collectors` | `fylgja.inspect.collectors/1` | Each collector's state, redacted settings and accepted records per kind; the tables with no collector installed; the AppleScript switches |
 | `GET /inspect/pipeline` | `fylgja.inspect.pipeline/1` | The ingest gate's totals, the collector × kind flow matrix, the writer, the live view, the `/events` clients, the summary service and the `[privacy]` lists as counts |
+| `GET /inspect/explain` | `fylgja.inspect.explain/1` | How each workspace label was chosen, where the resolver placed each project and session, and the Next-strip scores and lists |
 
 A field without a value is absent, never `null`. **Every counter starts at zero when the daemon starts** (`started_at`);
 nothing is persisted.
@@ -180,3 +181,45 @@ nothing else. Counters start at zero when the daemon starts.
   the model now (`running`), the model calls started (`calls`), the cached entries (`cached`) and the jobs queued or
   running (`jobs`).
 - `messaging_enabled` is `[actions.message] enabled`.
+
+## `GET /inspect/explain`
+
+```json
+{
+  "schema": "fylgja.inspect.explain/1",
+  "generated_at": "2026-10-05T12:00:00Z",
+  "resolved": true,
+  "labels": [
+    {"workspace": "1", "label": "alpha/main", "label_source": "inferred", "inferred_label": "alpha/main", "rule": "project"}
+  ],
+  "projects": [
+    {"path": "/work/alpha/main", "name": "alpha/main", "workspace": "1", "via": "sessions", "confidence": "high", "sessions": 1, "windows": 1}
+  ],
+  "sessions": [
+    {"session_key": "claude:abc", "workspace": "1", "window_id": "10", "via": "ancestry", "confidence": "high", "project_via": "git-root", "project_confidence": "high"}
+  ],
+  "ranking": [
+    {"kind": "permission", "score": 100.0},
+    {"kind": "input", "score": 100.0}
+  ],
+  "idle_window_seconds": 3600.0,
+  "max_items": 10,
+  "next": [],
+  "waiting": []
+}
+```
+
+- `resolved` is `false` until the resolver has run once; then `projects` and `sessions` are empty and no label has a
+  `rule`.
+- **Labels** follow the natural workspace order. `label` and `label_source` are what `/now` shows. `rule` is the
+  inference rule: `project`, `app-title`, `app` or `none`. It is absent when the resolver made no label for the
+  workspace.
+- `projects` are sorted by path, `sessions` by session key. `via` and `confidence` say how the resolver found the
+  workspace. `unresolved` says why a window join failed. `note` is absent when empty.
+- `ranking` is the Next-strip score of each candidate kind, in rule order, read from the daemon's constants:
+  `permission`, `input`, `turn_done`, `todo`, `build_failed`, `review_requested`, `context_switch` and `unread`
+  (eight kinds). `idle_window_seconds` is the quiet time after which a workspace counts as a way back, and
+  `max_items` is the most a Next list holds.
+- `next` and `waiting` are the lists `/now` carries now, empty when `/now` has none. Reading the route logs no extra
+  suggestion list: an unchanged list is published once.
+- Values are names and paths `/now` already shows.

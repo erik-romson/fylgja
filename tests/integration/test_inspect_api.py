@@ -29,7 +29,11 @@ from api_support import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from fylgja.api.inspect_models import INSPECT_COLLECTORS_SCHEMA, INSPECT_PIPELINE_SCHEMA
+from fylgja.api.inspect_models import (
+    INSPECT_COLLECTORS_SCHEMA,
+    INSPECT_EXPLAIN_SCHEMA,
+    INSPECT_PIPELINE_SCHEMA,
+)
 from fylgja.collectors.appcontext import switches
 from fylgja.collectors.base import Capability
 from fylgja.core.daemon import Daemon
@@ -231,3 +235,51 @@ async def test_the_pipeline_route_reports_counters_and_no_privacy_values() -> No
     assert set(body["privacy"]) == {"redact_patterns", "ignore_bundle_ids", "ignore_title_patterns"}
     assert all(isinstance(value, int) for value in body["privacy"].values())
     assert "sk-" not in str(body["privacy"])
+
+
+async def test_the_explain_route_shows_rules_placements_and_a_stable_next_list() -> None:
+    daemon = _daemon()
+    await daemon.start()
+    try:
+        daemon.sink("wm").emit(workspace_snapshot("wm", ["1"], T0, focused="1"))
+        daemon.sink("wm").emit(window_snapshot("wm", [Win("10", "1", "App", 100)], T0))
+        daemon.sink("agents").emit(
+            session_snapshot("agents", [session("k", "1", pid=200, cwd="/work/alpha/main")], T0)
+        )
+        await daemon.settle()
+        async with client(daemon) as http:
+            first = await http.get("/inspect/explain")
+            second = await http.get("/inspect/explain")
+            third = await http.get("/next")
+    finally:
+        await daemon.stop()
+
+    assert first.status_code == 200, first.text
+    assert first.headers["cache-control"] == "no-store"
+    body = first.json()
+    assert list(nulls(body)) == []
+    assert body["schema"] == INSPECT_EXPLAIN_SCHEMA
+    assert body["resolved"] is True
+    assert body["ranking"][0] == {"kind": "permission", "score": 100.0}
+    assert len(body["ranking"]) == 8
+    assert body["labels"]
+    assert all("rule" in label for label in body["labels"])
+    assert [p["path"] for p in body["projects"]] == ["/work/alpha/main"]
+    assert len(body["sessions"]) == 1
+    assert [i["suggestion_id"] for i in second.json()["next"]] == [
+        i["suggestion_id"] for i in body["next"]
+    ]
+    assert [i["suggestion_id"] for i in third.json()["items"]] == [
+        i["suggestion_id"] for i in body["next"]
+    ]
+
+
+async def test_the_explain_route_before_the_first_resolution() -> None:
+    daemon = _daemon()
+    async with client(daemon) as http:
+        response = await http.get("/inspect/explain")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["resolved"] is False
+    assert body["projects"] == []
+    assert body["sessions"] == []

@@ -20,11 +20,12 @@ from typing import Final, Literal
 
 from pydantic import AwareDatetime, Field, JsonValue
 
-from fylgja.api.now_models import NowModel
+from fylgja.api.now_models import LabelSource, NextItem, NowModel, Waiting
 from fylgja.models import HealthState
 
 __all__ = [
     "INSPECT_COLLECTORS_SCHEMA",
+    "INSPECT_EXPLAIN_SCHEMA",
     "INSPECT_PIPELINE_SCHEMA",
     "AppleScriptSwitch",
     "EventsInfo",
@@ -33,11 +34,16 @@ __all__ = [
     "HealthDetail",
     "InspectCollector",
     "InspectCollectors",
+    "InspectExplain",
     "InspectPipeline",
     "KindCount",
+    "LabelExplain",
     "LiveViewInfo",
     "PrivacyInfo",
+    "ProjectPlacementInfo",
+    "RankingRule",
     "RecordCounts",
+    "SessionPlacementInfo",
     "SummariesInfo",
     "WriterInfo",
 ]
@@ -47,6 +53,9 @@ INSPECT_COLLECTORS_SCHEMA: Final = "fylgja.inspect.collectors/1"
 
 INSPECT_PIPELINE_SCHEMA: Final = "fylgja.inspect.pipeline/1"
 """The version string ``/inspect/pipeline`` carries in ``schema``."""
+
+INSPECT_EXPLAIN_SCHEMA: Final = "fylgja.inspect.explain/1"
+"""The version string ``/inspect/explain`` carries in ``schema``."""
 
 
 class HealthDetail(NowModel):
@@ -249,3 +258,77 @@ class InspectPipeline(NowModel):
     summaries: SummariesInfo
     messaging_enabled: bool
     """``[actions.message] enabled``."""
+
+
+class LabelExplain(NowModel):
+    """How one workspace label was chosen."""
+
+    workspace: str
+    label: str
+    """The effective label, as ``/now`` shows it."""
+    label_source: LabelSource
+    inferred_label: str | None = None
+    rule: str | None = None
+    """The inference rule: ``project``, ``app-title``, ``app`` or ``none``; absent before the first
+    resolution or when the resolver made no label for the workspace."""
+
+
+class ProjectPlacementInfo(NowModel):
+    """Where the resolver placed one project."""
+
+    path: str
+    name: str
+    workspace: str | None = None
+    via: str
+    confidence: str
+    sessions: int
+    windows: int
+    unresolved: str | None = None
+
+
+class SessionPlacementInfo(NowModel):
+    """Where the resolver placed one session."""
+
+    session_key: str
+    workspace: str | None = None
+    window_id: str | None = None
+    via: str
+    confidence: str
+    project_via: str
+    project_confidence: str
+    unresolved: str | None = None
+    note: str | None = None
+    """The resolver's note; absent when empty."""
+
+
+class RankingRule(NowModel):
+    """One kind of Next candidate and its score (``core/ranking.py``)."""
+
+    kind: str
+    score: float
+
+
+class InspectExplain(NowModel):
+    """The answer of ``GET /inspect/explain``."""
+
+    schema_: Literal["fylgja.inspect.explain/1"] = Field(
+        default=INSPECT_EXPLAIN_SCHEMA, alias="schema"
+    )
+    """The contract version."""
+    generated_at: AwareDatetime
+    resolved: bool
+    """``False`` until the resolver has run once."""
+    labels: list[LabelExplain]
+    """Sorted by workspace in natural order."""
+    projects: list[ProjectPlacementInfo]
+    """Sorted by path."""
+    sessions: list[SessionPlacementInfo]
+    """Sorted by session key."""
+    ranking: list[RankingRule]
+    """The Next scores, in rule order."""
+    idle_window_seconds: float
+    """Rule 5: a workspace is a way back when none of its sessions did anything for this long."""
+    max_items: int
+    """A Next list never holds more items than this."""
+    next: list[NextItem]
+    waiting: list[Waiting]

@@ -31,14 +31,20 @@ from fylgja.api.inspect_models import (
     HealthDetail,
     InspectCollector,
     InspectCollectors,
+    InspectExplain,
     InspectPipeline,
     KindCount,
+    LabelExplain,
     LiveViewInfo,
     PrivacyInfo,
+    ProjectPlacementInfo,
+    RankingRule,
     RecordCounts,
+    SessionPlacementInfo,
     SummariesInfo,
     WriterInfo,
 )
+from fylgja.api.now_models import Now
 from fylgja.collectors.appcontext.switches import SWITCHES, SwitchRecord
 from fylgja.collectors.registry import Origin, RegisteredCollector
 from fylgja.collectors.supervisor import CollectorHealth
@@ -46,11 +52,20 @@ from fylgja.config import Config
 from fylgja.core.daemon import CollectorState
 from fylgja.core.ingest import PluginStats, Rejection
 from fylgja.core.live_view import Collection, LiveView
+from fylgja.core.ranking import IDLE_WINDOW, MAX_ITEMS, SCORES
+from fylgja.core.resolver import Resolution
 from fylgja.core.summaries import SummaryService
 from fylgja.core.writer import Writer
 from fylgja.privacy import REDACTED, PrivacyFilter
+from fylgja.rankers.base import natural_key
 
-__all__ = ["SECRET_KEY", "build_collectors", "build_pipeline", "redact_settings"]
+__all__ = [
+    "SECRET_KEY",
+    "build_collectors",
+    "build_explain",
+    "build_pipeline",
+    "redact_settings",
+]
 
 SECRET_KEY: Final = re.compile(
     r"(?i)(^|_)(secret|token|password|passwd|key|auth|credential|cookie)s?($|_)"
@@ -317,4 +332,73 @@ def build_pipeline(
             jobs=jobs,
         ),
         messaging_enabled=config.actions.message.enabled,
+    )
+
+
+def build_explain(
+    now: Now, resolution: Resolution | None, *, generated_at: datetime
+) -> InspectExplain:
+    """Why the page says what it says: label rules, resolver placements and the Next scores.
+
+    ``resolution`` is ``None`` before the first resolution; the answer then has no ``rule`` and no
+    placements, and ``resolved`` is ``False``. Labels follow the natural workspace order,
+    projects their path and sessions their key.
+    """
+    labels = resolution.labels if resolution is not None else {}
+    label_rows: list[LabelExplain] = []
+    for workspace in sorted(now.workspaces or [], key=lambda w: natural_key(w.name)):
+        inferred = labels.get(workspace.name)
+        label_rows.append(
+            LabelExplain(
+                workspace=workspace.name,
+                label=workspace.label,
+                label_source=workspace.label_source,
+                inferred_label=workspace.inferred_label,
+                rule=None if inferred is None else inferred.rule,
+            )
+        )
+    projects = [
+        ProjectPlacementInfo(
+            path=placement.path,
+            name=placement.name,
+            workspace=placement.workspace,
+            via=placement.via,
+            confidence=placement.confidence,
+            sessions=placement.sessions,
+            windows=placement.windows,
+            unresolved=placement.unresolved,
+        )
+        for placement in sorted(
+            resolution.projects.values() if resolution is not None else (),
+            key=lambda p: p.path,
+        )
+    ]
+    sessions = [
+        SessionPlacementInfo(
+            session_key=placement.session_key,
+            workspace=placement.workspace,
+            window_id=placement.window_id,
+            via=placement.via,
+            confidence=placement.confidence,
+            project_via=placement.project_via,
+            project_confidence=placement.project_confidence,
+            unresolved=placement.unresolved,
+            note=placement.note or None,
+        )
+        for placement in sorted(
+            resolution.sessions.values() if resolution is not None else (),
+            key=lambda p: p.session_key,
+        )
+    ]
+    return InspectExplain(
+        generated_at=generated_at,
+        resolved=resolution is not None,
+        labels=label_rows,
+        projects=projects,
+        sessions=sessions,
+        ranking=[RankingRule(kind=kind, score=score) for kind, score in SCORES.items()],
+        idle_window_seconds=IDLE_WINDOW.total_seconds(),
+        max_items=MAX_ITEMS,
+        next=list(now.next or []),
+        waiting=list(now.waiting or []),
     )
