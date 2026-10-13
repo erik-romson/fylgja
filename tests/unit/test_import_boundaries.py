@@ -76,6 +76,7 @@ MODULES = [
     "fylgja.api.now_models",
     "fylgja.api.now",
     "fylgja.api.summary_inputs",
+    "fylgja.api.items_models",
     "fylgja.api.item_inputs",
     "fylgja.api.view_models",
     "fylgja.api.views",

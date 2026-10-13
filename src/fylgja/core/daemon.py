@@ -23,7 +23,12 @@ Data flows **registry → supervisor → ingest gate → writer → state engine
   It is off by default; its results go through the writer too;
 * the **span window** (:attr:`Daemon.span_window`) holds the focus spans of the last 14 days in
   memory: read once at start, then fed by the span engine. :meth:`Daemon.activity` builds working
-  time from it (docs/decisions/0050).
+  time from it (docs/decisions/0050);
+* the **rankers** (:attr:`Daemon.rankers`) are read from the ``fylgja.rankers`` entry points by
+  the collector enable rule (docs/decisions/0052). :meth:`Daemon.ranked` orders the navigation
+  items (docs/decisions/0051) with one of them, memoized, and falls back to the ``natural`` floor
+  when the ranker fails. The daemon knows no ranker by name: only ``[items] default_ranker`` from
+  the configuration and the reserved floor.
 
 **Start and stop order.** Sinks start before sources, so nothing a collector emits is lost or
 applied out of order: the writer (the database is opened and migrated), then the live view (rebuilt
@@ -65,6 +70,7 @@ from fylgja.core.activity import Activity, build_activity
 from fylgja.core.context_items import ContextEntry, ContextMemory
 from fylgja.core.hosts import HostData
 from fylgja.core.ingest import IngestGate, PluginSink
+from fylgja.core.items import Item
 from fylgja.core.labels import LabelService
 from fylgja.core.live_view import Collection, LiveSnapshot, LiveUpdate, LiveView
 from fylgja.core.next_lists import NextLists
@@ -93,17 +99,30 @@ from fylgja.models import (
     SessionSnapshot,
 )
 from fylgja.privacy import PrivacyFilter
+from fylgja.rankers.base import FLOOR_NAME, Ranked, RankInput, natural_key
+from fylgja.rankers.registry import EntryPointSource as RankerEntryPoints
+from fylgja.rankers.registry import (
+    Ranking,
+    RegisteredRanker,
+    floor_ranking,
+    load_rankers,
+    run_ranker,
+)
 from fylgja.store import db, queries
 from fylgja.store.rows import DaySessionRow, HealthRow, TodoRow
 
 __all__ = [
     "AVAILABLE_STATES",
+    "RANK_STEP",
     "CollectorState",
     "Daemon",
     "HostLoader",
+    "ItemBuilder",
+    "RankResult",
     "SessionExtras",
     "SessionMemory",
     "StateView",
+    "floor_time",
 ]
 
 logger = logging.getLogger("fylgja.daemon")
@@ -128,6 +147,10 @@ HostLoader = Callable[[], Awaitable[HostData]]
 
 _END_OF_TIME: Final = datetime.max.replace(tzinfo=UTC)
 """The ``until`` of a read with no upper bound."""
+
+RANK_STEP: Final = 5
+"""Seconds the time of a ranking is floored to: a ranker gets that time, and every request within
+one step (with no change of the live view or the span window) gets the same answer."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -192,6 +215,51 @@ class StateView:
     summaries: SummaryService | None = None
     """The cached summaries (WP8.1): ``sessions[].story`` and ``workspaces[].story`` come from
     here while summaries are enabled."""
+
+
+# --------------------------------------------------------------------------------------------
+# What a ranking is built from and what it answers
+# --------------------------------------------------------------------------------------------
+
+ItemBuilder = Callable[[datetime], tuple[Sequence[Item], Sequence[str]]]
+"""Builds the navigation items and the workspace names of the current picture as of the given
+(floored) time. The API supplies it (``fylgja.api.deps.item_builder`` over
+``fylgja.api.item_inputs.build_items``), so the daemon imports no API module."""
+
+
+def floor_time(moment: datetime, step: int = RANK_STEP) -> datetime:
+    """``moment`` floored to a whole multiple of ``step`` seconds since the epoch (UTC)."""
+    seconds = int(moment.timestamp() // step) * step
+    return datetime.fromtimestamp(seconds, UTC)
+
+
+@dataclass(frozen=True)
+class RankResult:
+    """The navigation items in rank order, as one ranker answered (:meth:`Daemon.ranked`)."""
+
+    ranker: str
+    """The ranker that was asked for: a loaded ranker or the ``natural`` floor."""
+    data: RankInput
+    """What the ranker got: ``data.now`` is the floored time of the answer."""
+    ranked: tuple[Ranked, ...]
+    """Best first; ``ranked[i]`` belongs to ``items[i]``."""
+    items: tuple[Item, ...]
+    workspace_order: tuple[str, ...]
+    """The workspace names in the ranker's order (a permutation of ``data.workspaces``)."""
+    fallback: str | None = None
+    """``natural`` when the ranker failed and the floor answered instead."""
+
+    @property
+    def now(self) -> datetime:
+        return self.data.now
+
+    @property
+    def activity(self) -> Activity:
+        return self.data.activity
+
+
+_RankKey = tuple[int, int, int, datetime]
+"""``(days, live view version, span window version, floored now)``."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -354,10 +422,11 @@ class _UnroutedSink:
 class Daemon:
     """Composes the parts from configuration; see the module docstring.
 
-    Every seam can be replaced: ``entry_points`` (the registry's source), ``clock``, ``database``,
-    ``fs`` and ``runner`` (what the resolver and host adapters read with), ``host_loader``,
-    ``policy`` and ``rng`` (the supervisor's backoff), the resolver's ``resolve_debounce``, the
-    ``tick`` interval and the ``summary_runner`` (the model call of the summary service).
+    Every seam can be replaced: ``entry_points`` (the registry's source), ``ranker_entry_points``
+    (the ranker registry's source), ``clock``, ``database``, ``fs`` and ``runner`` (what the
+    resolver and host adapters read with), ``host_loader``, ``policy`` and ``rng`` (the
+    supervisor's backoff), the resolver's ``resolve_debounce``, the ``tick`` interval and the
+    ``summary_runner`` (the model call of the summary service).
     """
 
     def __init__(
@@ -365,6 +434,7 @@ class Daemon:
         config: Config,
         *,
         entry_points: EntryPointSource | None = None,
+        ranker_entry_points: RankerEntryPoints | None = None,
         clock: Clock | None = None,
         database: Path | None = None,
         fs: FileSystem | None = None,
@@ -494,6 +564,15 @@ class Daemon:
         )
         """Session and workspace summaries by a local model (WP8.1); off unless
         ``[summaries] enabled = true``. The only place a model is called."""
+        self.rankers: tuple[RegisteredRanker, ...] = load_rankers(config, ranker_entry_points)
+        """Every discovered ranker after the enable rule (docs/decisions/0052); only the enabled
+        ones were imported."""
+        self._loaded_rankers: dict[str, RegisteredRanker] = {
+            item.name: item for item in self.rankers if item.loaded
+        }
+        self._rank_input: tuple[_RankKey, RankInput] | None = None
+        self._ranked: dict[str, tuple[_RankKey, RankResult]] = {}
+        """One memo entry per ranker name."""
 
         self._resolution: Resolution | None = None
         self._dirty = asyncio.Event()
@@ -562,6 +641,13 @@ class Daemon:
         self.started_at = self.clock.now()
         self._phase = "running"
         logger.info("daemon started with %d collector(s)", len(self.registry))
+        configured = self.config.items.default_ranker
+        if self.effective_default_ranker != configured:
+            logger.warning(
+                "the default ranker %s is not loaded; ranking with the %s floor",
+                configured,
+                FLOOR_NAME,
+            )
 
     async def stop(self, timeout: float = SHUTDOWN_TIMEOUT) -> None:  # noqa: ASYNC109 - a deadline
         """Stop the collectors, then the state engine, then commit and close the writer."""
@@ -737,17 +823,98 @@ class Daemon:
         finally:
             connection.close()
 
-    def activity(self) -> Activity:
-        """Working time as of now: work sessions, the away gap and active seconds, from the span
-        window (docs/decisions/0050). Reads nothing; call it on the event loop thread."""
-        now = self.clock.now()
+    def activity(self, now: datetime | None = None) -> Activity:
+        """Working time as of ``now`` (default: the clock's now): work sessions, the away gap and
+        active seconds, from the span window (docs/decisions/0050). Reads nothing; call it on the
+        event loop thread."""
+        moment = self.clock.now() if now is None else now
         return build_activity(
-            self.span_window.view(now),
-            now=now,
+            self.span_window.view(moment),
+            now=moment,
             suspended=bool(self.spans.tracker.suspended),
             idle_threshold=timedelta(seconds=self.config.spans.idle_threshold_seconds),
             session_break=timedelta(minutes=self.config.items.work_session_break_minutes),
         )
+
+    # -- ranking ----------------------------------------------------------------------------
+
+    @property
+    def loaded_rankers(self) -> tuple[str, ...]:
+        """The names of the rankers that can rank, in :attr:`rankers` order."""
+        return tuple(self._loaded_rankers)
+
+    @property
+    def effective_default_ranker(self) -> str:
+        """``[items] default_ranker`` when that ranker is loaded, else the ``natural`` floor."""
+        configured = self.config.items.default_ranker
+        return configured if configured in self._loaded_rankers else FLOOR_NAME
+
+    def can_rank(self, name: str) -> bool:
+        """``name`` is a loaded ranker or the ``natural`` floor."""
+        return name == FLOOR_NAME or name in self._loaded_rankers
+
+    def _key(self, days: int) -> _RankKey:
+        moment = floor_time(self.clock.now())
+        return (days, self.view.version, self.span_window.version, moment)
+
+    def rank_input(self, build: ItemBuilder, *, days: int) -> RankInput:
+        """What every ranker gets for the current picture, built once per key.
+
+        The key is ``(days, live view version, span window version, floor(now, 5 s))``, and the
+        floored time is what ``build`` and :meth:`activity` are given, so equal keys mean equal
+        inputs. ``build`` is called only when the key changed. Call it on the event loop thread.
+        """
+        key = self._key(days)
+        memo = self._rank_input
+        if memo is not None and memo[0] == key:
+            return memo[1]
+        moment = key[3]
+        items, workspaces = build(moment)
+        data = RankInput(
+            now=moment,
+            items=tuple(items),
+            activity=self.activity(moment),
+            workspaces=tuple(sorted(set(workspaces), key=natural_key)),
+        )
+        self._rank_input = (key, data)
+        return data
+
+    def ranked(self, name: str, build: ItemBuilder, *, days: int) -> RankResult:
+        """The items of the current picture in the order of ranker ``name``, memoized.
+
+        ``name`` is a loaded ranker or the ``natural`` floor (:meth:`can_rank`; anything else is
+        a :class:`LookupError`). The memo holds one answer per ranker name under the key of
+        :meth:`rank_input`. A ranker that raises or answers wrongly (another key set, a number that
+        is not finite, a workspace order that is not a permutation) is logged by name and the
+        floor answers instead, with ``fallback = "natural"``.
+        """
+        if not self.can_rank(name):
+            raise LookupError(f"ranker {name!r} is not loaded")
+        key = self._key(days)
+        memo = self._ranked.get(name)
+        if memo is not None and memo[0] == key:
+            return memo[1]
+        data = self.rank_input(build, days=days)
+        ranker = self._loaded_rankers.get(name)
+        ranking: Ranking = floor_ranking(data) if ranker is None else run_ranker(ranker, data)
+        if ranking.failure is not None:
+            logger.warning(
+                "ranker %s failed (%s); answered with the %s floor",
+                name,
+                ranking.failure,
+                FLOOR_NAME,
+            )
+        by_key = {item.key: item for item in data.items}
+        result = RankResult(
+            ranker=name,
+            data=data,
+            ranked=ranking.ranked,
+            items=tuple(by_key[row.key] for row in ranking.ranked),
+            workspace_order=ranking.workspace_order,
+            fallback=None if ranking.failure is None else FLOOR_NAME,
+        )
+        self._ranked[name] = (key, result)
+        return result
 
     def _read_history(self, since: datetime, until: datetime) -> spans.History:
         connection = db.connect_reader(self.writer.database)

@@ -105,11 +105,13 @@ The enable rule is the collectors' rule:
 - A ranker that fails to import, is not a `RankerPlugin`, names itself differently from its entry point, takes the name
   `natural`, has another API major or has invalid settings is reported with an error and not loaded.
 - When `[items] default_ranker` is not loaded (disabled, uninstalled or broken), the daemon uses the `natural` floor:
-  the `workspace` order, which is not a plugin and cannot be disabled. A ranker that raises at run time is replaced by
-  the floor for that answer.
+  the `workspace` order, which is not a plugin and cannot be disabled. A ranker that raises at run time, or returns
+  another key set, a number that is not finite or a workspace order that is not a permutation, is replaced by the floor
+  for that answer (`ranker_fallback: "natural"`), and the log names it.
 
 `fylgja rankers` and `GET /rankers` list every discovered ranker with its origin, distribution, version, `enabled`,
-`loaded`, its error and the default in effect.
+`loaded`, its error and the default in effect; `GET /rankers` also gives the loaded ones as `choices`.
+`GET /items?rank=<name>` ranks with one of them. Both routes are described in `docs/api/items.md`.
 
 ## Purity and privacy
 

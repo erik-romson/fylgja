@@ -16,10 +16,15 @@ discovery it reuses for the ``fylgja.rankers`` group:
   :class:`~fylgja.rankers.base.RankerPlugin`, a name that does not match the entry point, the
   reserved name ``natural``, another API major or settings that fail validation give a
   :class:`RegisteredRanker` with an ``error`` and no plugin. The daemon keeps running.
+* **A run is checked** (:func:`run_ranker`). A ranker that raises, returns another key set, a
+  number that is not finite or a workspace order that is not a permutation is answered by the
+  :func:`~fylgja.rankers.base.natural_order` floor instead, with the kind of failure; nothing a
+  ranker returns reaches a client unchecked.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -38,10 +43,13 @@ from fylgja.rankers.base import (
     ENTRY_POINT_GROUP,
     FLOOR_NAME,
     RANKER_API_MAJOR,
+    Part,
     Ranked,
     RankerPlugin,
     RankInput,
     default_workspace_order,
+    natural_order,
+    natural_workspace_order,
 )
 
 __all__ = [
@@ -49,8 +57,11 @@ __all__ = [
     "EntryPointSource",
     "Origin",
     "RegisteredRanker",
+    "Ranking",
     "discover_rankers",
+    "floor_ranking",
     "load_rankers",
+    "run_ranker",
 ]
 
 MAX_ERROR: Final = 300
@@ -185,3 +196,69 @@ def load_rankers(
         detail = f"entry point name {entry.name!r} is claimed by more than one distribution"
         result.append(_registered(entry, False, error=f"duplicate: {detail}"))
     return tuple(sorted(result, key=lambda r: (r.name, r.distribution or "")))
+
+
+# --------------------------------------------------------------------------------------------
+# Running a ranker
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Ranking:
+    """The items and the workspaces of one :class:`RankInput` in rank order, checked."""
+
+    ranked: tuple[Ranked, ...]
+    """Every input key exactly once, best first."""
+    workspace_order: tuple[str, ...]
+    """A permutation of ``data.workspaces``."""
+    failure: str | None = None
+    """Why the floor answered instead of the ranker: ``raised``, ``keys``, ``numbers`` or
+    ``workspaces``. ``None`` when the answer is the ranker's own (or the floor was asked for)."""
+
+
+def floor_ranking(data: RankInput) -> Ranking:
+    """The :func:`~fylgja.rankers.base.natural_order` floor and the natural workspace order."""
+    ranked = natural_order(data)
+    return Ranking(tuple(ranked), tuple(natural_workspace_order(data, ranked)))
+
+
+def _finite(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _problem(data: RankInput, ranked: Sequence[object], order: Sequence[object]) -> str | None:
+    """What is wrong with a ranker's answer, or ``None``."""
+    if not all(isinstance(row, Ranked) for row in ranked):
+        return "keys"
+    rows = [row for row in ranked if isinstance(row, Ranked)]
+    keys = [row.key for row in rows]
+    if len(keys) != len(data.items) or set(keys) != {item.key for item in data.items}:
+        return "keys"
+    for row in rows:
+        if not _finite(row.score):
+            return "numbers"
+        if not all(isinstance(part, Part) and _finite(part.value) for part in row.parts):
+            return "numbers"
+    if len(order) != len(data.workspaces) or set(order) != set(data.workspaces):
+        return "workspaces"
+    return None
+
+
+def run_ranker(ranker: RegisteredRanker, data: RankInput) -> Ranking:
+    """Rank ``data`` with ``ranker`` and check the answer; never raises.
+
+    A ranker that is not loaded, raises (in ``rank`` or ``order_workspaces``), or returns another
+    key set, a number that is not finite or a workspace order that is not a permutation of
+    ``data.workspaces`` is answered by :func:`floor_ranking`, with the kind of failure in
+    :attr:`Ranking.failure`. The caller logs it by the ranker's name; nothing else is kept.
+    """
+    try:
+        ranked = ranker.rank(data)
+        order = ranker.order_workspaces(data, ranked)
+        problem = _problem(data, ranked, order)
+    except Exception:
+        problem = "raised"
+    if problem is not None:
+        floor = floor_ranking(data)
+        return Ranking(floor.ranked, floor.workspace_order, failure=problem)
+    return Ranking(tuple(ranked), tuple(order))

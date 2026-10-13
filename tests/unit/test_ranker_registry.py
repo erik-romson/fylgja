@@ -25,6 +25,8 @@ from fylgja.rankers.base import (
     RankerPlugin,
     RankInput,
     default_workspace_order,
+    natural_order,
+    natural_workspace_order,
 )
 from fylgja.rankers.frecency import FrecencySettings
 from fylgja.rankers.registry import (
@@ -32,7 +34,9 @@ from fylgja.rankers.registry import (
     Origin,
     RegisteredRanker,
     discover_rankers,
+    floor_ranking,
     load_rankers,
+    run_ranker,
 )
 from fylgja.testing.rankers import sample_inputs
 
@@ -316,6 +320,86 @@ def test_a_ranker_that_is_not_loaded_cannot_run() -> None:
         registered.rank(data)
     with pytest.raises(LookupError, match="not loaded"):
         registered.order_workspaces(data, [])
+
+
+# --------------------------------------------------------------------------------------------
+# A checked run: the floor answers for a ranker that fails
+# --------------------------------------------------------------------------------------------
+
+
+def _running(
+    rank: Callable[[RankInput, BaseModel], Any], order: Callable[..., Any] | None = None
+) -> RegisteredRanker:
+    plugin = RankerPlugin("alpha", "Synthetic", rank, order_workspaces=order)
+    return _by_name(_ep("alpha", plugin, builtin=True))["alpha"]
+
+
+def test_a_good_answer_is_kept() -> None:
+    data = sample_inputs()["small"]
+    ranking = run_ranker(_running(_rank), data)
+    assert ranking.failure is None
+    assert [r.key for r in ranking.ranked] == [item.key for item in data.items]
+    assert ranking.workspace_order == tuple(default_workspace_order(data, ranking.ranked))
+
+
+def test_the_floor_ranking_is_the_natural_order() -> None:
+    data = sample_inputs()["small"]
+    floor = floor_ranking(data)
+    assert floor.ranked == tuple(natural_order(data))
+    assert floor.workspace_order == tuple(natural_workspace_order(data))
+    assert floor.failure is None
+
+
+def _reversed(data: RankInput, settings: BaseModel) -> list[Ranked]:
+    return list(reversed(_rank(data, settings)))
+
+
+def _bad(rows: Callable[[RankInput], list[Any]]) -> Callable[[RankInput, BaseModel], list[Any]]:
+    return lambda data, settings: rows(data)
+
+
+@pytest.mark.parametrize(
+    ("rank", "order", "failure"),
+    [
+        (_bad(lambda data: 1 / 0), None, "raised"),
+        (_reversed, lambda data, ranked: 1 / 0, "raised"),
+        (_bad(lambda data: [item.key for item in data.items]), None, "raised"),
+        (_bad(lambda data: _rank(data, NoSettings())[1:]), None, "keys"),
+        (_bad(lambda data: _rank(data, NoSettings()) * 2), None, "keys"),
+        (_bad(lambda data: [*_rank(data, NoSettings())[1:], "x"]), lambda d, r: [], "keys"),
+        (
+            _bad(lambda data: [Ranked(i.key, float("inf"), ()) for i in data.items]),
+            None,
+            "numbers",
+        ),
+        (
+            _bad(lambda data: [Ranked(i.key, 1.0, (Part("p", float("nan")),)) for i in data.items]),
+            None,
+            "numbers",
+        ),
+        (
+            _bad(lambda data: [Ranked(i.key, True, ()) for i in data.items]),
+            None,
+            "numbers",
+        ),
+        (_reversed, lambda data, ranked: [*data.workspaces, "extra"], "workspaces"),
+        (_reversed, lambda data, ranked: list(data.workspaces)[1:], "workspaces"),
+    ],
+)
+def test_a_failing_ranker_is_answered_by_the_floor(
+    rank: Callable[[RankInput, BaseModel], Any], order: Callable[..., Any] | None, failure: str
+) -> None:
+    data = sample_inputs()["small"]
+    ranking = run_ranker(_running(rank, order), data)
+    floor = floor_ranking(data)
+    assert ranking.failure == failure
+    assert (ranking.ranked, ranking.workspace_order) == (floor.ranked, floor.workspace_order)
+
+
+def test_an_unloaded_ranker_run_is_answered_by_the_floor() -> None:
+    registered = _by_name(_ep("alpha"))["alpha"]
+    ranking = run_ranker(registered, sample_inputs()["small"])
+    assert ranking.failure == "raised"
 
 
 # --------------------------------------------------------------------------------------------

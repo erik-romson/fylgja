@@ -41,6 +41,18 @@ any order of its inputs.
 - **`seconds_today`** is the focus time since local midnight, for display only.
 - **Where it lives.** The plain types and helpers are in `core/items.py`, which rankers import. The builder
   `build_items` is in `api/item_inputs.py`, as it reads `api.now_models`; it is pure and sorts its output by key.
+- **The `/items` contract** (`docs/api/items.md`). `GET /items?rank=&days=&q=&limit=` answers `fylgja.items/1`, a
+  separate contract from the frozen `fylgja.now/1`; the models are in `api/items_models.py`. The answer is page-ready:
+  the items in rank order with their score, parts and explanation; `days`, the shown items grouped by the local day of
+  their last focus (never focused: today), newest day first, rank order within a day; the Go targets; `seconds_today`;
+  `while_away`, the waiting entries whose `since` falls in the latest absence on items not focused since it began; and
+  `last_session`, the previous work session with its items in order of first focus. `q` (case-insensitive: name,
+  tickets, path, summary, place titles) and `limit` apply after ranking; `total` counts before both and `shown` after.
+  `while_away` and `last_session` do not depend on the ranker, `q` or `limit`. The daemon memoizes the ranking per
+  ranker on (live view version, span window version, `days`, now floored to 5 s), and the floored time is what the
+  builder and the ranker get. A ranker that is not loaded is a 422; one that fails is answered by the `natural` floor
+  with `ranker_fallback` (decision 0052). Item building reaches the daemon as a callable, so `core/daemon.py` imports
+  no API module.
 
 ## Consequences
 

@@ -16,6 +16,7 @@ import os
 import shutil
 from collections.abc import Mapping
 from datetime import UTC
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,9 @@ from transcript_support import CLAUDE_TRANSCRIPTS
 
 from fylgja import hook, paths
 from fylgja.collectors.claude import adapter, parse, plugin, transcript
+from fylgja.collectors.claude import collector as claude_collector
 from fylgja.collectors.claude.collector import ClaudeCollector, ClaudeSettings
+from fylgja.collectors.claude.inbox import InboxDrainer
 from fylgja.collectors.context import build_context
 from fylgja.models import EntityKind
 from fylgja.testing.contract import CollectorContract, ContractEnv, ContractSource
@@ -38,6 +41,14 @@ PS = "/bin/ps"
 def _install(env: ContractEnv) -> None:
     seams = adapter.Seams(env.process_runner, adapter.LocalFileSystem())
     env.monkeypatch.setattr(adapter, "default_seams", lambda: seams)
+    # The contract runs on the fake clock alone. Read in a thread, an envelope finishes at a
+    # real-time point, so on a busy machine its hook event can land after a later registry poll
+    # and the two runs of check 3 interleave differently. On the event loop (the drainer's
+    # ``read_in_thread`` seam, as the norn collector uses it) the read happens at a fixed point of
+    # the run. ``test_inbox_drain.py`` covers the threaded read.
+    env.monkeypatch.setattr(
+        claude_collector, "InboxDrainer", partial(InboxDrainer, read_in_thread=False)
+    )
 
 
 def _registry(env: ContractEnv) -> Path:

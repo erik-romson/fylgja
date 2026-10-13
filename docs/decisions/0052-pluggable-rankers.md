@@ -70,6 +70,24 @@ included (A7), must get the same order for the same question, so a ranker must b
   `[rankers.frecency] half_life_active_minutes` (120) and `last_session_weight` (1.0). The constants sit at the top of
   `fylgja/rankers/frecency.py`.
 - The Next strip (`core/ranking.py`) is unchanged.
+- **The routes and the fallback.** The daemon loads the rankers at construction (`ranker_entry_points` is the seam of
+  the registry's source). The default in effect is `[items] default_ranker` when that ranker is loaded, else the
+  `natural` floor, with one warning at start. `fylgja.rankers.registry.run_ranker` checks every run: a ranker that
+  raises (in `rank` or `order_workspaces`), returns another key set, a score or part value that is not finite, or a
+  workspace order that is not a permutation, is answered by the floor; the daemon logs the ranker's name and the kind
+  of failure, nothing else, and the answer says `ranker_fallback: "natural"`. `GET /items` takes a loaded ranker or
+  `natural`, anything else is a 422 that lists the loaded rankers. `GET /rankers` (`fylgja.rankers/1`) lists every
+  discovered ranker for diagnostics and, for clients, the page-ready `choices` (loaded rankers only, the default in
+  effect marked), `selected` and `stale_choice` for a stored `?rank=` (`docs/api/items.md`).
+- **The dispatch check is narrowed to the ranking modules.** `tests/unit/test_no_ranker_dispatch.py` reuses the AST
+  walk of `test_no_collector_dispatch.py` (compared with, mapping key, subscript, match pattern) with the names of
+  `[project.entry-points."fylgja.rankers"]`, over an explicit list: `core/daemon.py`, `rankers/base.py`,
+  `rankers/registry.py`, `api/deps.py`, `api/item_inputs.py`, `api/items_models.py`, `api/now.py` (it imports
+  `natural_key`), `api/routes/items.py`, `api/routes/now.py` and `api/routes/views.py`. Every `api/` module that imports
+  `fylgja.rankers` must be in the list. A plain "no ranker name as a string literal in `core/daemon.py` or `api/`"
+  check would fail on today's tree for another meaning of a word: `"workspace"` is a summary or todo scope in
+  `api/summary_inputs.py` (compared and passed as a scope), `api/routes/summaries.py` (a mapping key and a `Literal`),
+  `api/routes/todos.py` (a scope tuple), `api/sse.py` (an event payload key) and `api/now.py` (a scope argument).
 
 ## Consequences
 
@@ -78,5 +96,6 @@ included (A7), must get the same order for the same question, so a ranker must b
 - An installed external ranker runs no code until it is enabled.
 - Every built-in has `tests/contract/test_<name>_ranker_contract.py`; a coverage test enforces it.
 - Explanations hold reasons, never names, paths or titles, so they can be shown and logged.
-- The routes (`GET /items`, `GET /rankers`), the memo and the fallback wiring come with the items routes; this record
-  sets the plugin API they build on.
+- With every ranker disabled, `GET /items` still answers in the floor's order, and `GET /rankers` offers no choice.
+- A broken external ranker cannot break an answer: at worst it costs the floor's order for that ranker, and the log
+  names it.

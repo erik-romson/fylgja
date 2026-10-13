@@ -170,7 +170,11 @@ def make_daemon(
     host_loader: Callable[[], Awaitable[HostData]] | None = None,
     **options: Any,
 ) -> Daemon:
-    """A daemon over ``specs`` on a fake clock, a fake filesystem and no host data."""
+    """A daemon over ``specs`` on a fake clock, a fake filesystem and no host data.
+
+    ``options`` go to the daemon as they are, for example ``database``, ``tick`` or
+    ``ranker_entry_points`` (the ranker registry's source; without it the installed rankers load,
+    by the enable rule of ``user_config``)."""
     return Daemon(
         config(user_config),
         entry_points=entry_points(*specs),

@@ -28,6 +28,8 @@ READ_ROUTES = (
     "/collectors",
     "/health",
     "/view/overview",
+    "/items",
+    "/rankers",
 )
 
 
