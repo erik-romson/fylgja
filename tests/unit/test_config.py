@@ -294,7 +294,7 @@ def test_a_ranker_table_must_be_a_table() -> None:
         load_config()
 
 
-def test_the_only_default_ranker_table_is_frecency_and_it_sets_no_flag() -> None:
+def test_the_default_ranker_tables_are_frecency_and_recent_and_set_no_flag() -> None:
     config = load_config()
     assert config.ranker_enabled("workspace") is None
     assert config.ranker_settings("workspace") == {}
@@ -303,6 +303,8 @@ def test_the_only_default_ranker_table_is_frecency_and_it_sets_no_flag() -> None
         "half_life_active_minutes": 120,
         "last_session_weight": 1.0,
     }
+    assert config.ranker_enabled("recent") is None
+    assert config.ranker_settings("recent") == {"min_peek_seconds": 20}
 
 
 def test_a_user_frecency_table_overrides_one_default_and_keeps_the_other() -> None:

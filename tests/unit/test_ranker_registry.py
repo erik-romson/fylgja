@@ -29,6 +29,7 @@ from fylgja.rankers.base import (
     natural_workspace_order,
 )
 from fylgja.rankers.frecency import FrecencySettings
+from fylgja.rankers.recent import RecentSettings
 from fylgja.rankers.registry import (
     MAX_ERROR,
     Origin,
@@ -465,6 +466,18 @@ def test_a_bad_frecency_setting_gives_only_frecency_an_error(table: dict[str, An
     assert _error(registry["frecency"]).startswith("config: [rankers.frecency].")
     assert registry["workspace"].loaded
     assert registry["recent"].loaded
+
+
+def test_the_packaged_defaults_validate_against_the_recent_settings() -> None:
+    registry = {r.name: r for r in load_rankers(_config())}
+    assert registry["recent"].loaded
+    assert registry["recent"].settings == RecentSettings(min_peek_seconds=20)
+
+
+def test_a_bad_recent_setting_gives_only_recent_an_error() -> None:
+    registry = {r.name: r for r in load_rankers(_config({"recent": {"min_peek_seconds": -1}}))}
+    assert _error(registry["recent"]).startswith("config: [rankers.recent].")
+    assert registry["frecency"].loaded
 
 
 def test_frecency_can_be_disabled_and_the_others_still_load() -> None:

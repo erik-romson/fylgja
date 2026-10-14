@@ -16,6 +16,7 @@ falls back to when no usable ranker is left; it is not a plugin and cannot be di
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -53,6 +54,7 @@ __all__ = [
     "natural_key",
     "natural_order",
     "natural_workspace_order",
+    "spans_by_item",
 ]
 
 RANKER_API_MAJOR: Final = 1
@@ -71,6 +73,8 @@ _MINUS: Final = "\N{MINUS SIGN}"
 _EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
 _WORKSPACE_PART: Final = "workspace"
 _NO_WORKSPACE_PART: Final = "no workspace"
+_FOLDER_PREFIX: Final = "folder:"
+_APP_PREFIX: Final = "app:"
 
 
 def natural_key(name: str) -> tuple[int, int, str, str]:
@@ -195,6 +199,31 @@ class RankerPlugin:
             raise TypeError("order_workspaces must be callable or None")
         if isinstance(self.api_major, bool) or not isinstance(self.api_major, int):
             raise TypeError("api_major must be an int")
+
+
+def spans_by_item(data: RankInput) -> dict[str, list[int]]:
+    """The indexes of ``data.activity.spans`` of each item, in span order.
+
+    A span belongs to the item that holds its window as a place; a span of a window that is no
+    longer a place belongs to the folder or the app it was recorded in. A span of none of the items
+    is left out.
+    """
+    by_window: dict[str, str] = {}
+    for item in sorted(data.items, key=lambda i: i.key):
+        for place in item.places:
+            if place.kind == "window":
+                by_window.setdefault(place.ref, item.key)
+    keys = {item.key for item in data.items}
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for index, span in enumerate(data.activity.spans):
+        key = by_window.get(span.window_id) if span.window_id else None
+        if key is None and span.project_path:
+            key = _FOLDER_PREFIX + span.project_path
+        if (key is None or key not in keys) and span.app_bundle_id:
+            key = _APP_PREFIX + span.app_bundle_id
+        if key is not None and key in keys:
+            grouped[key].append(index)
+    return grouped
 
 
 def _moment(place: Place) -> float:

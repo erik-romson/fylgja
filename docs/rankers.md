@@ -16,7 +16,7 @@ The built-in rankers:
 | Name | Order | Parts | Settings |
 |---|---|---|---|
 | `workspace` | the `natural` floor: items by the natural order (`2` before `10`) of their newest open place's workspace, then key; workspace cards in natural order | `workspace <n>`, `no workspace` | none |
-| `recent` | active minutes since the last focus, ascending; never-focused items next (open ones first); then key. Workspace cards follow their first open item | `active min since focus <m>`, `latest focus`, `never focused` | none |
+| `recent` | active minutes since the last focus, ascending, with peeks left out; never-focused items next (open ones first); then key. Workspace cards follow their first open item | `active min since focus <m>`, `latest focus`, `never focused`, then `peek` when a peek was left out | `min_peek_seconds` (20, 0 to 600) |
 | `frecency` | score descending: decayed focus on working time, the last work session, waiting and unfinished work; then active time since the last focus, then key. The default (`[items] default_ranker`) | `focus`, `last session`, `waiting`, `turn done`, `build`, `todo`, `unfinished`, `forgotten`, `while away`, `here now`, `stale` | `half_life_active_minutes` (120, above 0, at most 10080), `last_session_weight` (1.0, 0 to 10) |
 
 ### The `frecency` settings
@@ -29,6 +29,19 @@ last_session_weight = 1.0       # 0 turns the last-session part off
 
 A bad value leaves only `frecency` unloaded, with a `config:` error; `[items] default_ranker` then falls back. The work
 session break is `[items] work_session_break_minutes`.
+
+### The `recent` settings
+
+```toml
+[rankers.recent]
+min_peek_seconds = 20  # a shorter stay after a workspace switch is a peek, not a focus; 0 counts every stay
+```
+
+Switching to a workspace focuses the window last focused there, whether or not you meant to use it. A **peek** is a
+span shorter than `min_peek_seconds` that began on a workspace switch and ended on the next focus change, to another
+workspace or to another window. When an item's latest span is a peek, `recent` uses the end of its latest span that is
+not one, and an item with nothing but peeks counts as never focused (decision 0054). A bad value leaves only `recent`
+unloaded.
 
 ## The entry point and the plugin
 

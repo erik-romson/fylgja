@@ -25,9 +25,11 @@ from fylgja.rankers.base import (
     natural_order,
     natural_workspace_order,
 )
+from fylgja.rankers.recent import RecentSettings
 from fylgja.testing.rankers import IDLE_THRESHOLD, SESSION_BREAK, sample_inputs
 
 SETTINGS = NoSettings()
+RECENT = RecentSettings()
 ALPHA = "folder:/work/alpha/main"
 BETA = "folder:/work/beta/main"
 WORKTREE = "folder:/work/beta/CBS-1"
@@ -174,7 +176,7 @@ def test_the_default_workspace_order_ignores_unlisted_workspaces(small: RankInpu
 
 
 def test_recent_orders_by_active_minutes_since_the_last_focus(small: RankInput) -> None:
-    ranked = recent.rank(small, SETTINGS)
+    ranked = recent.rank(small, RECENT)
     assert [(r.key, r.score, r.explanation) for r in ranked] == [
         (ALPHA, 0.0, "latest focus"),
         (BROWSER, -20.0, "active min since focus 20"),
@@ -192,7 +194,7 @@ def test_recent_puts_open_never_focused_items_before_closed_ones(small: RankInpu
         key="app:com.example.aaa",
         places=tuple(replace(p, open=False) for p in closed.places),
     )
-    keys = [r.key for r in recent.rank(replace(small, items=(*small.items, closed)), SETTINGS)]
+    keys = [r.key for r in recent.rank(replace(small, items=(*small.items, closed)), RECENT)]
     assert keys[-3:] == [MAIL, GAMMA, "app:com.example.aaa"]
 
 
@@ -205,13 +207,13 @@ def test_recent_does_not_age_while_away(small: RankInput) -> None:
         idle_threshold=IDLE_THRESHOLD,
         session_break=SESSION_BREAK,
     )
-    assert recent.rank(replace(small, now=later, activity=away), SETTINGS) == recent.rank(
-        small, SETTINGS
+    assert recent.rank(replace(small, now=later, activity=away), RECENT) == recent.rank(
+        small, RECENT
     )
 
 
 def test_recent_orders_workspaces_by_their_first_open_item(small: RankInput) -> None:
-    ranked = recent.rank(small, SETTINGS)
+    ranked = recent.rank(small, RECENT)
     assert recent.order_workspaces(small, ranked) == ["1", "10", "2"]
     assert recent.order_workspaces(small, []) == ["1", "2", "10"]
     assert recent.plugin.order_workspaces is recent.order_workspaces

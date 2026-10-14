@@ -424,6 +424,7 @@ def test_score_parts_explain_themselves_on_hover() -> None:
         recent.SINCE_FOCUS,
         recent.LATEST_FOCUS,
         recent.NEVER_FOCUSED,
+        recent.PEEK,
         base._WORKSPACE_PART,
         base._NO_WORKSPACE_PART,
     }

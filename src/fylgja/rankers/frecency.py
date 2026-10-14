@@ -46,7 +46,7 @@ from fylgja.core.activity import Activity
 from fylgja.core.items import Item
 from fylgja.core.ranking import SCORES, TODO
 from fylgja.core.waiting import BUILD_FAILED, INPUT, PERMISSION, REVIEW_REQUESTED, TURN_DONE
-from fylgja.rankers.base import Part, Ranked, RankerPlugin, RankInput
+from fylgja.rankers.base import Part, Ranked, RankerPlugin, RankInput, spans_by_item
 
 __all__ = ["FrecencySettings", "plugin", "rank"]
 
@@ -89,8 +89,6 @@ WHILE_AWAY: Final = "while away"
 HERE_NOW: Final = "here now"
 STALE: Final = "stale"
 
-_FOLDER_PREFIX: Final = "folder:"
-_APP_PREFIX: Final = "app:"
 _TODO_NEXT: Final = "todo_next"
 _DIRTY: Final = "dirty"
 _PR_OPEN: Final = "pr_open"
@@ -108,26 +106,6 @@ class FrecencySettings(BaseModel):
     """Focus loses half its weight after this many active minutes."""
     last_session_weight: float = Field(1.0, ge=0, le=10)
     """Scales the last-session part; 0 turns it off."""
-
-
-def _spans_by_item(data: RankInput) -> dict[str, list[int]]:
-    """The indexes of ``data.activity.spans`` of each item (in span order)."""
-    by_window: dict[str, str] = {}
-    for item in sorted(data.items, key=lambda i: i.key):
-        for place in item.places:
-            if place.kind == "window":
-                by_window.setdefault(place.ref, item.key)
-    keys = {item.key for item in data.items}
-    grouped: dict[str, list[int]] = defaultdict(list)
-    for index, span in enumerate(data.activity.spans):
-        key = by_window.get(span.window_id) if span.window_id else None
-        if key is None and span.project_path:
-            key = _FOLDER_PREFIX + span.project_path
-        if (key is None or key not in keys) and span.app_bundle_id:
-            key = _APP_PREFIX + span.app_bundle_id
-        if key is not None and key in keys:
-            grouped[key].append(index)
-    return grouped
 
 
 def _session_seconds(activity: Activity, indexes: Sequence[int]) -> dict[int, float]:
@@ -152,7 +130,7 @@ def rank(data: RankInput, settings: BaseModel) -> list[Ranked]:
     assert isinstance(settings, FrecencySettings)
     activity = data.activity
     half_life = settings.half_life_active_minutes * 60.0
-    grouped = _spans_by_item(data)
+    grouped = spans_by_item(data)
     sessions = activity.sessions
     current_index = len(sessions) - 1 if activity.current is not None else None
     previous_index = None
