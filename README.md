@@ -13,7 +13,9 @@ The page has seven tabs: Overview, Recall, Live data, Todos, Collectors, Data fl
 [`docs/api/inspect.md`](docs/api/inspect.md) describes the read routes behind Collectors, Data flow and Explain.
 
 No configuration is needed to try it. Data lands in `~/.local/share/fylgja`; the log is
-`~/.local/state/fylgja/fylgja.log`.
+`~/.local/state/fylgja/fylgja.log`. Writes from the page and the CLI (todos, labels) need the API secret:
+`uv run fylgja install secret`. If the daily daemon already runs, `serve` fails with "address already in use":
+[try changes on a scratch daemon](#try-a-change-next-to-the-daily-daemon) instead.
 
 ## What it is
 
@@ -43,6 +45,39 @@ fylgja doctor                         # check the whole setup
 ```
 
 Optional: `install skill` (the `fylgja-todo` Claude skill) and `install keybinding` (quick todo in AeroSpace).
+
+### Run, update and stop the daily daemon
+
+launchd starts `~/.local/bin/fylgja serve` at login and restarts it when it exits. `uv tool install` copies the
+code, so a change in the checkout reaches the daemon only after a reinstall and a restart:
+
+```sh
+uv tool install --reinstall .                                       # copy the current checkout
+launchctl kickstart -k gui/$(id -u)/io.github.erik-romson.fylgja    # restart the daemon
+launchctl print gui/$(id -u)/io.github.erik-romson.fylgja | grep -E 'state|pid|last exit'
+launchctl bootout gui/$(id -u)/io.github.erik-romson.fylgja         # stop it until the next login
+fylgja install launchd --apply                                      # start it again
+```
+
+Its output goes to `~/.local/state/fylgja/launchd.{out,err}.log`, the daemon log to
+`~/.local/state/fylgja/fylgja.log`. Exit code 3 in `last exit` with "address already in use" in the log means
+another `fylgja serve` holds port 7319; stop that one and launchd takes over within 10 s. A new version may migrate
+the store, after which an older version refuses it; copy `~/.local/share/fylgja` first if you may go back.
+
+### Try a change next to the daily daemon
+
+A scratch daemon on port 7329 runs the checkout with its own directories, so it never touches the daily store:
+
+```sh
+S=$PWD/target/manual-ui; mkdir -p $S/home $S/config $S/data $S/state
+printf '[api]\nport = 7329\nallowed_origins = ["http://127.0.0.1:7329"]\n' > $S/config/config.toml
+( export HOME=$S/home FYLGJA_CONFIG_DIR=$S/config FYLGJA_DATA_DIR=$S/data FYLGJA_STATE_DIR=$S/state
+  uv run fylgja install secret   # creates the scratch secret once, keeps it after
+  uv run fylgja serve )          # http://127.0.0.1:7329/, Ctrl-C to stop
+```
+
+It still reads the live machine (AeroSpace windows, titles, running agent processes), but finds nothing under the
+empty scratch home: no Claude sessions, projects or JetBrains project paths. Delete `target/manual-ui` when done.
 
 ## Commands
 
