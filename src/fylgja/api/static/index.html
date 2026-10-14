@@ -31,6 +31,11 @@
   .muted { opacity: .65; font-size: .85rem; }
   .intro { margin: 0 0 .5rem; }
   .bad { color: #b00020; }
+  .health { border-radius: .3rem; padding: 0 .35rem; font-weight: 600; }
+  .health.ok { background: rgba(30, 142, 62, .22); }
+  .health.starting, .health.degraded { background: rgba(199, 119, 0, .22); }
+  .health.failed { background: rgba(176, 0, 32, .22); }
+  .health.disabled { opacity: .6; }
   form { display: flex; gap: .5rem; margin-bottom: .75rem; }
   #todo-input { flex: 1; padding: .5rem; font-size: 1rem; }
   #todo-list { list-style: none; margin: 0; padding: 0; }
@@ -55,6 +60,7 @@
   .item { border: 1px solid rgba(128, 128, 128, .4); border-radius: .6rem; padding: .6rem .8rem; margin: 0 0 .6rem; }
   .item .head { display: flex; gap: .75rem; align-items: baseline; }
   .item .parts { margin: .2rem 0; overflow-wrap: anywhere; }
+  .legend { cursor: help; text-decoration: underline dotted rgba(128, 128, 128, .6); }
   .item .buttons { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0; }
   .item details ul { margin: .25rem 0 0; padding-left: 1.2rem; }
   .item li.closed { opacity: .6; }
@@ -441,8 +447,8 @@ async function loadRankers() {
   });
   rankerSelect.replaceChildren(...options);
   rankerSelect.value = rks.selected;
-  rankerSelect.hidden = false;
   rankersLoaded = true;
+  rankerSelect.hidden = !RANKED_TABS.has(currentTab());
 }
 
 rankerSelect.addEventListener("change", () => {
@@ -482,6 +488,34 @@ async function summarize(id) {
   }
 }
 
+// What each score part of the built-in rankers means, shown on hover. Another ranker's parts show
+// their name alone.
+const PART_HELP = {
+  focus: "minutes in focus; a minute counts half after each half-life of active working time "
+    + "(2 h by default), and a glance under 2 min is left out",
+  "last session": "the share of the previous work session spent here, more if you ended it here; "
+    + "it fades as the current session goes on",
+  waiting: "an agent session here waits for your permission or input",
+  "turn done": "an agent session here finished its turn",
+  build: "a build failed or a review was requested here",
+  todo: "a todo here is marked next",
+  unfinished: "uncommitted changes or an open pull request",
+  forgotten: "unfinished work that was busy in recent work sessions, but untouched in this one and the one before",
+  "while away": "something here started waiting while you were away; lasts 5 active minutes after you return",
+  "here now": "you are in it now: minus half its focus, so the list points elsewhere",
+  stale: "nothing open and no focus for 16 active hours: minus three quarters of its focus",
+  workspace: "the position of its workspace in number order; lower comes first",
+  "no workspace": "on no workspace; comes after the others",
+  "active min since focus": "active minutes since you last focused it; fewer comes first",
+  "latest focus": "the item you focused last",
+  "never focused": "never focused; comes last",
+};
+
+// One line per part of the item's score, for the hover title of its score line.
+function partsLegend(parts) {
+  return parts.map((spt) => PART_HELP[spt.name] ? spt.name + ": " + PART_HELP[spt.name] : spt.name).join("\n");
+}
+
 function itemRow(it, summariesEnabled) {
   const box = el("div", "item");
   box.id = "item-" + it.id;
@@ -490,7 +524,9 @@ function itemRow(it, summariesEnabled) {
   const states = it.state.join(" · ");
   if (states) { head.append(el("span", "state", states)); }
   box.append(head);
-  box.append(el("div", "parts muted", it.explanation));
+  const explanation = el("div", "parts muted legend", it.explanation);
+  explanation.title = partsLegend(it.parts);
+  box.append(explanation);
   const story = it.story && it.story.text ? it.story.text : it.summary;
   if (story) { box.append(el("div", "parts", story)); }
   const buttons = el("div", "buttons");
@@ -725,9 +761,10 @@ function renderProjects(now) {
     providers.map(usageRow));
 }
 
-// One /now fetch fills the three parts.
+// One /now fetch fills the three parts, its workspaces in the order of the chosen ranker.
 async function loadLive() {
-  const now = await call("GET", "/now");
+  if (!rankersLoaded) { await loadRankers(); }
+  const now = await call("GET", "/now" + rankQuery());
   renderSessions(now);
   renderFocus(now);
   renderWindows(now);
@@ -766,8 +803,11 @@ async function loadTodos() {
 
 // ---- collectors: how collection works right now ----
 
-function healthText(hd) {
-  const parts = [hd.state];
+// The state as a coloured badge, the rest as text.
+function healthCell(hd) {
+  const box = el("span");
+  box.append(el("span", "health " + hd.state, hd.state));
+  const parts = [""];
   if (hd.since) { parts.push("since " + fmtTime(hd.since)); }
   if (hd.last_ok_at) { parts.push("ok " + fmtTime(hd.last_ok_at)); }
   parts.push(hd.restarts + " restarts");
@@ -776,7 +816,8 @@ function healthText(hd) {
   if (hd.retry_in_seconds !== undefined && hd.retry_in_seconds !== null) {
     parts.push("retry in " + fmtDuration(hd.retry_in_seconds));
   }
-  return parts.join(" · ");
+  box.append(document.createTextNode(parts.join(" · ")));
+  return box;
 }
 
 function recordsText(rc) {
@@ -835,7 +876,7 @@ function collectorRow(col) {
       col.state + (col.enabled ? "" : " · off") + (col.loaded ? " · loaded" : " · not loaded"),
       col.api_version === undefined || col.api_version === null ? "" : String(col.api_version),
       caps,
-      healthText(col.health),
+      healthCell(col.health),
       recordsText(col.records),
     ],
   };
@@ -968,8 +1009,10 @@ function waitingRow(wt) {
   return { cells: [wt.kind, wt.target, wt.reason, fmtTime(wt.since)] };
 }
 
-function scorePartsText(it) {
-  return it.parts.map((spt) => spt.name + (spt.value ? " " + spt.value : "")).join(" · ");
+function scorePartsCell(it) {
+  const cell = el("span", "legend", it.parts.map((spt) => spt.name + (spt.value ? " " + spt.value : "")).join(" · "));
+  cell.title = partsLegend(it.parts);
+  return cell;
 }
 
 function renderExplain(ex) {
@@ -990,7 +1033,7 @@ function renderExplain(ex) {
 function renderItemRanking(itms) {
   itemRankingNote.textContent = "Ranker: " + itms.ranker + ". Ages are active working time.";
   fillTable(itemRankingTable, ["Rank", "Name", "Score", "Parts"],
-    itms.items.map((it, at) => ({ cells: [String(at + 1), it.name, String(it.score), scorePartsText(it)] })));
+    itms.items.map((it, at) => ({ cells: [String(at + 1), it.name, String(it.score), scorePartsCell(it)] })));
 }
 
 async function loadExplain() {
@@ -1021,6 +1064,9 @@ function throttled(name) {
   return true;
 }
 
+// The tabs whose order follows the ranker dropdown; it is hidden on the others.
+const RANKED_TABS = new Set(["overview", "recall", "live", "explain"]);
+
 function currentTab() {
   const name = location.hash.substring(1);
   return Object.hasOwn(TABS, name) ? name : "overview";
@@ -1033,6 +1079,7 @@ function showTab(name) {
   for (const link of document.querySelectorAll("#tabs a")) {
     link.setAttribute("aria-current", link.dataset.tab === name ? "page" : "false");
   }
+  rankerSelect.hidden = !rankersLoaded || !RANKED_TABS.has(name);
 }
 
 let running = false;
@@ -1067,28 +1114,31 @@ async function refresh(force) {
 
 window.addEventListener("hashchange", () => { refresh(true); });
 
+// A failed write is reported after the reload, so the reload does not clear the message.
 async function finish(id) {
+  let failure = "";
   try {
     await call("PATCH", "/todos/" + encodeURIComponent(id), { status: "done" });
-    say("");
   } catch (error) {
-    say("Not done: " + error.message);
+    failure = "Not done: " + error.message;
   }
   await refresh();
+  if (failure) { say(failure); }
 }
 
 document.getElementById("todo-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
   if (!text) { return; }
+  let failure = "";
   try {
     await call("POST", "/todos", { text: text });
     input.value = "";
-    say("");
   } catch (error) {
-    say("Not added: " + error.message);
+    failure = "Not added: " + error.message;
   }
   await refresh();
+  if (failure) { say(failure); }
 });
 
 // ---- live updates: SSE, reconnecting with a backoff ----

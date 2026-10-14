@@ -29,6 +29,22 @@ from api_support import (
 from fylgja.api.app import create_app
 from fylgja.api.routes.page import PLACEHOLDER
 from fylgja.core.daemon import Daemon
+from fylgja.rankers import base, frecency, recent
+
+# The part names the frecency ranker gives, by constant name.
+FRECENCY_PARTS = (
+    "FOCUS",
+    "LAST_SESSION",
+    "WAITING",
+    "TURN_DONE_PART",
+    "BUILD",
+    "TODO_PART",
+    "UNFINISHED",
+    "FORGOTTEN",
+    "WHILE_AWAY",
+    "HERE_NOW",
+    "STALE",
+)
 
 SECRET = "k7Qz-test-secret-9fA2xLmN0pRsTuVwXyZ_abcdefghij"
 
@@ -256,8 +272,8 @@ def test_the_overview_is_one_call_to_its_view_model() -> None:
     assert 'const ov = await call("GET", "/view/overview" + rankQuery());' in script
     for gone in ('"/todos?"', 'call("GET", "/next")', "nextAction", "windowOf", "WAITING"):
         assert gone not in script, gone
-    # the Live data tab keeps its own /now call
-    assert script.count('call("GET", "/now")') == 1
+    # the Live data tab keeps its own /now call, in the chosen ranker's order
+    assert script.count('call("GET", "/now" + rankQuery())') == 1
 
 
 def test_times_and_durations_are_only_formatted() -> None:
@@ -370,6 +386,48 @@ def test_the_collectors_tab_reads_the_inspect_route_and_the_throttle_spaces_relo
     assert script.count("Date.now()") == 2
     assert "setInterval" not in script
     assert script.count("setTimeout(connect, delay)") == 1
+
+
+def test_the_ranker_dropdown_shows_only_on_the_tabs_it_orders() -> None:
+    script = _script(_source())
+    assert 'const RANKED_TABS = new Set(["overview", "recall", "live", "explain"]);' in script
+    assert "rankerSelect.hidden = !rankersLoaded || !RANKED_TABS.has(name);" in script
+    assert "rankerSelect.hidden = false;" not in script
+
+
+def test_a_failed_write_is_reported_after_the_reload_that_follows_it() -> None:
+    script = _script(_source())
+    for failure in (
+        'failure = "Not added: " + error.message;',
+        'failure = "Not done: " + error.message;',
+    ):
+        assert failure in script, failure
+    assert script.count("await refresh();\n  if (failure) { say(failure); }") == 2
+
+
+def test_the_collector_health_state_is_a_coloured_badge() -> None:
+    source = _source()
+    assert 'el("span", "health " + hd.state, hd.state)' in _script(source)
+    for state in ("ok", "starting", "degraded", "failed", "disabled"):
+        assert f".health.{state}" in source, state
+
+
+def test_score_parts_explain_themselves_on_hover() -> None:
+    script = _script(_source())
+    assert "explanation.title = partsLegend(it.parts);" in script
+    assert "cell.title = partsLegend(it.parts);" in script
+    legend = re.search(r"const PART_HELP = \{(.*?)\n\};", script, re.DOTALL)
+    assert legend is not None
+    keys = set(re.findall(r'^  "?([a-z ]+)"?:', legend.group(1), re.MULTILINE))
+    built_in = {
+        *(getattr(frecency, name) for name in FRECENCY_PARTS),
+        recent.SINCE_FOCUS,
+        recent.LATEST_FOCUS,
+        recent.NEVER_FOCUSED,
+        base._WORKSPACE_PART,
+        base._NO_WORKSPACE_PART,
+    }
+    assert keys == built_in
 
 
 def test_the_flow_tab_reads_the_pipeline_route_and_has_one_throttle() -> None:
