@@ -1,3 +1,5 @@
+<img src="docs/logo.png" alt="" width="128" align="right">
+
 # Fylgja
 
 ## TL;DR

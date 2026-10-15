@@ -194,8 +194,9 @@ def test_the_page_loads_nothing_from_outside() -> None:
     source = _source()
     page = _Page()
     page.feed(source)
-    # a tab link is an in-page anchor ("#live"), not an asset
-    assert [asset for asset in page.assets if not asset[1].startswith("#")] == []
+    # a tab link is an in-page anchor ("#live"); the one asset is the icon from the page's origin
+    assets = [asset for asset in page.assets if not asset[1].startswith("#")]
+    assert assets == [("link", "/favicon.png")]
     assert not re.search(r"https?://", source)
     assert not re.search(r"@import|url\(", source)
     assert "document.cookie" not in source

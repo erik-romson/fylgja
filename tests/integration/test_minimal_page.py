@@ -114,6 +114,17 @@ async def test_the_page_is_never_cached_framed_or_loaded_from_elsewhere(
     assert "https://" not in policy
 
 
+async def test_the_tab_icon_comes_from_the_page_origin(http: httpx.AsyncClient) -> None:
+    page = await http.get("/")
+    assert '<link rel="icon" type="image/png" href="/favicon.png">' in page.text
+    assert "img-src 'self'" in page.headers["content-security-policy"]
+    icon = await http.get("/favicon.png")
+    assert icon.status_code == 200
+    assert icon.headers["content-type"] == "image/png"
+    assert icon.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert (await http.get("/favicon.png", headers={"Host": "evil.example"})).status_code != 200
+
+
 @pytest.mark.parametrize("host", ["evil.example", "evil.example:7319", "127.0.0.1", "localhost:80"])
 async def test_a_foreign_host_never_gets_the_page_or_the_secret(
     http: httpx.AsyncClient, host: str
