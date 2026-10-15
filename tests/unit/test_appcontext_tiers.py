@@ -21,6 +21,7 @@ from appcontext_support import (
     CMUX,
     CMUX_STORE,
     HOME,
+    INTELLIJ,
     ITERM2,
     OBSIDIAN,
     OBSIDIAN_JSON,
@@ -372,6 +373,35 @@ async def test_the_frame_title_breaks_a_tie_between_open_projects_with_one_name(
     assert world.fields("jetbrains")["path"] == f"{HOME}/b/main"
     assert world.fields("jetbrains")["via"] == "recentProjects.xml:frameTitle"
     assert world.items("jetbrains")[0].payload.data["confidence"] == "medium"
+
+
+async def test_a_title_names_the_project_its_saved_frame_title_names() -> None:
+    xml = recent_projects(
+        [("work/fylgja/main", "fylgja main – notes.md", 9), ("work/b/main", None, 1)]
+    )
+    world = World()
+    world.fs.add_file(jetbrains_xml_path("PyCharm2026_1"), xml, mtime=1.0)
+    world.source.windows = [window("1", PYCHARM, "fylgja main – report.md [main]")]
+    await world.collector.poll()
+    assert world.fields("jetbrains") == {
+        "path": f"{HOME}/work/fylgja/main",
+        "via": "recentProjects.xml",
+        "project": "fylgja main",
+    }
+    assert world.items("jetbrains")[0].payload.data["confidence"] == "high"
+
+
+async def test_a_title_of_parent_and_directory_names_that_directory() -> None:
+    # The saved frame title is stale and names only "main"; the window shows "cbslink main".
+    xml = recent_projects(
+        [("work/cbslink/main", "main – old.txt", 9, False), ("work/x/main", None, 1)]
+    )
+    world = World()
+    world.fs.add_file(jetbrains_xml_path("IntelliJIdea2026.2"), xml, mtime=1.0)
+    world.source.windows = [window("1", INTELLIJ, "cbslink main – README.md [cbslink-main]")]
+    await world.collector.poll()
+    assert world.fields("jetbrains")["path"] == f"{HOME}/work/cbslink/main"
+    assert world.items("jetbrains")[0].payload.data["confidence"] == "high"
 
 
 async def test_a_window_keeps_a_high_confidence_path_when_a_later_reading_is_weaker() -> None:
@@ -904,7 +934,7 @@ def test_jetbrains_parsing_edge_cases() -> None:
     )
     [project] = parse.parse_jetbrains_projects(xml, "/h") or []
     assert project.path == "/abs/proj"
-    assert project.names == ("Shown", "proj")
+    assert project.names == ("Shown", "proj", "abs proj")
     assert project.opened_ms == 0
     assert parse.resolve_jetbrains_project({}, [project], "/h") is None
     assert parse.resolve_jetbrains_project({"project": "shown"}, [project], "/h") == (

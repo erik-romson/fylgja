@@ -38,6 +38,7 @@ from fylgja.collectors.appcontext.titles import (
     BUNDLE_DATAGRIP,
     JETBRAINS_BUNDLES,
     TitleContext,
+    parse_jetbrains,
 )
 from fylgja.models import ContextItemEvent, ContextItemPayload
 
@@ -380,7 +381,8 @@ def jetbrains_product_prefixes(bundle_id: str) -> tuple[str, ...]:
 class JetBrainsProject:
     path: str
     names: tuple[str, ...]
-    """The names the IDE shows for it: its display name, its frame title and the directory name."""
+    """The names the IDE shows for it: its display name, its frame title, the project its frame
+    title names, the directory name and ``<parent> <directory>``."""
     opened_ms: int = 0
     opened: bool = False
     """``RecentProjectMetaInfo opened="true"``: the IDE has the project open now."""
@@ -407,9 +409,11 @@ def parse_jetbrains_projects(text: str, home: str) -> list[JetBrainsProject] | N
     """The entries of ``options/recentProjects.xml``; ``None`` when it is not that XML.
 
     Each ``<entry key="$USER_HOME$/...">`` is a project; ``$USER_HOME$`` becomes ``home``. The
-    names are the entry's ``displayName`` and ``frameTitle`` (``RecentProjectMetaInfo`` attributes)
-    and the last path component. The open time is the newest of the ``projectOpenTimestamp`` and
-    ``activationTimestamp`` options.
+    names are the entry's ``displayName`` and ``frameTitle`` (``RecentProjectMetaInfo`` attributes),
+    the project the frame title names (``fylgja main`` in ``fylgja main – notes.md``), the last path
+    component, and the last two components joined by a space (``cbslink main`` for
+    ``…/cbslink/main``, the way the IDE titles a project whose name differs from its directory).
+    The open time is the newest of the ``projectOpenTimestamp`` and ``activationTimestamp`` options.
     """
     if len(text) > MAX_CONFIG_BYTES:
         return None
@@ -433,9 +437,16 @@ def parse_jetbrains_projects(text: str, home: str) -> list[JetBrainsProject] | N
             names += [n for n in (meta.get("displayName"), meta.get("frameTitle")) if n]
             is_open = meta.get("opened") == "true"
             frame_title = meta.get("frameTitle") or None
+        if frame_title:
+            framed = parse_jetbrains(frame_title)
+            if framed is not None and framed.fields.get("project"):
+                names.append(framed.fields["project"])
         base = PurePosixPath(path).name
         if base:
             names.append(base)
+            parent = PurePosixPath(path).parent.name
+            if parent:
+                names.append(f"{parent} {base}")
         opened = 0
         for option in entry.iter("option"):
             if option.get("name") in ("projectOpenTimestamp", "activationTimestamp"):

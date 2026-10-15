@@ -30,6 +30,7 @@ T0 = datetime(2026, 10, 6, 9, 0, tzinfo=UTC)
 CMUX = "com.cmuxterm.app"
 CHROME = "com.google.Chrome"
 PYCHARM = "com.jetbrains.pycharm"
+INTELLIJ = "com.jetbrains.intellij"
 OBSIDIAN = "md.obsidian"
 ITERM2 = "com.googlecode.iterm2"
 SLACK = "com.tinyspeck.slackmacgap"
