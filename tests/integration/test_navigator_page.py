@@ -94,6 +94,7 @@ STATIC_IDS = {
     "tab-collectors": "section",
     "collector-table": "table",
     "switch-table": "table",
+    "notify-status": "p",
     "not-installed": "ul",
     "collectors-refresh": "button",
     "tab-flow": "section",
@@ -372,6 +373,9 @@ def test_the_collectors_tab_reads_the_inspect_route_and_the_throttle_spaces_relo
     assert re.findall(r'call\("GET", "([^"]*)"', body.group(1)) == ["/inspect/collectors"]
     assert "JSON.stringify(value)" in script  # a setting is shown as JSON text
     assert "doctor has not checked this switch" in script
+    assert 'id="notify-status"' in _source()
+    assert "insp.notify.last_failure_kind" in script
+    assert 'notifyStatus.textContent = "notify: ok · "' in script
     assert (
         "const MIN_GAP_MS = { recall: 1000, collectors: 2000, flow: 2000, explain: 2000 };"
         in script
@@ -440,6 +444,7 @@ def test_the_flow_tab_reads_the_pipeline_route_and_has_one_throttle() -> None:
     assert "flow: loadFlow" in script
     assert script.count("MIN_GAP_MS =") == 1
     assert "Set [summaries] enabled = true" in script
+    assert "pipe.notify.last_failure_kind" in script
 
 
 def test_the_explain_tab_reads_the_explain_route_and_the_top_twenty_items() -> None:

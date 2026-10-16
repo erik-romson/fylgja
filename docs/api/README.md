@@ -39,8 +39,8 @@ label or secret.
 | `GET /view/overview` | `rank` | `fylgja.view.overview/1`: the page's Overview tab in one call | [`views.md`](views.md) |
 | `GET /summaries/{scope}/{ref}` | | `SummaryResponse`, cached only; never starts a job | [`summaries.md`](summaries.md) |
 | `GET /collectors` | | `CollectorRow[]`: `{name, origin, distribution, distribution_version, state, enabled, api_version, capabilities, health}`; a collector that is not loaded has `not_loaded` in the last three | |
-| `GET /inspect/collectors` | | `fylgja.inspect.collectors/1` | [`inspect.md`](inspect.md) |
-| `GET /inspect/pipeline` | | `fylgja.inspect.pipeline/1` | [`inspect.md`](inspect.md) |
+| `GET /inspect/collectors` | | `fylgja.inspect.collectors/1`, with a `notify` block | [`inspect.md`](inspect.md) |
+| `GET /inspect/pipeline` | | `fylgja.inspect.pipeline/1`, with a `notify` block | [`inspect.md`](inspect.md) |
 | `GET /inspect/explain` | | `fylgja.inspect.explain/1` | [`inspect.md`](inspect.md) |
 | `GET /health` | | `{status, version, now_schema, started_at, live_version, degraded[]}`; `status` is `ok`, `starting` or `stopping` | |
 | `GET /events` | | Server-Sent Events, see [Events](#events) | |

@@ -63,7 +63,20 @@ nothing is persisted.
   "applescript": [
     {"name": "chrome", "configured": true, "doctor_ok": false, "doctor_at": "2026-10-05T07:55:00Z", "doctor_reason": "timeout"},
     {"name": "iterm2", "configured": false}
-  ]
+  ],
+  "notify": {
+    "enabled": true,
+    "kinds": ["permission", "input"],
+    "grace_seconds": 20.0,
+    "reminder_seconds": 600.0,
+    "desk": true,
+    "away": false,
+    "open": 1,
+    "sent": 3,
+    "failed": 1,
+    "last_failure_kind": "command_timeout",
+    "last_failure_at": "2026-10-05T11:58:00Z"
+  }
 }
 ```
 
@@ -94,6 +107,9 @@ nothing is persisted.
   switch's value, and `doctor_ok`, `doctor_at` and `doctor_reason` are the outcome `fylgja doctor` last recorded in
   its state file (`applescript-switches.json` in the state directory, read up to 16 KB). They are absent when doctor
   has not checked that switch. The route never runs a switch.
+- `notify` is the attention-alert notifier, the same block as in `/inspect/pipeline`. It is not a collector, so it is
+  no row of `collectors`, and `/now` `degraded[]` and `/health` do not change. See the `notify` block under
+  `GET /inspect/pipeline`.
 
 ### Redaction
 
@@ -159,7 +175,18 @@ nothing else. Counters start at zero when the daemon starts.
     "cached": 0,
     "jobs": 0
   },
-  "messaging_enabled": false
+  "messaging_enabled": false,
+  "notify": {
+    "enabled": false,
+    "kinds": ["permission", "input"],
+    "grace_seconds": 20.0,
+    "reminder_seconds": 600.0,
+    "desk": false,
+    "away": false,
+    "open": 0,
+    "sent": 0,
+    "failed": 0
+  }
 }
 ```
 
@@ -181,6 +208,14 @@ nothing else. Counters start at zero when the daemon starts.
   the model now (`running`), the model calls started (`calls`), the cached entries (`cached`) and the jobs queued or
   running (`jobs`).
 - `messaging_enabled` is `[actions.message] enabled`.
+- `notify` is the alert notifier (`[notify]`), identical in `/inspect/collectors`:
+  - `enabled`, `kinds`, `grace_seconds` and `reminder_seconds` are the settings; `desk` and `away` say whether a
+    `desk_command` or an `away_command` is set. No command argv is ever shown, because it can hold a secret topic.
+  - `open` is the episodes whose entry is still listed, `sent` the sends whose command exited 0 and `failed` the
+    sends that timed out, found no command or failed. All count from the daemon's start, and are `0` while alerts
+    are off.
+  - `last_failure_kind` (`command_timeout`, `command_missing` or `command_failed`) and `last_failure_at` are absent
+    before a failure.
 
 ## `GET /inspect/explain`
 

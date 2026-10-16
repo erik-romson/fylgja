@@ -10,6 +10,8 @@ route runs no process.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from api_support import (
@@ -17,8 +19,10 @@ from api_support import (
     T0,
     Synthetic,
     Win,
+    activity_snapshot,
     by_key,
     client,
+    focus_event,
     make_daemon,
     nulls,
     session,
@@ -35,10 +39,11 @@ from fylgja.api.inspect_models import (
     INSPECT_PIPELINE_SCHEMA,
 )
 from fylgja.collectors.appcontext import switches
-from fylgja.collectors.base import Capability
+from fylgja.collectors.base import Capability, CollectorContext
 from fylgja.core.daemon import Daemon
+from fylgja.models import HookEvent, HookEventPayload, SessionActivity
 from fylgja.privacy import REDACTED
-from fylgja.testing.fakes import FakeProcessRunner
+from fylgja.testing.fakes import FakeClock, FakeProcessRunner, settle
 
 CANARY = "sk-" + "Z9" * 10
 """Matches the default ``[privacy] redact_patterns`` entry ``sk-[A-Za-z0-9_-]{16,}``."""
@@ -283,3 +288,144 @@ async def test_the_explain_route_before_the_first_resolution() -> None:
     assert body["resolved"] is False
     assert body["projects"] == []
     assert body["sessions"] == []
+
+
+# --------------------------------------------------------------------------------------------
+# The notifier block (R18)
+# --------------------------------------------------------------------------------------------
+
+NOTIFIER = "/usr/local/bin/notify"
+EDITOR = Win("7", "3", "Editor", 70, "notes.md")
+OTHER = Win("8", "3", "Mail", 80, "Inbox")
+SESSION_KEY = "claude:a"
+
+
+def _windows(context: CollectorContext) -> None:
+    now = context.clock.now()
+    context.sink.emit(window_snapshot("wm", [EDITOR, OTHER], now))
+    context.sink.emit(focus_event("wm", "8", "3", now))
+
+
+def _sessions(context: CollectorContext) -> None:
+    now = context.clock.now()
+    context.sink.emit(
+        session_snapshot(
+            "agents", [session("claude", "a", pid=71, cwd="/work/notes", host_pid=70)], now
+        )
+    )
+    context.sink.emit(
+        activity_snapshot("agents", {SESSION_KEY: SessionActivity(state="idle")}, now)
+    )
+
+
+@asynccontextmanager
+async def _alerting(
+    notify: dict[str, Any], *, returncode: int = 0, alert: bool = True
+) -> AsyncIterator[tuple[Daemon, FakeClock]]:
+    """A running daemon whose ``claude:a`` asks for permission, with the alert due (or not)."""
+    clock = FakeClock(T0)
+    runner = FakeProcessRunner()
+    runner.script(NOTIFIER, returncode=returncode)
+    agents = Synthetic("agents", frozenset({Capability.SESSIONS}), emit=_sessions)
+    wm = Synthetic("wm", frozenset({Capability.WINDOWS}), emit=_windows)
+    daemon = make_daemon(
+        wm,
+        agents,
+        user_config={"notify": notify},
+        clock=clock,
+        runner=runner,
+    )
+    await daemon.start()
+    try:
+        await daemon.settle()
+        await settle()
+        if alert:
+            agents.contexts[0].sink.emit(
+                HookEvent(
+                    source="agents",
+                    entity_id=SESSION_KEY,
+                    observed_at=clock.now(),
+                    payload=HookEventPayload(
+                        session_id="a", event="PermissionRequest", tool_name="Bash"
+                    ),
+                )
+            )
+            await daemon.settle()
+            await settle()
+            await clock.advance(20)
+            await settle()
+        yield daemon, clock
+    finally:
+        await daemon.stop()
+
+
+async def _both(daemon: Daemon) -> tuple[dict[str, Any], dict[str, Any]]:
+    async with client(daemon) as http:
+        pipeline = await http.get("/inspect/pipeline")
+        collectors = await http.get("/inspect/collectors")
+    assert pipeline.status_code == collectors.status_code == 200
+    assert list(nulls(pipeline.json())) == []
+    assert list(nulls(collectors.json())) == []
+    return pipeline.json(), collectors.json()
+
+
+async def test_the_default_daemon_reports_alerts_as_off_in_both_answers() -> None:
+    daemon = _daemon()
+    await daemon.start()
+    try:
+        pipeline, collectors = await _both(daemon)
+    finally:
+        await daemon.stop()
+    notify = pipeline["notify"]
+    assert notify == {
+        "enabled": False,
+        "kinds": ["permission", "input"],
+        "grace_seconds": 20.0,
+        "reminder_seconds": 600.0,
+        "desk": False,
+        "away": False,
+        "open": 0,
+        "sent": 0,
+        "failed": 0,
+    }
+    assert collectors["notify"] == notify
+    assert all(row["name"] != "notify" for row in collectors["collectors"])
+
+
+async def test_an_alert_that_was_sent_is_counted_in_both_answers() -> None:
+    async with _alerting({"enabled": True, "desk_command": [NOTIFIER, "{title}"]}) as (daemon, _):
+        pipeline, collectors = await _both(daemon)
+    notify = pipeline["notify"]
+    assert notify["enabled"] is True
+    assert (notify["sent"], notify["open"], notify["failed"]) == (1, 1, 0)
+    assert notify["desk"] is True
+    assert "last_failure_kind" not in notify
+    assert collectors["notify"] == notify
+
+
+async def test_a_failed_send_shows_its_kind_in_the_collectors_answer() -> None:
+    config = {"enabled": True, "desk_command": [NOTIFIER, "{title}"]}
+    async with _alerting(config, returncode=1) as (daemon, _):
+        pipeline, collectors = await _both(daemon)
+    notify = collectors["notify"]
+    assert notify["last_failure_kind"] == "command_failed"
+    assert notify["failed"] == 1
+    assert "last_failure_at" in notify
+    assert pipeline["notify"] == notify
+
+
+async def test_no_command_argument_reaches_either_answer() -> None:
+    config = {
+        "enabled": True,
+        "desk_command": [NOTIFIER, "{title}"],
+        "away_command": ["/p", "https://ntfy.sh/secret-topic-123456789"],
+    }
+    async with _alerting(config, alert=False) as (daemon, _):
+        async with client(daemon) as http:
+            bodies = [
+                (await http.get(path)).text for path in ("/inspect/pipeline", "/inspect/collectors")
+            ]
+    for text in bodies:
+        assert "secret-topic" not in text
+        assert "ntfy" not in text
+        assert NOTIFIER not in text

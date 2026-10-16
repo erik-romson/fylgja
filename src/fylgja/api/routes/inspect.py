@@ -10,7 +10,7 @@ Reads: no authentication, Host-checked like every route. Each answer has its own
   doctor's recorded check. The switches are reported, never run.
 * ``GET /inspect/pipeline`` (``fylgja.inspect.pipeline/1``): the ingest gate's totals, the
   collector × kind flow matrix, the writer, the live view, the ``/events`` clients, the summary
-  service, the ``[privacy]`` lists as counts only and the daemon lifecycle.
+  service, the alert notifier, the ``[privacy]`` lists as counts only and the daemon lifecycle.
 * ``GET /inspect/explain`` (``fylgja.inspect.explain/1``): how each workspace label was chosen,
   where the resolver placed each project and session, and the Next-strip scores and lists.
 
@@ -59,6 +59,7 @@ async def inspect_collectors(request: Request) -> Response:
         privacy=daemon.privacy,
         home=daemon.home,
         switch_records=records,
+        notify=daemon.notify_stats(),
         generated_at=daemon.clock.now(),
         started_at=daemon.started_at,
     )
@@ -74,6 +75,7 @@ async def inspect_pipeline(request: Request) -> Response:
         daemon.view,
         daemon.summaries,
         daemon.config,
+        notify=daemon.notify_stats(),
         sse_clients=sse.hub_of(request).clients,
         sse_max_clients=sse.MAX_CLIENTS,
         lifecycle=daemon.lifecycle,

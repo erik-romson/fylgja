@@ -42,6 +42,7 @@ from fylgja.core.daemon import CollectorState
 from fylgja.core.ingest import PluginStats, Rejection
 from fylgja.core.labels import InferredLabel
 from fylgja.core.live_view import Collection
+from fylgja.core.notify import NotifyStats
 from fylgja.core.ranking import SCORES
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution
 from fylgja.models import EntityKind, HealthReport, HealthState
@@ -275,6 +276,7 @@ def _build(
         privacy=_privacy(),
         home=HOME,
         switch_records={} if switch_records is None else switch_records,
+        notify=NotifyStats(),
         generated_at=T0 + timedelta(minutes=1),
         started_at=started_at,
     )
@@ -410,6 +412,7 @@ def test_states_must_match_the_registry() -> None:
             privacy=_privacy(),
             home=HOME,
             switch_records={},
+            notify=NotifyStats(),
             generated_at=T0,
             started_at=None,
         )
@@ -468,6 +471,7 @@ def _pipeline(sizes: list[int]) -> dict[str, object]:
         _View(),  # type: ignore[arg-type]
         _Summaries(),  # type: ignore[arg-type]
         _PRIVACY_CONFIG,
+        notify=NotifyStats(),
         sse_clients=2,
         sse_max_clients=16,
         lifecycle=["start:writer", "start:gate"],

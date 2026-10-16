@@ -36,6 +36,7 @@ from fylgja.api.inspect_models import (
     KindCount,
     LabelExplain,
     LiveViewInfo,
+    NotifyInfo,
     PrivacyInfo,
     ProjectPlacementInfo,
     RankingRule,
@@ -52,6 +53,7 @@ from fylgja.config import Config
 from fylgja.core.daemon import CollectorState
 from fylgja.core.ingest import PluginStats, Rejection
 from fylgja.core.live_view import Collection, LiveView
+from fylgja.core.notify import NotifyStats
 from fylgja.core.ranking import IDLE_WINDOW, MAX_ITEMS, SCORES
 from fylgja.core.resolver import Resolution
 from fylgja.core.summaries import SummaryService
@@ -200,6 +202,24 @@ def _switch(
     )
 
 
+def _notify(config: Config, stats: NotifyStats) -> NotifyInfo:
+    """The notifier block of both answers; it never carries an argv element."""
+    settings = config.notify
+    return NotifyInfo(
+        enabled=settings.enabled,
+        kinds=list(settings.kinds),
+        grace_seconds=settings.grace_seconds,
+        reminder_seconds=settings.reminder_seconds,
+        desk=bool(settings.desk_command),
+        away=bool(settings.away_command),
+        open=stats.open,
+        sent=stats.sent,
+        failed=stats.failed,
+        last_failure_kind=stats.last_failure_kind,
+        last_failure_at=stats.last_failure_at,
+    )
+
+
 def build_collectors(
     registry: Sequence[RegisteredCollector],
     states: Sequence[CollectorState],
@@ -209,6 +229,7 @@ def build_collectors(
     privacy: PrivacyFilter,
     home: str,
     switch_records: Mapping[str, SwitchRecord],
+    notify: NotifyStats,
     generated_at: datetime,
     started_at: datetime | None,
 ) -> InspectCollectors:
@@ -217,7 +238,8 @@ def build_collectors(
     ``states`` are :meth:`~fylgja.core.daemon.Daemon.collector_states`, one per ``registry`` item
     in the same order (a rejected duplicate shares its name with the collector it lost to).
     ``stats`` are the ingest gate's counters by collector name; only a collector that runs has
-    them. ``switch_records`` are doctor's recorded AppleScript checks, by switch name.
+    them. ``switch_records`` are doctor's recorded AppleScript checks, by switch name. ``notify``
+    is :meth:`~fylgja.core.daemon.Daemon.notify_stats`.
     """
     if len(states) != len(registry):
         raise ValueError("one collector state is needed per registry item")
@@ -237,6 +259,7 @@ def build_collectors(
         collectors=collectors,
         not_installed=sorted(set(config.collectors) - {item.name for item in registry}),
         applescript=applescript,
+        notify=_notify(config, notify),
     )
 
 
@@ -289,6 +312,7 @@ def build_pipeline(
     summaries: SummaryService,
     config: Config,
     *,
+    notify: NotifyStats,
     sse_clients: int,
     sse_max_clients: int,
     lifecycle: Sequence[str],
@@ -332,6 +356,7 @@ def build_pipeline(
             jobs=jobs,
         ),
         messaging_enabled=config.actions.message.enabled,
+        notify=_notify(config, notify),
     )
 
 

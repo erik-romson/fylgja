@@ -272,6 +272,11 @@ INSPECT_FIELDS: dict[str, set[str]] = {
         "collectors",
         "generated_at",
         "not_installed",
+        "notify.enabled",
+        "notify.failed",
+        "notify.last_failure_at",
+        "notify.last_failure_kind",
+        "notify.sent",
         "started_at",
     },
     "InspectCollector": {
@@ -314,6 +319,12 @@ INSPECT_FIELDS: dict[str, set[str]] = {
         "live_view.rows",
         "live_view.version",
         "messaging_enabled",
+        "notify.enabled",
+        "notify.failed",
+        "notify.last_failure_at",
+        "notify.last_failure_kind",
+        "notify.open",
+        "notify.sent",
         "privacy.ignore_bundle_ids",
         "privacy.ignore_title_patterns",
         "privacy.redact_patterns",
@@ -649,7 +660,7 @@ async def test_inspect_collectors_has_every_root_field_the_page_reads(
     assert answer.status_code == 200
     body = answer.json()
     assert body["schema"] == "fylgja.inspect.collectors/1"
-    for name in INSPECT_FIELDS["InspectCollectors"] - {"started_at"}:
+    for name in _root_fields(INSPECT_FIELDS["InspectCollectors"]) - {"started_at"}:
         assert name in body, name
     for collector in body["collectors"]:
         assert {"name", "origin", "state", "enabled", "loaded", "health"} <= set(collector)

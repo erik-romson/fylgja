@@ -44,6 +44,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import urlsplit
 
 from fylgja import paths
 from fylgja.cli import client
@@ -105,6 +106,7 @@ __all__ = [
     "check_inbox",
     "check_lidskjalv_hooks",
     "check_messaging",
+    "check_notify",
     "check_plugins",
     "check_port",
     "command_targets",
@@ -123,6 +125,7 @@ LIDSKJALV_SCRIPT: Final = "lidskjalv.sh"
 COLLECTOR_DOCTOR_TIMEOUT: Final = 10.0
 GIT_TIMEOUT: Final = 15.0
 MAX_LISTED: Final = 5
+NTFY_TOPIC_MIN: Final = 20
 
 
 class Status(StrEnum):
@@ -143,6 +146,7 @@ class Check:
 
 FetchJson = Callable[..., Any]
 PortProbe = Callable[[int], bool]
+IsExecutable = Callable[[str], bool]
 
 
 def _worst(statuses: Sequence[Status]) -> Status:
@@ -1244,6 +1248,72 @@ _NOT_AUTHORIZED: Final = "-1743"
 """osascript's error number for an Automation permission that was refused."""
 
 
+def _is_executable(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def _short_ntfy_topic(argv: Sequence[str]) -> bool:
+    """An element is an ``http(s)`` URL of an ntfy host whose topic is under 20 characters."""
+    for element in argv:
+        if not element.startswith(("http://", "https://")):
+            continue
+        try:
+            parts = urlsplit(element)
+            host = parts.hostname or ""
+        except ValueError:
+            continue
+        topic = parts.path.rstrip("/").rsplit("/", 1)[-1]
+        if "ntfy" in host and len(topic) < NTFY_TOPIC_MIN:
+            return True
+    return False
+
+
+def _notify_command(name: str, argv: Sequence[str], is_executable: IsExecutable) -> Check:
+    """One command slot: element 0 only is ever printed, because another element can be a secret."""
+    if not is_executable(argv[0]):
+        return Check(name, Status.FAIL, f"{argv[0]} is missing or not executable")
+    if _short_ntfy_topic(argv):
+        return Check(name, Status.WARN, "the ntfy topic is shorter than 20 characters")
+    return Check(name, Status.OK, f"{argv[0]} is executable")
+
+
+def _notify_delivery(config: Config, fetch: FetchJson) -> Check:
+    try:
+        pipeline = fetch("/inspect/pipeline", url=_base_url(config), timeout=client.TIMEOUT)
+    except (client.DaemonDown, client.ApiError) as exc:
+        return Check("notify:delivery", Status.WARN, f"cannot read /inspect/pipeline: {exc}")
+    block = pipeline.get("notify") if isinstance(pipeline, dict) else None
+    if not isinstance(block, dict):
+        return Check("notify:delivery", Status.WARN, "cannot read /inspect/pipeline")
+    kind = block.get("last_failure_kind")
+    if kind:
+        return Check("notify:delivery", Status.WARN, f"last delivery failed: {kind}")
+    return Check("notify:delivery", Status.OK, f"{block.get('sent', 0)} sent")
+
+
+def check_notify(
+    config: Config,
+    daemon_up: bool,
+    fetch: FetchJson = client.get_json,
+    is_executable: IsExecutable = _is_executable,
+) -> list[Check]:
+    """The ``[notify]`` commands and the daemon's last delivery failure (R18).
+
+    Empty while alerts are off. Nothing is run, and no argv element but ``argv[0]`` is printed.
+    """
+    settings = config.notify
+    if not settings.enabled:
+        return []
+    checks: list[Check] = []
+    if settings.desk_command:
+        checks.append(_notify_command("notify:desk", settings.desk_command, is_executable))
+    if settings.away_command:
+        checks.append(_notify_command("notify:away", settings.away_command, is_executable))
+    if daemon_up:
+        checks.append(_notify_delivery(config, fetch))
+    return checks
+
+
 def _record_switch(
     switch: str, *, ok: bool, now: datetime, reason: str | None, state: Path | None
 ) -> str:
@@ -1372,6 +1442,7 @@ async def run_doctor(
     if lidskjalv is not None:
         checks.append(lidskjalv)
     checks.extend(await check_messaging(config, layout=where, runner=runner))
+    checks.extend(check_notify(config, daemon_up, fetch))
     checks.extend(await check_applescript(config, runner=runner))
     return checks
 

@@ -138,6 +138,32 @@ class AppleScriptSwitch(NowModel):
     doctor_reason: str | None = None
 
 
+class NotifyInfo(NowModel):
+    """The attention-alert notifier's status (R18). It holds no argv: a command can carry a secret
+    topic."""
+
+    enabled: bool
+    """``[notify] enabled``."""
+    kinds: list[str]
+    """The waiting kinds that alert."""
+    grace_seconds: float
+    reminder_seconds: float
+    desk: bool
+    """A ``desk_command`` is set."""
+    away: bool
+    """An ``away_command`` is set."""
+    open: int
+    """Episodes whose entry is still listed, announced or not."""
+    sent: int
+    """Sends whose command exited 0."""
+    failed: int
+    """Sends that timed out, found no command or failed."""
+    last_failure_kind: str | None = None
+    """``command_timeout``, ``command_missing`` or ``command_failed``; absent before a failure."""
+    last_failure_at: AwareDatetime | None = None
+    """The wall time of the last failed send."""
+
+
 class InspectCollectors(NowModel):
     """The answer of ``GET /inspect/collectors``."""
 
@@ -154,6 +180,8 @@ class InspectCollectors(NowModel):
     """``[collectors.<name>]`` tables with no entry point behind them, sorted."""
     applescript: list[AppleScriptSwitch]
     """Reported, never run: in the order doctor checks them."""
+    notify: NotifyInfo
+    """The alert notifier; not a collector, so it is no row of ``collectors``."""
 
 
 class FlowCount(NowModel):
@@ -258,6 +286,8 @@ class InspectPipeline(NowModel):
     summaries: SummariesInfo
     messaging_enabled: bool
     """``[actions.message] enabled``."""
+    notify: NotifyInfo
+    """The alert notifier (the same block as in ``/inspect/collectors``)."""
 
 
 class LabelExplain(NowModel):

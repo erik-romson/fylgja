@@ -131,6 +131,9 @@
   <h2>AppleScript switches</h2>
   <p class="muted intro">Reported, never run. The check is the last one <code>fylgja doctor</code> recorded.</p>
   <table id="switch-table"></table>
+  <h2>Alerts</h2>
+  <p class="muted intro">Desktop alerts from [notify]. Delivery failures are counted, never retried.</p>
+  <p id="notify-status"></p>
 </section>
 <section id="tab-flow" data-tab="flow" hidden>
   <p class="muted intro">How a record gets from a collector to the page. The text is fixed; the numbers are what the daemon counted since it started.</p>
@@ -185,6 +188,7 @@ const todoTable = document.getElementById("all-todo-list");
 const collectorTable = document.getElementById("collector-table");
 const notInstalled = document.getElementById("not-installed");
 const switchTable = document.getElementById("switch-table");
+const notifyStatus = document.getElementById("notify-status");
 const flowSide = document.getElementById("flow-side");
 const flowMatrix = document.getElementById("flow-matrix");
 const explainResolver = document.getElementById("explain-resolver");
@@ -901,6 +905,14 @@ function renderCollectors(insp) {
   const names = insp.not_installed.map((name) => el("li", "", name));
   if (names.length === 0) { names.push(el("li", "muted", "none")); }
   notInstalled.replaceChildren(...names);
+  if (!insp.notify.enabled) {
+    notifyStatus.textContent = "Off. Set [notify] enabled = true and a desk_command to get alerts.";
+  } else if (insp.notify.last_failure_kind) {
+    notifyStatus.textContent = "notify: " + insp.notify.last_failure_kind + " at " + fmtTime(insp.notify.last_failure_at)
+      + " · " + insp.notify.failed + " failed · " + insp.notify.sent + " sent";
+  } else {
+    notifyStatus.textContent = "notify: ok · " + insp.notify.sent + " sent";
+  }
   const switches = insp.applescript.map(switchRow);
   if (switches.length === 0) {
     switchTable.replaceChildren(el("caption", "muted", "No switch"));
@@ -956,6 +968,12 @@ function renderFlowSide(pipe) {
     : "Off. Set [summaries] enabled = true to let a local model write stories."));
   box.append(el("h2", "", "Messaging"));
   box.append(el("p", "", pipe.messaging_enabled ? "On" : "Off. Set [actions.message] enabled = true to allow sending."));
+  box.append(el("h2", "", "Alerts"));
+  const alertLine = pipe.notify.enabled
+    ? "On · " + pipe.notify.open + " open · " + pipe.notify.sent + " sent · " + pipe.notify.failed + " failed"
+      + (pipe.notify.last_failure_kind ? " · last failure " + pipe.notify.last_failure_kind + " at " + fmtTime(pipe.notify.last_failure_at) : "")
+    : "Off. Set [notify] enabled = true and a desk_command to get alerts.";
+  box.append(el("p", "", alertLine));
   flowSide.replaceChildren(box);
 }
 
