@@ -20,9 +20,10 @@ thread for every request and reads nothing else.
 * **Tokens, cost and quota** (WP5.4, §4.7): a session's ``tokens``, ``cost_usd`` and ``context_pct``
   come from its stored activity interval, and ``usage`` from the stored provider rows joined with
   what the daemon remembers of their observation (:mod:`fylgja.api.now_usage`).
-* **Waiting-on-me** (WP6.1): ``waiting[]`` is :func:`fylgja.core.waiting.waiting_on_me` over the
-  shown sessions, the stored projects, the window context items and the projects touched today,
-  most urgent first. It is present (possibly empty) while any of those sections is shown.
+* **Waiting-on-me** (WP6.1): ``waiting[]`` is :func:`fylgja.core.shown.shown_waiting`, which is
+  :func:`fylgja.core.waiting.waiting_on_me` over the shown sessions, the stored projects, the
+  window context items and the projects touched today, most urgent first. It is present
+  (possibly empty) while any of those sections is shown.
 * **What next** (WP6.2): ``next[]`` is :func:`fylgja.core.ranking.rank_next` over ``waiting[]``, the
   open todos, the shown sessions, the focused workspace and the focus of today, published through
   ``StateView.next_lists`` (which gives it its ``next_list_id`` and logs it). It is present with
@@ -81,7 +82,7 @@ from fylgja.core.next_lists import Published
 from fylgja.core.one_liner import WorkspaceSession, session_one_liner, workspace_one_liner
 from fylgja.core.ranking import rank_next
 from fylgja.core.resolver import Placement, ProjectPlacement
-from fylgja.core.waiting import waiting_on_me
+from fylgja.core.shown import available_names, shown_capabilities, shown_sessions, shown_waiting
 from fylgja.models import SessionActivity
 from fylgja.models import Stage as ActivityStage
 from fylgja.rankers.base import natural_key
@@ -195,17 +196,6 @@ def _context_index(
         if summary:
             summaries[window_id] = summary
     return items, summaries
-
-
-def _available_contexts(
-    contexts: Mapping[str, Sequence[ContextEntry]], available: set[str]
-) -> dict[str, list[ContextEntry]]:
-    """The context entries of available collectors, by window id."""
-    shown = {
-        window_id: [entry for entry in entries if entry.source in available]
-        for window_id, entries in contexts.items()
-    }
-    return {window_id: entries for window_id, entries in shown.items() if entries}
 
 
 def _state(value: str | None) -> SessionState | None:
@@ -551,14 +541,6 @@ def collector_info(state: CollectorState) -> CollectorInfo:
     )
 
 
-def _capabilities(collectors: Iterable[CollectorState]) -> frozenset[Capability]:
-    found: set[Capability] = set()
-    for collector in collectors:
-        if collector.available:
-            found |= collector.capabilities
-    return frozenset(found)
-
-
 # --------------------------------------------------------------------------------------------
 # The whole picture
 # --------------------------------------------------------------------------------------------
@@ -567,8 +549,8 @@ def _capabilities(collectors: Iterable[CollectorState]) -> frozenset[Capability]
 def build_now(state: StateView) -> Now:
     """``fylgja.now/1`` for ``state`` (see the module docstring)."""
     live = state.live
-    available = {c.name for c in state.collectors if c.available}
-    capabilities = _capabilities(state.collectors)
+    available = available_names(state.collectors)
+    capabilities = shown_capabilities(state.collectors)
     show_windows = Capability.WINDOWS in capabilities
     show_sessions = Capability.SESSIONS in capabilities
     show_projects = show_sessions or Capability.PROJECT_STATE in capabilities
@@ -583,14 +565,7 @@ def build_now(state: StateView) -> Now:
     focus = live.focused
     if not show_windows or focus is None or focus.source not in available:
         focus = None
-    session_rows = (
-        sorted(
-            (s for s in live.sessions.values() if s.source in available and s.ended_at is None),
-            key=lambda s: s.session_key,
-        )
-        if show_sessions
-        else []
-    )
+    session_rows = shown_sessions(state)
     stories = state.summaries if state.summaries is not None and state.summaries.enabled else None
     built: list[tuple[SessionRow, ActivityRow | None, Session]] = []
     for row in session_rows:
@@ -652,15 +627,8 @@ def build_now(state: StateView) -> Now:
 
     waiting: list[Waiting] | None = None
     ranked: Published | None = None
-    if show_sessions or show_windows or show_projects:
-        entries = waiting_on_me(
-            now=state.generated_at,
-            sessions=session_rows,
-            activity=live.activity,
-            projects=live.projects.values() if show_projects else (),
-            contexts=_available_contexts(state.contexts, available) if show_windows else None,
-            touched=state.touched,
-        )
+    entries = shown_waiting(state)
+    if entries is not None:
         if state.next_lists is not None:
             ranked = state.next_lists.publish(
                 rank_next(
