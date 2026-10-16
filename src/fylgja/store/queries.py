@@ -645,6 +645,24 @@ def get_session(connection: sqlite3.Connection, session_key: str) -> SessionRow 
     return None if row is None else SessionRow.from_db(row)
 
 
+_KEY_CHUNK: Final = 500  # well under SQLite's variable limit
+
+
+def hooked_session_keys(connection: sqlite3.Connection, keys: Sequence[str]) -> set[str]:
+    """Those of ``keys`` that have at least one stored hook event (``events_entity`` index)."""
+    found: set[str] = set()
+    for start in range(0, len(keys), _KEY_CHUNK):
+        chunk = keys[start : start + _KEY_CHUNK]
+        marks = ",".join("?" * len(chunk))
+        rows = connection.execute(
+            "SELECT DISTINCT entity_id FROM events"  # noqa: S608 - only '?' marks are joined
+            f" WHERE entity_kind = 'hook_event' AND entity_id IN ({marks})",
+            tuple(chunk),
+        )
+        found.update(row[0] for row in rows)
+    return found
+
+
 def end_missing_sessions(
     connection: sqlite3.Connection, *, source: str, present: Collection[str], at: str
 ) -> list[str]:

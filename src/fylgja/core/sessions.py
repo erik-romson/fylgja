@@ -394,7 +394,9 @@ class SessionStateEngine:
         """Resume after a restart from stored sessions ``(key, source, state, since, reason)``.
 
         Only the hook-only states are taken (:data:`HOOK_ONLY_STATES`): the registry would report
-        the others again by itself.
+        the others again by itself. The daemon passes only sessions that have a stored hook event:
+        a collector such as norn reports ``waiting_input`` from its own activity, and pinning it
+        here would keep the session waiting after it resumes.
         """
         for key, source, state, since, reason in rows:
             if state in HOOK_ONLY_STATES and key not in self._states:

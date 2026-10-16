@@ -82,7 +82,7 @@ from fylgja.core.notify import Notifier, NotifyStats, Snapshot, candidates, on_s
 from fylgja.core.project_roots import ProjectLocator
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolver
 from fylgja.core.retention import MaintenanceJob
-from fylgja.core.sessions import SessionStateEngine
+from fylgja.core.sessions import HOOK_ONLY_STATES, SessionStateEngine
 from fylgja.core.shown import shown_sessions, shown_waiting
 from fylgja.core.span_window import SpanWindow
 from fylgja.core.summaries import SummaryRunner, SummaryService
@@ -646,9 +646,14 @@ class Daemon:
             )
             self._rebuild_view()
             await self.summaries.load()
+            stored = [row for row in self.view.sessions.values() if row.state in HOOK_ONLY_STATES]
+            hooked = await asyncio.to_thread(
+                self._read_hooked_keys, [row.session_key for row in stored]
+            )
             self.session_state.seed(
                 (row.session_key, row.source, row.state, row.state_since, row.waiting_reason)
-                for row in self.view.sessions.values()
+                for row in stored
+                if row.session_key in hooked
             )
             self.lifecycle.append("start:live_view")
             self._unsubscribe = self.view.subscribe(self._on_update)
@@ -854,6 +859,16 @@ class Daemon:
         self._focus_today = seconds
         if newly:
             self.view.touch()
+
+    def _read_hooked_keys(self, keys: Sequence[str]) -> set[str]:
+        """Those of ``keys`` that have a stored hook event (a worker thread, as the span reads)."""
+        if not keys:
+            return set()
+        connection = db.connect_reader(self.writer.database)
+        try:
+            return queries.hooked_session_keys(connection, keys)
+        finally:
+            connection.close()
 
     def _read_spans(self, since: datetime, until: datetime) -> list[spans.Span]:
         connection = db.connect_reader(self.writer.database)

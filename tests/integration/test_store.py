@@ -33,6 +33,8 @@ from fylgja.models import (
     FocusPayload,
     HealthReport,
     HealthState,
+    HookEvent,
+    HookEventPayload,
     PresenceEvent,
     PresencePayload,
     ProjectEvent,
@@ -1248,6 +1250,34 @@ async def test_live_view_rebuilds_from_the_store(
     assert fresh.sessions == view.sessions
     assert fresh.activity == view.activity
     assert fresh.focused == view.focused
+
+
+async def test_hooked_session_keys_name_only_sessions_with_a_stored_hook_event(
+    writer: Writer, db_path: Path
+) -> None:
+    await emit_all(
+        writer,
+        HookEvent(
+            source="claude",
+            entity_id="claude:a",
+            observed_at=at(1),
+            payload=HookEventPayload(session_id="a", event="PermissionRequest"),
+        ),
+        SessionActivityEvent(
+            source="norn",
+            entity_id="norn:r",
+            observed_at=at(2),
+            payload=SessionActivity(state="waiting_input"),
+        ),
+    )
+    reader = db.connect_reader(db_path)
+    try:
+        assert queries.hooked_session_keys(reader, ["claude:a", "norn:r"]) == {"claude:a"}
+        assert queries.hooked_session_keys(reader, []) == set()
+        many = [f"claude:{n}" for n in range(1200)] + ["claude:a"]
+        assert queries.hooked_session_keys(reader, many) == {"claude:a"}
+    finally:
+        reader.close()
 
 
 async def test_a_workspace_event_moves_the_focus(writer: Writer, view: LiveView) -> None:
