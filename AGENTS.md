@@ -79,6 +79,9 @@ Fylgja runs next to real work sessions. When you explore or debug:
 
 - Committed docs record shapes, field names, counts and versions. Never put window titles, prompts, transcript
   text, customer names or tokens in them.
+- [`docs/api/README.md`](docs/api/README.md) indexes every HTTP route. A change that adds, removes or renames a
+  route, or changes its query, body, answer, status codes or `/events` events, updates that index in the same
+  commit, and the route's own page in `docs/api/` when it has one.
 - A decision that changes or refines the plan gets a record in `docs/decisions/NNNN-<slug>.md`, using the
   next free number and the header format of the existing records.
 - [`docs/PLAN-final-plan.md`](docs/PLAN-final-plan.md) is the plan. Code cites it as `PLAN-final-plan.md §x`.

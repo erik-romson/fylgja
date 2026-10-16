@@ -52,6 +52,7 @@ __all__ = [
     "MutationGuard",
     "allowed_hosts",
     "body_limit",
+    "http_routes",
     "load_secret",
     "mutating_routes",
 ]
@@ -178,9 +179,17 @@ def mutating_routes(app: Any) -> list[tuple[str, str]]:
     ``tests/integration/test_mutation_guards.py`` runs its guard assertions against each of them, so
     a mutating route added later is covered without touching the test.
     """
+    return [(method, path) for method, path in http_routes(app) if method in MUTATING_METHODS]
+
+
+def http_routes(app: Any) -> list[tuple[str, str]]:
+    """``(method, path)`` of every route registered on ``app``.
+
+    ``tests/unit/test_api_index.py`` checks them against ``docs/api/README.md``.
+    """
     found: list[tuple[str, str]] = []
     for path, methods in _route_table(getattr(app, "routes", [])):
-        found.extend((method, path) for method in sorted(set(methods) & MUTATING_METHODS))
+        found.extend((method, path) for method in sorted(methods))
     return found
 
 
