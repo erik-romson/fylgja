@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 from fylgja import paths
-from fylgja.config import ConfigError, deep_merge, load_config, load_defaults, parse_config
+from fylgja.config import (
+    ConfigError,
+    NotifyConfig,
+    deep_merge,
+    load_config,
+    load_defaults,
+    parse_config,
+)
 
 
 def _write(text: str) -> Path:
@@ -27,6 +34,12 @@ def test_defaults_load_without_a_user_file() -> None:
     assert config.actions.applescript.iterm2 is False
     assert config.summaries.enabled is False
     assert (config.summaries.ttl_seconds, config.summaries.max_concurrent) == (300, 3)
+    notify = config.notify
+    assert notify.enabled is False
+    assert notify.kinds == ["permission", "input"]
+    assert (notify.grace_seconds, notify.reminder_seconds, notify.timeout_seconds) == (20, 600, 5)
+    assert (notify.desk_command, notify.away_command) == ([], [])
+    assert (notify.desk_detail, notify.away_detail) == ("project", "kind")
     assert config.paths.aerospace == Path("/opt/homebrew/bin/aerospace")
     assert config.paths.git == Path("/usr/bin/git")
     assert config.privacy.redact_patterns
@@ -367,3 +380,77 @@ def test_bad_hook_events_are_refused(events: str, fragment: str) -> None:
     with pytest.raises(ConfigError, match=fragment) as info:
         load_config()
     assert info.value.key == "hooks.events"
+
+
+def test_a_user_notify_kinds_list_replaces_the_default() -> None:
+    _write('[notify]\nkinds = ["turn_done"]\n')
+    assert load_config().notify.kinds == ["turn_done"]
+
+
+def test_notify_kinds_match_the_waiting_kinds() -> None:
+    from typing import get_args
+
+    from fylgja.core.waiting import KINDS
+
+    kinds_field = NotifyConfig.model_fields["kinds"].annotation
+    (literal,) = get_args(kinds_field)
+    assert get_args(literal) == KINDS
+
+
+@pytest.mark.parametrize(
+    ("body", "key"),
+    [
+        ('kinds = ["bogus"]', "notify.kinds"),
+        ("kinds = []", "notify.kinds"),
+        ('kinds = ["input", "input"]', "notify.kinds"),
+        ('desk_command = ["terminal-notifier"]', "notify.desk_command"),
+        ('away_command = ["notify"]', "notify.away_command"),
+        ('desk_detail = "full"', "notify.desk_detail"),
+        ('away_detail = "full"', "notify.away_detail"),
+        ("grace_seconds = -1", "notify.grace_seconds"),
+        ("reminder_seconds = -1", "notify.reminder_seconds"),
+        ("timeout_seconds = 0", "notify.timeout_seconds"),
+        ("timeout_seconds = 61", "notify.timeout_seconds"),
+        ("foo = 1", "notify.foo"),
+    ],
+)
+def test_bad_notify_settings_are_refused(body: str, key: str) -> None:
+    _write(f"[notify]\n{body}\n")
+    with pytest.raises(ConfigError) as info:
+        load_config()
+    assert key in info.value.key
+
+
+def test_a_notify_error_never_echoes_an_argv_element() -> None:
+    _write('[notify]\naway_command = ["notify", "https://ntfy.sh/secret-topic-abc"]\n')
+    with pytest.raises(ConfigError) as info:
+        load_config()
+    assert "secret-topic-abc" not in str(info.value)
+    assert "secret-topic-abc" not in info.value.reason
+
+
+def test_a_relative_command_error_never_echoes_it() -> None:
+    _write('[notify]\ndesk_command = ["secret-topic-abc"]\n')
+    with pytest.raises(ConfigError) as info:
+        load_config()
+    assert info.value.key == "notify.desk_command"
+    assert "secret-topic-abc" not in str(info.value)
+
+
+def test_enabled_notify_needs_a_command() -> None:
+    _write("[notify]\nenabled = true\n")
+    with pytest.raises(ConfigError, match="enabled needs desk_command or away_command") as info:
+        load_config()
+    assert info.value.key == "notify"
+
+
+def test_enabled_notify_with_one_command_loads() -> None:
+    _write('[notify]\nenabled = true\naway_command = ["/usr/bin/curl", "-s", "{message}"]\n')
+    notify = load_config().notify
+    assert notify.enabled is True
+    assert notify.away_command == ["/usr/bin/curl", "-s", "{message}"]
+
+
+def test_zero_reminder_seconds_is_valid() -> None:
+    _write("[notify]\nreminder_seconds = 0\n")
+    assert load_config().notify.reminder_seconds == 0

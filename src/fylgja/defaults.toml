@@ -36,6 +36,28 @@ enabled = false
 ttl_seconds = 300
 max_concurrent = 3
 
+# Attention alerts (docs/runbooks/attention-alerts.md): when a session waits for you, the daemon runs
+# desk_command (or away_command while you are idle or the screen is locked) once after grace_seconds,
+# and once more after reminder_seconds while it still waits; 0 turns the reminder off. Off by default;
+# enabled = true needs a command. Element 0 of a command is an absolute path, because launchd's PATH is
+# minimal. Placeholders in every other element: {title}, {message}, {url} (the navigator page) and
+# {key} (the session key, empty when the alert names several sessions). There is no shell.
+# kinds: permission, input, turn_done, build_failed, review_requested, unread.
+# desk_detail / away_detail: "project" adds the folder and the reason, "kind" only the kind and the source.
+# Example for terminal-notifier (3.0.0_1 or later):
+# desk_command = ["/opt/homebrew/bin/terminal-notifier", "-title", "{title}", "-message", "{message}",
+#                 "-open", "{url}", "-group", "fylgja"]
+[notify]
+enabled = false
+kinds = ["permission", "input"]
+grace_seconds = 20
+reminder_seconds = 600
+desk_command = []
+away_command = []
+desk_detail = "project"
+away_detail = "kind"
+timeout_seconds = 5
+
 # The Claude Code hook events `fylgja install hooks` registers, each as an async `fylgja hook <Event>`
 # command (A2). Notification and SessionEnd use the matcher "": the hook reads the notification type
 # and the end reason from the payload. High-rate events (MessageDisplay, FileChanged) stay out. The

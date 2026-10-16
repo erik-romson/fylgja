@@ -13,7 +13,7 @@ import tomllib
 from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
     AfterValidator,
@@ -22,6 +22,7 @@ from pydantic import (
     Field,
     ValidationError,
     field_validator,
+    model_validator,
 )
 
 from fylgja import paths
@@ -34,6 +35,7 @@ __all__ = [
     "ConfigError",
     "HooksConfig",
     "ItemsConfig",
+    "NotifyConfig",
     "PathsConfig",
     "PrivacyConfig",
     "SummariesConfig",
@@ -122,6 +124,59 @@ class SummariesConfig(_Section):
     max_concurrent: int = Field(gt=0)
 
 
+NotifyKind = Literal[
+    "permission", "input", "turn_done", "build_failed", "review_requested", "unread"
+]
+NotifyDetail = Literal["project", "kind"]
+
+
+def _default_notify_kinds() -> list[NotifyKind]:
+    return ["permission", "input"]
+
+
+class NotifyConfig(_Section):
+    """Attention alerts: a notification command run when an agent waits for the person.
+
+    No validation message carries an argv element: an ``away_command`` can hold a secret topic.
+    """
+
+    enabled: bool = False
+    kinds: list[NotifyKind] = Field(default_factory=_default_notify_kinds)
+    """The waiting kinds that alert. At least one, no repeats."""
+    grace_seconds: float = Field(default=20, ge=0)
+    reminder_seconds: float = Field(default=600, ge=0)
+    """One reminder this long after the first alert; ``0`` turns reminders off."""
+    desk_command: list[str] = Field(default_factory=list)
+    """The argv of the desk channel. Empty, or element 0 an absolute path."""
+    away_command: list[str] = Field(default_factory=list)
+    """The argv of the away channel (idle or locked). Empty, or element 0 an absolute path."""
+    desk_detail: NotifyDetail = "project"
+    away_detail: NotifyDetail = "kind"
+    timeout_seconds: float = Field(default=5, gt=0, le=60)
+
+    @field_validator("kinds")
+    @classmethod
+    def _kinds(cls, value: list[NotifyKind]) -> list[NotifyKind]:
+        if not value:
+            raise ValueError("kinds must name at least one kind")
+        if len(set(value)) != len(value):
+            raise ValueError("kinds must not repeat")
+        return value
+
+    @field_validator("desk_command", "away_command")
+    @classmethod
+    def _command(cls, value: list[str]) -> list[str]:
+        if value and not Path(value[0]).is_absolute():
+            raise ValueError("the first element must be an absolute path")
+        return value
+
+    @model_validator(mode="after")
+    def _needs_a_command(self) -> NotifyConfig:
+        if self.enabled and not (self.desk_command or self.away_command):
+            raise ValueError("enabled needs desk_command or away_command")
+        return self
+
+
 class SpansConfig(_Section):
     idle_threshold_seconds: float = Field(gt=0)
     """The idle threshold of the presence signal. An ``idle.start`` event is stamped when the
@@ -191,6 +246,7 @@ class Config(_Section):
     privacy: PrivacyConfig
     actions: ActionsConfig
     summaries: SummariesConfig
+    notify: NotifyConfig
     hooks: HooksConfig
     paths: PathsConfig
     spans: SpansConfig = SpansConfig(idle_threshold_seconds=300.0)
