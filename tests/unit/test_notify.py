@@ -954,6 +954,19 @@ def test_the_key_is_set_only_for_one_safe_session_family() -> None:
         assert alert.key == expected, key
 
 
+def test_the_documented_click_command_renders_with_the_key() -> None:
+    """D6, R19: the ``-execute`` element of the documented ``desk_command``."""
+    element = "/x/fylgja session focus '{key}' --else-open"
+    single = announced(Run(), [waiting("claude:a")])
+    assert render_argv([element], {"key": single.key}) == [
+        "/x/fylgja session focus 'claude:a' --else-open"
+    ]
+    two = announced(
+        Run(row("claude:a"), row("claude:b")), [waiting("claude:a"), waiting("claude:b")]
+    )
+    assert render_argv([element], {"key": two.key}) == ["/x/fylgja session focus '' --else-open"]
+
+
 def test_url_for() -> None:
     """Scenario 26."""
     assert url_for(7319) == "http://127.0.0.1:7319/#recall"

@@ -368,25 +368,128 @@ def _walk(sessions: Any) -> list[dict[str, Any]]:
     return found
 
 
-def _session_key(given: str) -> str:
+class _SessionLookupError(Exception):
+    """No live session, or more than one, matches the given id."""
+
+
+def _lookup_session_key(given: str) -> str:
     """``given`` as a session key: a key as it is, else the one live session whose native id
-    equals or starts with it."""
+    equals or starts with it.
+
+    Raises :class:`_SessionLookupError` for no match or several, and lets ``client.DaemonDown``,
+    ``client.ApiError`` and ``ConfigError`` through.
+    """
     if ":" in given:
         return given
-    keys = [str(s.get("key")) for s in _walk(_fetch("/sessions")) if s.get("key")]
+    keys = [str(s.get("key")) for s in _walk(client.get_json("/sessions")) if s.get("key")]
     exact = [key for key in keys if key.partition(":")[2] == given]
     matches = exact or [key for key in keys if key.partition(":")[2].startswith(given)]
     if not matches:
-        _fail(f"no live session matches {given!r} (see `fylgja sessions`)", client.EXIT_API_ERROR)
+        raise _SessionLookupError(f"no live session matches {given!r} (see `fylgja sessions`)")
     if len(set(matches)) > 1:
-        _fail(
-            f"{given!r} matches {len(set(matches))} sessions; give more of the id or the full key",
-            client.EXIT_API_ERROR,
+        raise _SessionLookupError(
+            f"{given!r} matches {len(set(matches))} sessions; give more of the id or the full key"
         )
     return matches[0]
 
 
+def _fail_for(exc: Exception) -> NoReturn:
+    """Leave with the exit code and message of a lookup or API failure; re-raise anything else."""
+    from fylgja.config import ConfigError
+
+    if isinstance(exc, _SessionLookupError):
+        _fail(str(exc), client.EXIT_API_ERROR)
+    if isinstance(exc, client.DaemonDown):
+        _fail(
+            f"daemon not running ({exc.reason}) at {exc.url}; start it with `fylgja serve` "
+            "or `fylgja install launchd --apply`",
+            client.EXIT_DAEMON_DOWN,
+        )
+    if isinstance(exc, client.ApiError):
+        _fail(str(exc), client.EXIT_API_ERROR)
+    if isinstance(exc, ConfigError):
+        _fail(str(exc), EXIT_CONFIG)
+    raise exc
+
+
+def _session_key(given: str) -> str:
+    """``given`` as a session key, or leave with the exit code and message of the failure."""
+    try:
+        return _lookup_session_key(given)
+    except Exception as exc:
+        _fail_for(exc)
+
+
+def _page_url() -> str:
+    """The navigator page, ``<base url>/#recall``; on the default port when the config is broken."""
+    from fylgja.config import ConfigError
+
+    try:
+        return client.base_url() + "/#recall"
+    except ConfigError:
+        return f"http://{client.LOOPBACK}:{client.DEFAULT_PORT}/#recall"
+
+
+def _open_page(url: str) -> None:
+    """Open ``url`` in the default browser; exit 1 when that fails."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["/usr/bin/open", url],
+            check=False,
+            timeout=5,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _fail("could not open the navigator page", client.EXIT_API_ERROR)
+    if result.returncode != 0:
+        _fail("could not open the navigator page", client.EXIT_API_ERROR)
+
+
 SENT_STATES = frozenset({"submitted", "observed-enqueued"})
+
+
+@session_app.command("focus")
+def session_focus(
+    session: Annotated[
+        str,
+        typer.Argument(
+            metavar="ID", help="A session key (kind:id), a native session id or a unique prefix."
+        ),
+    ],
+    else_open: Annotated[
+        bool,
+        typer.Option(
+            "--else-open", help="Open the navigator page when the session cannot be focused."
+        ),
+    ] = False,
+    as_json: JsonOption = False,
+) -> None:
+    """Focus a live session's workspace and window (and its cmux tab when tab focus is on).
+
+    With --else-open, any failure to do that (no single matching session, no window, the daemon
+    down, an API error) opens the navigator page instead. Exits 0 when the session was focused or
+    the page was opened, else 1 (3 when the daemon is down, without --else-open).
+    """
+    from fylgja.config import ConfigError
+
+    if else_open and not session:
+        _open_page(_page_url())
+        return
+    try:
+        key = _lookup_session_key(session)
+        answer = client.send_json("POST", f"/focus/session/{client.quote(key)}", {})
+    except (_SessionLookupError, client.DaemonDown, client.ApiError, ConfigError) as exc:
+        if not else_open:
+            _fail_for(exc)
+        _open_page(_page_url())
+        return
+    focused = answer.get("focused") if isinstance(answer, dict) else None
+    via = answer.get("via") if isinstance(answer, dict) else None
+    _show(answer, as_json, lambda: f"focused {focused} via {via}")
 
 
 @session_app.command("message")
