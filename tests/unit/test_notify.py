@@ -5,23 +5,33 @@ monotonic seconds, and the wall time of a snapshot at ``t`` is ``BASE + t``. Unl
 otherwise the settings are the defaults with ``desk_command = ["/n"]``, and one ``permission``
 entry for ``claude:a`` (folder ``fylgja``) is first seen at t=0 with ``since`` equal to that
 snapshot's wall time. The scenario numbers of the plan are in each test's docstring.
+
+The last tests drive the delivery side (:class:`~fylgja.core.notify.CommandSender`,
+:class:`~fylgja.core.notify.Notifier`) on a :class:`FakeClock` and a :class:`FakeProcessRunner`,
+for the R13 and R15 cases the daemon scenarios of ``test_notify_daemon.py`` do not reach.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
+
 from fylgja.config import NotifyConfig
 from fylgja.core.notify import (
     LATE_SIGHT_FLOOR,
     Alert,
+    CommandSender,
     Decision,
     Episode,
+    Notifier,
     NotifyState,
+    NotifyStats,
     Snapshot,
     candidates,
     decide,
@@ -31,7 +41,7 @@ from fylgja.core.notify import (
 )
 from fylgja.core.waiting import WaitingEntry
 from fylgja.store.rows import SessionRow
-from fylgja.testing.fakes import FakeClock
+from fylgja.testing.fakes import FakeClock, FakeProcessRunner
 
 BASE = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
 REASON = "waiting for permission: Bash"
@@ -948,3 +958,120 @@ def test_url_for() -> None:
     """Scenario 26."""
     assert url_for(7319) == "http://127.0.0.1:7319/#recall"
     assert url_for(0) == ""
+
+
+# --------------------------------------------------------------------------------------------
+# Delivery (R13, R15): the parts the daemon scenarios of test_notify_daemon.py do not reach
+# --------------------------------------------------------------------------------------------
+
+
+async def test_every_runner_failure_has_its_outcome() -> None:
+    """R13: ``TimeoutError`` is checked before ``OSError``; any other ``OSError`` and a
+    ``ValueError`` are ``command_failed``."""
+    alert = announced(Run())
+    cases: list[tuple[BaseException | None, int, str]] = [
+        (None, 0, "sent"),
+        (None, 2, "command_failed"),
+        (TimeoutError("the runner's own timeout"), 0, "command_timeout"),
+        (FileNotFoundError(2, "missing", "/n"), 0, "command_missing"),
+        (PermissionError(13, "denied", "/n"), 0, "command_failed"),
+        (ValueError("empty argv"), 0, "command_failed"),
+    ]
+    for error, returncode, outcome in cases:
+        runner = FakeProcessRunner()
+        runner.script("/n", error=error, returncode=returncode)
+        sender = CommandSender(config(), runner=runner, clock=FakeClock(BASE), port=7319)
+        assert await sender.send(alert) == outcome, error
+        assert runner.timeouts == [5.0]
+
+
+def test_each_channel_runs_its_own_command() -> None:
+    """R8, R12: the away channel runs ``away_command`` with the same values."""
+    settings = config(away_command=["/p", "{message}", "{key}"])
+    sender = CommandSender(settings, runner=FakeProcessRunner(), clock=FakeClock(BASE), port=0)
+    desk = announced(Run(settings=settings))
+    assert sender.argv(desk) == ["/n"]
+    away = replace(desk, channel="away")
+    assert sender.argv(away) == ["/p", away.message, "claude:a"]
+
+
+class Reader:
+    """A notifier's ``read``: the entries listed from a given time on, on ``clock``."""
+
+    def __init__(self, clock: FakeClock, *listed: tuple[float, WaitingEntry]) -> None:
+        self.clock = clock
+        self.listed = listed
+        self.reads: list[float] = []
+
+    def __call__(self) -> Snapshot:
+        now = self.clock.monotonic()
+        self.reads.append(now)
+        entries = [entry for start, entry in self.listed if start <= now]
+        sessions = [row(entry.target) for entry in entries]
+        return Snapshot(
+            now=now,
+            wall_now=self.clock.now(),
+            candidates=candidates(entries, sessions),
+            on_screen=frozenset(),
+            away=False,
+        )
+
+
+async def test_a_burst_of_wakes_is_debounced_and_a_deadline_is_not() -> None:
+    """R15: one evaluation at start, one per burst of wakes after the debounce, and one exactly
+    at the deadline ``decide`` returned."""
+    clock = FakeClock(BASE)
+    runner = FakeProcessRunner()
+    runner.script("/n")
+    read = Reader(clock, (0.0, waiting("claude:a")))
+    notifier = Notifier(config(), runner=runner, clock=clock, port=7319, read=read, debounce=0.25)
+    task = asyncio.create_task(notifier.run())
+    try:
+        await clock.advance(0)
+        assert read.reads == [0.0]
+        notifier.wake()
+        notifier.wake()
+        await clock.advance(0.2)
+        assert read.reads == [0.0]
+        await clock.advance(0.05)
+        assert read.reads == [0.0, 0.25]
+        await clock.advance_to(20)
+        assert read.reads == [0.0, 0.25, 20.0]
+        assert runner.calls == [("/n",)]
+        assert notifier.stats() == NotifyStats(sent=1, last_outcome="sent", open=1)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("woken", [False, True])
+async def test_what_falls_due_during_a_hanging_send_goes_out_right_after_it(woken: bool) -> None:
+    """R13, R15: one send at a time. ``claude:b`` falls due at 22 while the send for
+    ``claude:a`` hangs until its timeout at 25; it goes out at 25, whether or not a wake came
+    in between."""
+    clock = FakeClock(BASE)
+    runner = FakeProcessRunner()
+    runner.script("/n", hang=True, times=1)
+    runner.script("/n")
+    read = Reader(clock, (0.0, waiting("claude:a")), (2.0, waiting("claude:b", since=wall(2))))
+    notifier = Notifier(config(), runner=runner, clock=clock, port=7319, read=read, debounce=0)
+    task = asyncio.create_task(notifier.run())
+    try:
+        await clock.advance(2)
+        notifier.wake()
+        await clock.advance_to(21)
+        assert runner.calls == [("/n",)]
+        assert runner.active == 1
+        if woken:
+            notifier.wake()
+        await clock.advance_to(24)
+        assert runner.calls == [("/n",)]
+        await clock.advance(1)
+        assert runner.calls == [("/n",), ("/n",)]
+        assert runner.active == 0
+        stats = notifier.stats()
+        assert (stats.sent, stats.failed, stats.last_failure_kind) == (1, 1, "command_timeout")
+        assert stats.last_failure_at == wall(25)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

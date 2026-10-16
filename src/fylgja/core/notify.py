@@ -1,10 +1,11 @@
-"""Attention alerts: the pure decision core (``docs/decisions/0055``).
+"""Attention alerts: the decision core and its delivery (``docs/decisions/0055``).
 
 Given what ``/now`` shows as waiting, what is on screen, whether the person is away, the time and
 the previous state, :func:`decide` says whether to send an alert now, with which title and
-message, and when to look again. Nothing here reads a clock, does I/O or runs a task: the caller
-passes monotonic seconds (``Snapshot.now``) and the aware wall time (``Snapshot.wall_now``), and
-carries the returned :class:`NotifyState` to the next evaluation.
+message, and when to look again. :func:`decide` reads no clock, does no I/O and runs no task: the
+caller passes monotonic seconds (``Snapshot.now``) and the aware wall time (``Snapshot.wall_now``),
+and carries the returned :class:`NotifyState` to the next evaluation. The delivery side
+(:class:`CommandSender`, :class:`Notifier`) is described at the end.
 
 **Input** (R1). :func:`candidates` turns the ``waiting[]`` entries of
 :func:`fylgja.core.shown.shown_waiting` into :class:`Candidate` values; :func:`decide` ignores
@@ -43,12 +44,28 @@ letter upper-cased. Every value is sanitised (control characters become spaces, 
 collapse), titles are clipped to 64 characters and messages to 200. **Substitution** (R12):
 :func:`render_argv` makes one pass over each argv element; ``{key}`` is empty unless the alert
 names one session family whose key is safe inside a shell string.
+
+**Delivery** (R13). :class:`CommandSender` runs the channel's command through the daemon's
+process runner with ``timeout_seconds``, raced against the injected clock, and never reads its
+output. The outcome is ``command_timeout``, ``command_missing``, ``command_failed`` (a non-zero
+exit, any other :class:`OSError`, a :class:`ValueError`) or ``sent``. Episodes are marked
+announced before the send and a failed send is never retried.
+
+**The loop** (R15, R16). :class:`Notifier` exists only while ``[notify] enabled = true``. It
+evaluates once at start, then after every :meth:`Notifier.wake` (debounced) and at the next
+deadline :func:`decide` returned, on its own task: never inside the writer's callback. One send
+runs at a time. **Logs** (R14) go to ``fylgja.notify``: each send at INFO (channel, families,
+kinds, outcome), a failed one also at WARNING (failure kind, session keys), a failing evaluation
+once per exception type. No log carries a title, a message, a folder, a reason, a project path or
+an argv element.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final, Literal
@@ -58,6 +75,8 @@ from fylgja.core.waiting import WaitingEntry
 from fylgja.store.rows import SessionRow
 
 if TYPE_CHECKING:
+    from fylgja.collectors.base import Clock
+    from fylgja.collectors.seams import ProcessRunner
     from fylgja.config import NotifyConfig
 
 __all__ = [
@@ -68,10 +87,15 @@ __all__ = [
     "Alert",
     "Candidate",
     "Channel",
+    "CommandSender",
     "Decision",
     "Episode",
     "EpisodeKey",
+    "FailureKind",
+    "Notifier",
     "NotifyState",
+    "NotifyStats",
+    "Outcome",
     "Snapshot",
     "candidates",
     "decide",
@@ -79,6 +103,8 @@ __all__ = [
     "render_argv",
     "url_for",
 ]
+
+logger = logging.getLogger("fylgja.notify")
 
 LATE_SIGHT_FLOOR: Final = 5.0
 """Seconds an entry first seen past its grace still waits (R3): time for the collectors' first
@@ -114,6 +140,10 @@ _SAFE_KEY = re.compile(r"[A-Za-z0-9:@._-]+")
 _NO_SINCE: Final = datetime.min.replace(tzinfo=UTC)
 
 Channel = Literal["desk", "away"]
+FailureKind = Literal["command_timeout", "command_missing", "command_failed"]
+"""Why a send failed (R13)."""
+Outcome = Literal["sent", FailureKind]
+"""What one send came to (R13)."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -530,3 +560,206 @@ def _alert(
             )
         ),
     )
+
+
+# --------------------------------------------------------------------------------------------
+# Delivery
+# --------------------------------------------------------------------------------------------
+
+
+async def _race[T](call: Awaitable[T], clock: Clock, seconds: float) -> T:
+    """``call``'s result, or :class:`TimeoutError` once ``clock`` passes ``seconds``.
+
+    Whichever loses is cancelled and awaited, so nothing is left running.
+    """
+    work = asyncio.ensure_future(call)
+    timer = asyncio.ensure_future(clock.sleep(seconds))
+    try:
+        await asyncio.wait({work, timer}, return_when=asyncio.FIRST_COMPLETED)
+        if not work.done():
+            raise TimeoutError
+        return work.result()
+    finally:
+        for task in (work, timer):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(work, timer, return_exceptions=True)
+
+
+class CommandSender:
+    """Runs the channel's command for one alert (R12, R13).
+
+    The argv gets ``{title}``, ``{message}``, ``{url}`` and ``{key}`` substituted
+    (:func:`render_argv`) and runs through ``runner`` with ``timeout_seconds``, raced against
+    ``clock`` (a runner that ignores its timeout still loses the race). There is no shell, and the
+    command's output is never read.
+    """
+
+    def __init__(
+        self, settings: NotifyConfig, *, runner: ProcessRunner, clock: Clock, port: int
+    ) -> None:
+        self._settings = settings
+        self._runner = runner
+        self._clock = clock
+        self._url = url_for(port)
+
+    def argv(self, alert: Alert) -> list[str]:
+        """The command of ``alert``'s channel with its values substituted."""
+        settings = self._settings
+        command = settings.away_command if alert.channel == "away" else settings.desk_command
+        values = {
+            "title": alert.title,
+            "message": alert.message,
+            "url": self._url,
+            "key": alert.key,
+        }
+        return render_argv(command, values)
+
+    async def send(self, alert: Alert) -> Outcome:
+        """Run the command once and say how it went; never raises for a failing command."""
+        seconds = float(self._settings.timeout_seconds)
+        try:
+            result = await _race(
+                self._runner.run(self.argv(alert), timeout=seconds), self._clock, seconds
+            )
+        except TimeoutError:  # first: TimeoutError is an OSError
+            return "command_timeout"
+        except FileNotFoundError:
+            return "command_missing"
+        except (OSError, ValueError):
+            return "command_failed"
+        return "sent" if result.returncode == 0 else "command_failed"
+
+
+@dataclass(frozen=True)
+class NotifyStats:
+    """The notifier's counters, for the status surface (R18). The default is a notifier that is
+    off or has done nothing yet."""
+
+    sent: int = 0
+    """Sends whose command exited 0."""
+    failed: int = 0
+    """Sends that timed out, found no command or failed."""
+    last_outcome: Outcome | None = None
+    last_failure_kind: FailureKind | None = None
+    last_failure_at: datetime | None = None
+    """The wall time of the last failed send."""
+    open: int = 0
+    """Episodes whose entry is still listed, announced or not."""
+
+
+class Notifier:
+    """The daemon's attention-alert loop (R13–R15); see the module docstring.
+
+    ``read`` builds the :class:`Snapshot` of the moment; it is called on the event loop thread,
+    once per evaluation. Call :meth:`wake` after anything that can change it.
+    """
+
+    def __init__(
+        self,
+        settings: NotifyConfig,
+        *,
+        runner: ProcessRunner,
+        clock: Clock,
+        port: int,
+        read: Callable[[], Snapshot],
+        debounce: float,
+    ) -> None:
+        self._settings = settings
+        self._clock = clock
+        self._read = read
+        self._debounce = debounce
+        self._sender = CommandSender(settings, runner=runner, clock=clock, port=port)
+        self._wake = asyncio.Event()
+        self._state = NotifyState()
+        self._stats = NotifyStats()
+        self._logged: set[type[Exception]] = set()
+
+    def wake(self) -> None:
+        """Ask for an evaluation soon. Cheap and safe inside any callback."""
+        self._wake.set()
+
+    def stats(self) -> NotifyStats:
+        return self._stats
+
+    async def run(self) -> None:
+        """Evaluate now, then after every wake (debounced) and at every deadline, until
+        cancelled. A cancelled send leaves no command running."""
+        deadline = await self._evaluate()
+        while True:
+            if await self._wait(deadline) and self._debounce > 0:
+                await self._clock.sleep(self._debounce)
+            self._wake.clear()
+            deadline = await self._evaluate()
+
+    async def _wait(self, deadline: float | None) -> bool:
+        """Return on a wake (``True``) or once ``deadline`` (monotonic) has passed (``False``)."""
+        if self._wake.is_set():
+            return True
+        if deadline is None:
+            await self._wake.wait()
+            return True
+        delay = deadline - self._clock.monotonic()
+        if delay <= 0:
+            return False
+        try:
+            await _race(self._wake.wait(), self._clock, delay)
+        except TimeoutError:
+            return False
+        return True
+
+    async def _evaluate(self) -> float | None:
+        """One evaluation and its send. The next deadline, or ``None`` when it failed: the next
+        wake (at the latest the daemon's tick) tries again."""
+        try:
+            decision = decide(self._read(), self._state, self._settings)
+            self._state = decision.state
+            opened = sum(1 for e in decision.state.episodes.values() if e.closed_at is None)
+            self._stats = replace(self._stats, open=opened)
+            if decision.alert is not None:
+                await self._send(decision.alert)
+        except Exception as error:
+            self._failed(error)
+            return None
+        return decision.next_check
+
+    async def _send(self, alert: Alert) -> None:
+        outcome = await self._sender.send(alert)
+        stats = self._stats
+        if outcome == "sent":
+            self._stats = replace(stats, sent=stats.sent + 1, last_outcome=outcome)
+        else:
+            self._stats = replace(
+                stats,
+                failed=stats.failed + 1,
+                last_outcome=outcome,
+                last_failure_kind=outcome,
+                last_failure_at=self._clock.now(),
+            )
+        logger.info(
+            "%s alert for %d %s (%s): %s",
+            alert.channel,
+            alert.families,
+            "family" if alert.families == 1 else "families",
+            ", ".join(alert.kinds),
+            outcome,
+        )
+        if outcome != "sent":
+            logger.warning(
+                "alert delivery failed: %s (sessions: %s)",
+                outcome,
+                ", ".join(alert.session_keys) or "none",
+            )
+
+    def _failed(self, error: Exception) -> None:
+        """Log a failing evaluation once per exception type. Only the type is logged: the
+        exception's text could carry a path."""
+        kind = type(error)
+        if kind in self._logged:
+            return
+        self._logged.add(kind)
+        logger.error(
+            "evaluating attention alerts failed with %s; later failures of this type are not "
+            "logged",
+            kind.__name__,
+        )

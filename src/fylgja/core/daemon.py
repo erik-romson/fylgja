@@ -21,6 +21,10 @@ Data flows **registry → supervisor → ingest gate → writer → state engine
   (:attr:`Daemon.todos`), which also go through the writer;
 * the **summary service** (:attr:`Daemon.summaries`, WP8.1) is the only part that calls a model.
   It is off by default; its results go through the writer too;
+* the **notifier** (:attr:`Daemon.notifier`, docs/decisions/0055) sends attention alerts through a
+  configured command. It exists only while ``[notify] enabled = true``, runs on its own task and
+  reads the same ``waiting[]`` list ``/now`` shows (:meth:`Daemon._attention`); every live-view
+  update and every tick wake it;
 * the **span window** (:attr:`Daemon.span_window`) holds the focus spans of the last 14 days in
   memory: read once at start, then fed by the span engine. :meth:`Daemon.activity` builds working
   time from it (docs/decisions/0050);
@@ -74,10 +78,12 @@ from fylgja.core.items import Item
 from fylgja.core.labels import LabelService
 from fylgja.core.live_view import Collection, LiveSnapshot, LiveUpdate, LiveView
 from fylgja.core.next_lists import NextLists
+from fylgja.core.notify import Notifier, NotifyStats, Snapshot, candidates, on_screen
 from fylgja.core.project_roots import ProjectLocator
 from fylgja.core.resolver import Placement, ProjectPlacement, Resolution, Resolver
 from fylgja.core.retention import MaintenanceJob
 from fylgja.core.sessions import SessionStateEngine
+from fylgja.core.shown import shown_sessions, shown_waiting
 from fylgja.core.span_window import SpanWindow
 from fylgja.core.summaries import SummaryRunner, SummaryService
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
@@ -567,6 +573,20 @@ class Daemon:
         )
         """Session and workspace summaries by a local model (WP8.1); off unless
         ``[summaries] enabled = true``. The only place a model is called."""
+        self.notifier: Notifier | None = (
+            Notifier(
+                config.notify,
+                runner=process_runner,
+                clock=self.clock,
+                port=config.api.port,
+                read=self._attention,
+                debounce=resolve_debounce,
+            )
+            if config.notify.enabled
+            else None
+        )
+        """Attention alerts (docs/decisions/0055); built only while ``[notify] enabled = true``,
+        so a disabled daemon starts no task for them and never runs their command."""
         self.rankers: tuple[RegisteredRanker, ...] = load_rankers(config, ranker_entry_points)
         """Every discovered ranker after the enable rule (docs/decisions/0052); only the enabled
         ones were imported."""
@@ -638,6 +658,8 @@ class Daemon:
                 asyncio.create_task(self._tick_loop(), name="fylgja-tick"),
                 asyncio.create_task(self.maintenance.run(), name="fylgja-maintenance"),
             ]
+            if self.notifier is not None:
+                self._tasks.append(asyncio.create_task(self.notifier.run(), name="fylgja-notify"))
             self.lifecycle.append("start:state_engine")
             self.supervisor.start()
             self.lifecycle.append("start:supervisor")
@@ -720,6 +742,8 @@ class Daemon:
                 self.session_state.forget(change.key)
         if update.collections & _ENGINE_TRIGGERS:
             self._mark_dirty()
+        if self.notifier is not None:  # also focus changes and away transitions (view.touch)
+            self.notifier.wake()
 
     def _mark_dirty(self) -> None:
         self._engine_idle.clear()
@@ -756,6 +780,33 @@ class Daemon:
             last = now
             self.gate.refresh()
             self._mark_dirty()
+            if self.notifier is not None:  # a private-window focus reaches it only here
+                self.notifier.wake()
+
+    def _attention(self) -> Snapshot:
+        """What the notifier evaluates (R1, R5, R8): the ``waiting[]`` list ``/now`` shows, the
+        families in the focused window and whether the person is away.
+
+        The focused window is the span tracker's, which is current: a privacy-ignored window
+        leaves it empty, and while the person is idle or the screen is locked nothing is on
+        screen."""
+        state = self.state()
+        sessions = shown_sessions(state)
+        tracker = self.spans.tracker
+        away = bool(tracker.suspended)
+        focused = tracker.focused
+        window = None if away or focused is None else focused.window_id
+        return Snapshot(
+            now=self.clock.monotonic(),
+            wall_now=self.clock.now(),
+            candidates=candidates(shown_waiting(state) or (), sessions),
+            on_screen=on_screen(window, sessions),
+            away=away,
+        )
+
+    def notify_stats(self) -> NotifyStats:
+        """The notifier's counters; the zero default while alerts are off."""
+        return NotifyStats() if self.notifier is None else self.notifier.stats()
 
     def _window_of(self, key: str) -> str | None:
         """The resolver's window of a live session (what a focus change is matched against)."""
