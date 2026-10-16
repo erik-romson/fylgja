@@ -21,7 +21,9 @@ from pydantic import AwareDatetime, Field
 from fylgja.api.now_models import NextItem, NowModel
 
 __all__ = [
+    "ATTENTION_SCHEMA",
     "OVERVIEW_SCHEMA",
+    "Attention",
     "Card",
     "CardContext",
     "CardProject",
@@ -37,6 +39,9 @@ __all__ = [
 
 OVERVIEW_SCHEMA: Final = "fylgja.view.overview/1"
 """The version string ``/view/overview`` carries in ``schema``."""
+
+ATTENTION_SCHEMA: Final = "fylgja.view.attention/1"
+"""The version string ``/view/attention`` carries in ``schema``."""
 
 
 class NextList(NowModel):
@@ -172,3 +177,17 @@ class Overview(NowModel):
     """The ``list_id`` of ``GET /next`` (for ``POST /next/feedback``)."""
     cards: list[Card]
     todo_groups: list[TodoGroup]
+
+
+class Attention(NowModel):
+    """The tab title and icon while an agent waits (``GET /view/attention``)."""
+
+    schema_: Literal["fylgja.view.attention/1"] = Field(default=ATTENTION_SCHEMA, alias="schema")
+    """The contract version."""
+    generated_at: AwareDatetime
+    waiting: int
+    """How many ``/now`` ``waiting[]`` entries are a ``permission`` or ``input`` wait."""
+    title: str
+    """``(N) Fylgja`` while ``waiting`` is above 0, else ``Fylgja``."""
+    icon: str
+    """``/favicon-attention.png`` while ``waiting`` is above 0, else ``/favicon.png``."""

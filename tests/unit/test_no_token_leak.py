@@ -239,6 +239,7 @@ async def test_canaries_reach_no_log_spool_file_database_row_or_api_response(
                 "/workspaces",
                 "/collectors",
                 "/health",
+                "/view/attention",
                 "/view/overview",
                 "/items",
                 "/rankers",

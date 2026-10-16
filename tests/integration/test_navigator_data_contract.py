@@ -39,7 +39,7 @@ from pydantic import BaseModel
 from fylgja.api.app import create_app
 from fylgja.api.inspect_models import InspectCollectors, InspectExplain, InspectPipeline
 from fylgja.api.items_models import Items, Rankers
-from fylgja.api.view_models import Overview
+from fylgja.api.view_models import Attention, Overview
 from fylgja.core.daemon import Daemon
 from fylgja.testing.fakes import FakeProcessRunner
 
@@ -162,8 +162,10 @@ VIEW_VARIABLES: dict[str, str] = {
     "tg": "TodoGroup",
     "tr": "TodoRow",
     "ft": "FocusTarget",
+    "att": "Attention",
 }
 VIEW_FIELDS: dict[str, set[str]] = {
+    "Attention": {"icon", "title"},
     "Overview": {"cards", "focused_workspace", "next", "todo_groups"},
     "Card": {
         "context",
@@ -491,9 +493,11 @@ def test_the_script_reads_only_the_declared_fields_and_all_of_them() -> None:
 
 
 def test_every_field_the_overview_reads_exists_in_its_view_model() -> None:
-    _assert_declared_fields_exist(VIEW_FIELDS, _model_resolver(Overview), "Overview")
+    _assert_declared_fields_exist(VIEW_FIELDS, _model_resolver(Overview, Attention), "the views")
     schema = Overview.model_json_schema(by_alias=True, mode="serialization")
     assert schema["properties"]["schema"]["const"] == "fylgja.view.overview/1"
+    attention = Attention.model_json_schema(by_alias=True, mode="serialization")
+    assert attention["properties"]["schema"]["const"] == "fylgja.view.attention/1"
 
 
 def test_the_overview_reads_only_the_declared_view_fields_and_all_of_them() -> None:
@@ -549,7 +553,8 @@ def test_no_variable_name_is_in_two_tables() -> None:
 
 
 def test_the_resolvers_reject_what_the_schemas_lack() -> None:
-    view = _model_resolver(Overview)
+    view = _model_resolver(Overview, Attention)
+    assert view("Attention", "title")
     assert view("Card", "sessions")
     assert view("Overview", "todo_groups")
     assert not view("Card", "windows.id")
@@ -707,6 +712,15 @@ async def test_todos_answers_the_raw_tab(http: httpx.AsyncClient) -> None:
         answer = await http.get(query)
         assert answer.status_code == 200, query
         assert isinstance(answer.json(), list), query
+
+
+async def test_attention_answers_as_the_page_expects(http: httpx.AsyncClient) -> None:
+    response = await http.get("/view/attention", headers={"Origin": ORIGIN})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema"] == "fylgja.view.attention/1"
+    for name in sorted(VIEW_FIELDS["Attention"]):
+        assert isinstance(body[name], str), name
 
 
 async def test_next_answers_as_the_page_expects(http: httpx.AsyncClient) -> None:

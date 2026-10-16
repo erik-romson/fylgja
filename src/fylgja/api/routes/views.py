@@ -1,5 +1,10 @@
-"""``GET /view/overview``: the Overview tab of the navigator page in one call
-(``docs/api/views.md``, ``docs/decisions/0047``).
+"""``GET /view/attention`` and ``GET /view/overview``: the tab signal and the Overview tab of the
+navigator page (``docs/api/views.md``, ``docs/decisions/0047``).
+
+``/view/attention`` is the tab title and icon while an agent waits (``fylgja.view.attention/1``),
+built by :func:`fylgja.api.views.build_attention` from ``/now`` alone.
+
+``/view/overview`` is the whole Overview tab in one call.
 
 A read: no authentication, Host-checked like every route. The answer is
 ``fylgja.view.overview/1`` (:class:`~fylgja.api.view_models.Overview`), built by
@@ -23,7 +28,7 @@ from fylgja.api.deps import current_now, daemon_of, json_response, ranked_or_422
 from fylgja.api.now import todo_model
 from fylgja.api.now_models import dump_json
 from fylgja.api.routes.next import next_list
-from fylgja.api.views import build_overview
+from fylgja.api.views import build_attention, build_overview
 
 __all__ = ["router"]
 
@@ -31,6 +36,12 @@ router = APIRouter()
 
 _OPEN_STATUSES: Final = ("open", "next")
 """The statuses the Overview lists (``GET /todos?status=open,next``)."""
+
+
+@router.get("/view/attention")
+async def get_attention(request: Request) -> Response:
+    """The tab title and icon while an agent waits (``fylgja.view.attention/1``)."""
+    return json_response(dump_json(build_attention(current_now(request))))
 
 
 @router.get("/view/overview")

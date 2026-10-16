@@ -28,6 +28,7 @@ from typing import Final
 
 from fylgja.api.now_models import ContextItem, NextItem, Now, Project, Session, Todo, Workspace
 from fylgja.api.view_models import (
+    Attention,
     Card,
     CardContext,
     CardProject,
@@ -41,12 +42,14 @@ from fylgja.api.view_models import (
     TodoRow,
 )
 from fylgja.core.todo_import import NATIVE_SOURCE, SCOPE_PROJECT, SCOPE_SESSION, SCOPE_WORKSPACE
+from fylgja.core.waiting import INPUT, PERMISSION
 
 __all__ = [
     "MAX_CONTEXT",
     "MAX_SESSIONS",
     "MAX_TODOS",
     "WAITING_STATES",
+    "build_attention",
     "build_overview",
     "scope_title",
 ]
@@ -359,4 +362,26 @@ def build_overview(
         next_list_id=next_answer.list_id,
         cards=_ordered(cards, workspace_order),
         todo_groups=_todo_groups(todos, focused, sessions, projects, workspaces),
+    )
+
+
+# --------------------------------------------------------------------------------------------
+# The attention signal
+# --------------------------------------------------------------------------------------------
+
+_ATTENTION_KINDS: Final = frozenset({PERMISSION, INPUT})
+_PAGE_TITLE: Final = "Fylgja"
+_ICON: Final = "/favicon.png"
+_ICON_ATTENTION: Final = "/favicon-attention.png"
+
+
+def build_attention(now: Now) -> Attention:
+    """``fylgja.view.attention/1`` from ``now.waiting``: the rank-0 count (``permission`` and
+    ``input``), the tab title and the tab icon the page copies."""
+    count = sum(1 for entry in now.waiting or () if entry.kind in _ATTENTION_KINDS)
+    return Attention(
+        generated_at=now.generated_at,
+        waiting=count,
+        title=f"({count}) {_PAGE_TITLE}" if count else _PAGE_TITLE,
+        icon=_ICON_ATTENTION if count else _ICON,
     )

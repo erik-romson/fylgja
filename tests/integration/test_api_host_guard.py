@@ -27,6 +27,7 @@ READ_ROUTES = (
     "/projects",
     "/collectors",
     "/health",
+    "/view/attention",
     "/view/overview",
     "/items",
     "/rankers",

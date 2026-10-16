@@ -37,6 +37,7 @@ label or secret.
 | `GET /items` | `rank`, `days`, `q`, `limit` | `fylgja.items/1`: one navigation item per git-root folder and per app, ranked | [`items.md`](items.md) |
 | `GET /rankers` | `rank` | `fylgja.rankers/1`: the discovered rankers and the selected one | [`items.md`](items.md#get-rankers) |
 | `GET /view/overview` | `rank` | `fylgja.view.overview/1`: the page's Overview tab in one call | [`views.md`](views.md) |
+| `GET /view/attention` | | `fylgja.view.attention/1`: the tab title and icon while an agent waits | [`views.md`](views.md#get-viewattention) |
 | `GET /summaries/{scope}/{ref}` | | `SummaryResponse`, cached only; never starts a job | [`summaries.md`](summaries.md) |
 | `GET /collectors` | | `CollectorRow[]`: `{name, origin, distribution, distribution_version, state, enabled, api_version, capabilities, health}`; a collector that is not loaded has `not_loaded` in the last three | |
 | `GET /inspect/collectors` | | `fylgja.inspect.collectors/1`, with a `notify` block | [`inspect.md`](inspect.md) |
@@ -46,6 +47,7 @@ label or secret.
 | `GET /events` | | Server-Sent Events, see [Events](#events) | |
 | `GET /` | | The navigator page (HTML, the secret in a `<meta>` tag, never cached) | |
 | `GET /favicon.png` | | The page's tab icon (PNG) | |
+| `GET /favicon-attention.png` | | The tab icon with the attention dot (PNG) | |
 
 A `rank` that names no loaded ranker (and is not `natural`) is **422** on `/now`, `/items` and `/view/overview`.
 

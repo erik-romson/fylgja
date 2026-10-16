@@ -132,3 +132,32 @@ with `SOURCE_LABELS` and shows no Done button.
 
 Logic: `src/fylgja/api/views.py` (pure), `src/fylgja/api/view_models.py` (the models) and
 `src/fylgja/api/routes/views.py`.
+
+## `GET /view/attention`
+
+The tab title and icon of the navigator page while an agent waits on the person. It is a read: no
+authentication, and the `Host` header is checked as on every route. The answer is `fylgja.view.attention/1`.
+The page calls it on every reload, on every tab, and copies `title` into `document.title` and `icon` into the
+`href` of the tab icon link. It computes nothing itself.
+
+| Field | Meaning |
+|---|---|
+| `schema` | `fylgja.view.attention/1` |
+| `generated_at` | The instant of the `/now` picture it is built from |
+| `waiting` | The number of `/now` `waiting[]` entries of kind `permission` or `input` (rank 0). An absent `waiting[]` counts as 0 |
+| `title` | `(N) Fylgja` while `waiting` is above 0, else `Fylgja` |
+| `icon` | `/favicon-attention.png` while `waiting` is above 0, else `/favicon.png` |
+
+The signal does not depend on `[notify]`. Both icons are static files of the page's own origin, so the page
+CSP (`img-src 'self'`) is unchanged. `fylgja.now/1` and the `/events` payload carry no count.
+
+```json
+{
+  "schema": "fylgja.view.attention/1",
+  "generated_at": "2026-10-05T12:00:00Z",
+  "waiting": 1,
+  "title": "(1) Fylgja",
+  "icon": "/favicon-attention.png"
+}
+```
+

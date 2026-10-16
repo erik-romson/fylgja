@@ -247,6 +247,15 @@ def test_the_page_focuses_through_the_guarded_focus_api() -> None:
         assert target in script, target
 
 
+def test_the_page_copies_the_attention_title_and_icon_from_the_daemon() -> None:
+    script = _script(_source())
+    assert 'call("GET", "/view/attention")' in script
+    assert "document.title = att.title" in script
+    assert 'iconLink.setAttribute("href", att.icon)' in script
+    body = script.split("async function refresh(force) {", 1)[1]
+    assert body.index("await loadAttention();") < body.index("throttled(name)")
+
+
 def test_todos_are_grouped_by_scope_and_imported_ones_name_their_source() -> None:
     script = _script(_source())
     # the daemon groups the todos and titles each group (api/views.py); the page renders them

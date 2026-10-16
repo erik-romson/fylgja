@@ -173,6 +173,7 @@
 </section>
 <script>
 "use strict";
+const iconLink = document.querySelector('link[rel="icon"]');
 const secret = document.querySelector('meta[name="fylgja-secret"]').content;
 const list = document.getElementById("todo-list");
 const input = document.getElementById("todo-input");
@@ -1106,6 +1107,17 @@ let running = false;
 let again = false;
 let bypass = false;
 
+// The tab title and icon while an agent waits: the daemon decides them, the page copies them.
+async function loadAttention() {
+  try {
+    const att = await call("GET", "/view/attention");
+    document.title = att.title;
+    iconLink.setAttribute("href", att.icon);
+  } catch (error) {
+    // Leave the title and the icon as they were.
+  }
+}
+
 // A reload. A tab switch, a ranker change and a Refresh button pass force and skip the throttle.
 async function refresh(force) {
   if (force) { bypass = true; }
@@ -1114,6 +1126,7 @@ async function refresh(force) {
   try {
     do {
       again = false;
+      await loadAttention();
       const name = currentTab();
       showTab(name);
       const skip = !bypass && throttled(name);

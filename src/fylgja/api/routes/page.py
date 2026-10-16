@@ -6,7 +6,8 @@ workspace, live over ``/events``, with the todo entry of WP4.4. The API secret g
 writes. That is safe for the reasons §4.2 gives: the Host check turns away a foreign page (DNS
 rebinding) before this route runs, and no response carries a CORS header, so no other origin can
 read the page. The page is never cached, cannot be framed, loads nothing from elsewhere and may only
-connect back to its own origin. Its one image is the tab icon, ``GET /favicon.png``.
+connect back to its own origin. Its only images are the tab icon, ``GET /favicon.png``, and the
+same icon with a dot, ``GET /favicon-attention.png``, which the page swaps in while an agent waits.
 
 The secret is read from ``app.state.secret``, which :func:`~fylgja.api.app.create_app` sets. The
 answer holds the secret and is therefore never logged.
@@ -44,8 +45,8 @@ _HEADERS: Final = {
 
 
 @cache
-def _icon() -> bytes:
-    return resources.files("fylgja").joinpath("api/static/favicon.png").read_bytes()
+def _icon(name: str) -> bytes:
+    return resources.files("fylgja").joinpath(f"api/static/{name}").read_bytes()
 
 
 @cache
@@ -70,8 +71,17 @@ async def page(request: Request) -> Response:
 
 @router.get("/favicon.png", include_in_schema=False)
 async def favicon() -> Response:
+    return _icon_response("favicon.png")
+
+
+@router.get("/favicon-attention.png", include_in_schema=False)
+async def favicon_attention() -> Response:
+    return _icon_response("favicon-attention.png")
+
+
+def _icon_response(name: str) -> Response:
     return Response(
-        content=_icon(),
+        content=_icon(name),
         media_type="image/png",
         headers={"cache-control": "max-age=86400", "x-content-type-options": "nosniff"},
     )
