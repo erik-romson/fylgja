@@ -66,6 +66,7 @@ MODULES = [
     "fylgja.rankers.recent",
     "fylgja.core.waiting",
     "fylgja.core.shown",
+    "fylgja.core.notify",
     "fylgja.core.ranking",
     "fylgja.core.next_lists",
     "fylgja.core.summaries",
