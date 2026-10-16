@@ -27,6 +27,7 @@ A local macOS daemon that knows where the work is:
 - live agent sessions (Claude Code, Codex, OpenCode, norn), their state and a one-line summary
 - app context, presence (idle, lock, mic, camera), project state, builds, tokens and quota
 - todos per workspace, project or session, and a ranked "what next"
+- desktop alerts when an agent waits on you; a click on the alert jumps to the session
 
 It is the backend for the `fylgja` CLI, the navigator page at `/` and Lidskjalv. Everything stays on the
 machine: the API binds to `127.0.0.1` only.
@@ -91,7 +92,7 @@ empty scratch home: no Claude sessions, projects or JetBrains project paths. Del
 | `next [--feedback good\|bad]` | What to do next, with the reason |
 | `history [--since] [--story]` | Where your attention went |
 | `todo`, `label` | Your todos; a manual name for a workspace |
-| `session`, `story` | Act on one session; model-written summaries |
+| `session`, `story` | Act on one session: message, focus; model-written summaries |
 | `items [--rank] [--days] [--search]` | Folders and apps you worked in, ranked |
 | `rankers` | Installed rankers: enabled, loaded, default |
 | `collectors`, `doctor` | Plugin status; setup check |
@@ -106,6 +107,7 @@ collector is on by default. These are off by default:
 
 - `[summaries] enabled`: summaries written by a local `claude -p`
 - `[actions.message] enabled`: messaging a Claude session
+- `[notify] enabled`: desktop alerts through a command such as terminal-notifier
 - `[actions.applescript] chrome` and `iterm2`: AppleScript reads of the Chrome tab URL and the iTerm2 path
 
 `FYLGJA_CONFIG_DIR`, `FYLGJA_DATA_DIR` and `FYLGJA_STATE_DIR` move the three directories.
