@@ -227,7 +227,31 @@ def test_the_page_updates_over_sse_and_never_polls() -> None:
     assert "setInterval" not in script
     assert script.count("setTimeout(connect, delay)") == 1  # the reconnect backoff
     # the first paint waits for /now only, not for the stream
-    assert script.rstrip().endswith("refresh();\nconnect();")
+    assert script.rstrip().endswith("refresh();\nlead();")
+
+
+def test_the_tabs_share_one_stream_so_they_cannot_use_up_the_browsers_connections() -> None:
+    script = _script(_source())
+    # one tab at a time holds the lock and the stream, and passes every change to the others
+    assert script.count("new EventSource(") == 1
+    assert (
+        "navigator.locks.request(EVENTS_LOCK, () => { connect(); return new Promise(() => {}); });"
+        in script
+    )
+    assert "const channel = new BroadcastChannel(EVENTS_LOCK);" in script
+    assert 'source.addEventListener("now.changed", changed);' in script
+    assert 'channel.postMessage("now.changed");' in script
+    assert 'channel.addEventListener("message", () => { refresh(); });' in script
+    assert "if (!navigator.locks) { connect(); return; }" in script
+
+
+def test_a_call_that_gets_no_answer_gives_up_so_reloads_go_on() -> None:
+    script = _script(_source())
+    body = re.search(r"async function call\(method, path, body\) \{(.*?)\n\}", script, re.DOTALL)
+    assert body is not None
+    assert "options.signal = AbortSignal.timeout(CALL_TIMEOUT_MS);" in body.group(1)
+    assert "const CALL_TIMEOUT_MS = 15000;" in script
+    assert script.count("fetch(") == 1  # every request goes through call()
 
 
 def test_the_page_focuses_through_the_guarded_focus_api() -> None:

@@ -210,6 +210,8 @@ let searchLater = null;
 
 function say(message) { statusLine.textContent = message || ""; }
 
+const CALL_TIMEOUT_MS = 15000;
+
 async function call(method, path, body) {
   const options = { method, headers: {} };
   if (method !== "GET") {
@@ -217,7 +219,14 @@ async function call(method, path, body) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
-  const response = await fetch(path, options);
+  // A request the browser queues forever would hold refresh() for good; give up and say so.
+  options.signal = AbortSignal.timeout(CALL_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(path, options);
+  } catch (error) {
+    throw error.name === "TimeoutError" ? new Error("no answer within " + CALL_TIMEOUT_MS / 1000 + " s") : error;
+  }
   let data = null;
   try { data = await response.json(); } catch (_) { /* no body */ }
   if (!response.ok) {
@@ -1181,7 +1190,19 @@ document.getElementById("todo-form").addEventListener("submit", async (event) =>
   if (failure) { say(failure); }
 });
 
-// ---- live updates: SSE, reconnecting with a backoff ----
+// ---- live updates: one SSE stream for every tab, reconnecting with a backoff ----
+
+// The browser allows six connections to a host across all its tabs, and a stream holds one for
+// good, so six tabs with a stream each leave no room for a fetch. The tab that holds the lock
+// owns the stream and passes each change on; the next tab takes over when it closes.
+const EVENTS_LOCK = "fylgja.events";
+const channel = new BroadcastChannel(EVENTS_LOCK);
+channel.addEventListener("message", () => { refresh(); });
+
+function changed() {
+  refresh();
+  channel.postMessage("now.changed");
+}
 
 let delay = 1000;
 let source = null;
@@ -1189,8 +1210,8 @@ let source = null;
 function connect() {
   if (source) { source.close(); }
   source = new EventSource("/events");
-  source.addEventListener("open", () => { delay = 1000; refresh(); });
-  source.addEventListener("now.changed", () => { refresh(); });
+  source.addEventListener("open", () => { delay = 1000; changed(); });
+  source.addEventListener("now.changed", changed);
   source.addEventListener("error", () => {
     if (source.readyState === EventSource.CLOSED) {
       source.close();
@@ -1200,8 +1221,14 @@ function connect() {
   });
 }
 
+// The lock is held until the tab closes: the callback's promise never settles.
+function lead() {
+  if (!navigator.locks) { connect(); return; }
+  navigator.locks.request(EVENTS_LOCK, () => { connect(); return new Promise(() => {}); });
+}
+
 refresh();
-connect();
+lead();
 </script>
 </body>
 </html>
