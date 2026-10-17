@@ -7,12 +7,19 @@ here instead, unchanged, so every client gets the same answer and the rules are 
   and :data:`MAX_TODOS` todos; ``sessions_more``, ``context_more`` and ``todos_more`` count the
   rest.
 * **Session order.** A card's waiting sessions (:data:`WAITING_STATES`) come first, otherwise the
-  ``/now`` order holds.
+  ``/now`` order holds. A run that drives a session of the card (a norn run, which has no window of
+  its own) is listed right above that session, which is marked ``child``; a run waits when it or
+  its session does. A top-level session on no workspace that drives none on one (a run whose agent
+  session has ended) goes on the card of its project's workspace.
 * **Cards.** Only a workspace with a window, a session or a todo gets a card. Its click target is
   its focused window, else its first window.
-* **Next targets.** A Next item's ``target_ref`` focuses: a session key, that session; a project
+* **Next targets.** A Next item's ``target_ref`` focuses: a session key, that session (a session
+  without a window, the first session it drives that has one, else its project's workspace
+  window); a project
   path with a workspace, that workspace's window; a window id, that window; a workspace name, its
   window; the id of an open todo of workspace scope, that workspace's window.
+* **Next details.** Each item names what it is about (``title``), the folder, since when it waits
+  (the ``since`` of its ``/now`` waiting entry, a todo's creation) and what to do (``action``).
 * **Todos.** The focused workspace's todos come first, then every other todo under one heading per
   scope, in first-seen order, titled with the session, project or workspace it belongs to.
 
@@ -41,10 +48,20 @@ from fylgja.api.view_models import (
     TodoGroup,
     TodoRow,
 )
+from fylgja.core.ranking import CONTEXT_SWITCH, TODO
 from fylgja.core.todo_import import NATIVE_SOURCE, SCOPE_PROJECT, SCOPE_SESSION, SCOPE_WORKSPACE
-from fylgja.core.waiting import INPUT, PERMISSION
+from fylgja.core.waiting import (
+    BUILD_FAILED,
+    INPUT,
+    PERMISSION,
+    REVIEW_REQUESTED,
+    RUN_FINISHED,
+    TURN_DONE,
+    UNREAD,
+)
 
 __all__ = [
+    "ACTIONS",
     "MAX_CONTEXT",
     "MAX_SESSIONS",
     "MAX_TODOS",
@@ -69,6 +86,21 @@ _BUILD_FAILED: Final = "fail"
 """The ``projects[].build.state`` of a failed build."""
 
 _TAIL_CHARS: Final = 40
+
+ACTIONS: Final[Mapping[str, str]] = {
+    PERMISSION: "answer the permission prompt",
+    INPUT: "answer the agent",
+    TURN_DONE: "read the result and reply",
+    RUN_FINISHED: "check the run's result",
+    TODO: "do the todo",
+    BUILD_FAILED: "fix the build",
+    REVIEW_REQUESTED: "review the pull request",
+    CONTEXT_SWITCH: "pick the work up again",
+    UNREAD: "read the messages",
+}
+"""What a Next item asks of the person, by kind."""
+_ACTION: Final = "have a look"
+"""The action of a kind :data:`ACTIONS` does not know."""
 _ELLIPSIS: Final = "…"
 
 _Sessions = Mapping[str, Session]
@@ -90,6 +122,53 @@ def _walk(sessions: Iterable[Session]) -> Iterator[Session]:
 
 def _sessions_by_key(now: Now) -> dict[str, Session]:
     return {session.key: session for session in _walk(now.sessions or ())}
+
+
+def _parents_by_key(now: Now) -> dict[str, Session]:
+    """The session each child session hangs under (a norn run and the agent sessions it drives)."""
+    return {
+        child.key: session
+        for session in _walk(now.sessions or ())
+        for child in session.children or ()
+    }
+
+
+def _has_window(session: Session) -> bool:
+    return session.host is not None and session.host.window_id is not None
+
+
+def _focus_of(session: Session, fallback: FocusTarget | None = None) -> FocusTarget:
+    """The session when it has a window, else the first session it drives that has one, else
+    ``fallback``, else the session."""
+    if _has_window(session):
+        return FocusTarget(kind="session", ref=session.key)
+    driven = next((s for s in _walk(session.children or ()) if _has_window(s)), None)
+    if driven is not None:
+        return FocusTarget(kind="session", ref=driven.key)
+    return fallback or FocusTarget(kind="session", ref=session.key)
+
+
+def _project_window(
+    session: Session, projects: _Projects, workspaces: _Workspaces
+) -> FocusTarget | None:
+    """The window of the workspace that holds the session's project."""
+    project = projects.get(session.project_path or "")
+    if project is None or not project.workspace:
+        return None
+    return _window_target(workspaces.get(project.workspace))
+
+
+def _unplaced_by_workspace(now: Now, projects: _Projects) -> dict[str, list[Session]]:
+    """Top-level sessions on no workspace that drive none on one, by their project's workspace."""
+    placed = {key for workspace in now.workspaces or () for key in workspace.sessions}
+    found: dict[str, list[Session]] = {}
+    for session in now.sessions or ():
+        if any(s.key in placed for s in _walk([session])):
+            continue
+        project = projects.get(session.project_path or "")
+        if project is not None and project.workspace:
+            found.setdefault(project.workspace, []).append(session)
+    return found
 
 
 def _window_target(workspace: Workspace | None) -> FocusTarget | None:
@@ -123,8 +202,10 @@ def _next_target(
     todos: Sequence[Todo],
 ) -> FocusTarget | None:
     """What a click on a Next item focuses (the rules of the module docstring, in order)."""
-    if any(s.key == target_ref for s in now.sessions or ()):
-        return FocusTarget(kind="session", ref=target_ref)
+    session = next((s for s in _walk(now.sessions or ()) if s.key == target_ref), None)
+    if session is not None:
+        projects = {project.path: project for project in now.projects or ()}
+        return _focus_of(session, _project_window(session, projects, workspaces))
     project = next((p for p in now.projects or () if p.path == target_ref), None)
     if project is not None and project.workspace:
         return _window_target(workspaces.get(project.workspace))
@@ -139,18 +220,76 @@ def _next_target(
     return None
 
 
-def _next_entries(
-    items: Sequence[NextItem], now: Now, workspaces: _Workspaces, todos: Sequence[Todo]
-) -> list[NextEntry]:
-    return [
-        NextEntry(
-            rank=item.rank if item.rank is not None else position,
-            kind=item.kind,
-            reason=item.reason,
-            go=_next_target(item.target_ref, now, workspaces, todos),
+def _next_about(
+    item: NextItem, now: Now, sessions: _Sessions, todos: Sequence[Todo]
+) -> tuple[str | None, str | None]:
+    """The ``title`` and ``folder`` of a Next item, from what its ``target_ref`` names."""
+    ref = item.target_ref
+    session = sessions.get(ref)
+    if session is not None:
+        return (
+            session.title or session.name or session.kind,
+            session.cwd or session.project_path,
         )
-        for position, item in enumerate(items, start=1)
-    ]
+    if item.kind in (BUILD_FAILED, REVIEW_REQUESTED):
+        project = next((p for p in now.projects or () if p.path == ref), None)
+        return (project.name if project is not None else None) or _base_name(ref), ref
+    for workspace in now.workspaces or ():
+        window = next((w for w in workspace.windows if w.id == ref), None)
+        if window is not None:
+            return window.app or window.title, None
+        if workspace.name == ref:
+            return f"workspace {_label(workspace) or workspace.name}", None
+    todo = next((t for t in todos if t.id == ref), None)
+    if todo is not None:
+        folder = todo.scope_ref if todo.scope_kind == SCOPE_PROJECT else None
+        return todo.text, folder
+    return None, None
+
+
+def _next_action(item: NextItem, sessions: _Sessions) -> str:
+    action = ACTIONS.get(item.kind, _ACTION)
+    session = sessions.get(item.target_ref)
+    if item.kind in (PERMISSION, INPUT) and session is not None and session.waiting_reason:
+        return f"{action}: {session.waiting_reason}"
+    return action
+
+
+def _next_since(item: NextItem, now: Now, todos: Sequence[Todo]) -> datetime | None:
+    entry = next(
+        (w for w in now.waiting or () if w.target == item.target_ref and w.kind == item.kind),
+        None,
+    )
+    if entry is not None:
+        return entry.since
+    if item.kind == TODO:
+        return next((t.created_at for t in todos if t.id == item.target_ref), None)
+    return None
+
+
+def _next_entries(
+    items: Sequence[NextItem],
+    now: Now,
+    sessions: _Sessions,
+    workspaces: _Workspaces,
+    todos: Sequence[Todo],
+) -> list[NextEntry]:
+    entries: list[NextEntry] = []
+    for position, item in enumerate(items, start=1):
+        title, folder = _next_about(item, now, sessions, todos)
+        entries.append(
+            NextEntry(
+                rank=item.rank if item.rank is not None else position,
+                kind=item.kind,
+                reason=item.reason,
+                action=_next_action(item, sessions),
+                title=title,
+                folder=None if folder is None else _tail(folder, _TAIL_CHARS),
+                since=_next_since(item, now, todos),
+                go=_next_target(item.target_ref, now, workspaces, todos),
+            )
+        )
+    return entries
 
 
 # --------------------------------------------------------------------------------------------
@@ -179,14 +318,35 @@ def _is_waiting(session: Session) -> bool:
     return session.state is not None and session.state.value in WAITING_STATES
 
 
-def _card_session(session: Session) -> CardSession:
+def _card_session(
+    session: Session, fallback: FocusTarget | None, *, child: bool = False
+) -> CardSession:
     return CardSession(
         key=session.key,
         state=session.state.value if session.state is not None else "unknown",
         waiting=_is_waiting(session),
         text=session.one_liner or session.title or session.name or session.kind,
-        go=FocusTarget(kind="session", ref=session.key),
+        child=child,
+        go=_focus_of(session, fallback),
     )
+
+
+def _card_sessions(
+    mine: Sequence[Session], parents: _Sessions, fallback: FocusTarget | None
+) -> list[CardSession]:
+    """``mine``, each run that drives one of them listed right above the first it drives."""
+    placed: set[str] = set()
+    lines: list[CardSession] = []
+    for session in mine:
+        if session.key in placed:
+            continue
+        parent = parents.get(session.key)
+        if parent is not None and parent.key not in placed:
+            placed.add(parent.key)
+            lines.append(_card_session(parent, fallback))
+        placed.add(session.key)
+        lines.append(_card_session(session, fallback, child=parent is not None))
+    return lines
 
 
 def _card_context(item: ContextItem) -> CardContext:
@@ -197,10 +357,24 @@ def _more(total: int, cap: int) -> int:
     return max(total - cap, 0)
 
 
-def _card(workspace: Workspace, sessions: _Sessions, projects: _Projects) -> Card:
+def _card(
+    workspace: Workspace,
+    sessions: _Sessions,
+    projects: _Projects,
+    parents: _Sessions,
+    unplaced: Sequence[Session] = (),
+) -> Card:
     mine = [sessions[key] for key in workspace.sessions if key in sessions]
+    mine += unplaced
+
+    def waits(session: Session) -> bool:
+        parent = parents.get(session.key)
+        return _is_waiting(session) or (parent is not None and _is_waiting(parent))
+
     # waiting first; the sort is stable, so the /now order holds otherwise
-    mine.sort(key=lambda s: not _is_waiting(s))
+    mine.sort(key=lambda s: not waits(s))
+    go = _window_target(workspace)
+    lines = _card_sessions(mine, parents, go)
     where = [projects[path] for path in workspace.projects if path in projects]
     context = [item for window in workspace.windows for item in window.context or ()]
     todos = workspace.todos or []
@@ -210,10 +384,10 @@ def _card(workspace: Workspace, sessions: _Sessions, projects: _Projects) -> Car
         focused=workspace.focused,
         windows=len(workspace.windows),
         one_liner=workspace.one_liner or None,
-        go=_window_target(workspace),
+        go=go,
         projects=[_card_project(p) for p in where],
-        sessions=[_card_session(s) for s in mine[:MAX_SESSIONS]],
-        sessions_more=_more(len(mine), MAX_SESSIONS),
+        sessions=lines[:MAX_SESSIONS],
+        sessions_more=_more(len(lines), MAX_SESSIONS),
         context=[_card_context(c) for c in context[:MAX_CONTEXT]],
         context_more=_more(len(context), MAX_CONTEXT),
         todos=[CardTodo(text=t.text, next=t.status == _NEXT_STATUS) for t in todos[:MAX_TODOS]],
@@ -351,14 +525,20 @@ def build_overview(
     their ``/now`` order.
     """
     sessions = _sessions_by_key(now)
+    parents = _parents_by_key(now)
     projects = {project.path: project for project in now.projects or ()}
     workspaces = {workspace.name: workspace for workspace in now.workspaces or ()}
     focused = _focused_workspace(now)
-    cards = [_card(w, sessions, projects) for w in now.workspaces or () if _is_busy(w)]
+    unplaced = _unplaced_by_workspace(now, projects)
+    cards = [
+        _card(w, sessions, projects, parents, unplaced.get(w.name, ()))
+        for w in now.workspaces or ()
+        if _is_busy(w)
+    ]
     return Overview(
         generated_at=generated_at,
         focused_workspace=focused,
-        next=_next_entries(next_answer.items, now, workspaces, todos),
+        next=_next_entries(next_answer.items, now, sessions, workspaces, todos),
         next_list_id=next_answer.list_id,
         cards=_ordered(cards, workspace_order),
         todo_groups=_todo_groups(todos, focused, sessions, projects, workspaces),

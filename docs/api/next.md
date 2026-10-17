@@ -8,7 +8,7 @@ empty, exactly while `waiting[]` is.
 | Rule | `kind` | Score | Source |
 |---|---|---|---|
 | 1. an agent waits for permission or input | `permission`, `input` | 100 | `waiting[]` |
-| 2. an agent turn finished and not seen | `turn_done` | 90 | `waiting[]` |
+| 2. an agent turn finished and not seen, or a run finished and its project not focused since | `turn_done`, `run_finished` | 90 | `waiting[]` |
 | 3. a todo marked `next` in the focused workspace | `todo` | 80 | todos (a project or session todo counts for the workspace its session sits in; no due date exists yet, so only the `next` mark counts) |
 | 4. failed CI or a review requested, project touched today | `build_failed`, `review_requested` | 70 | `waiting[]` |
 | 5. the way back: most focus today, an open todo, no session activity for an hour, not in focus | `context_switch` | 60 | focus spans of today, todos |

@@ -68,6 +68,14 @@ class NextEntry(NowModel):
     kind: str
     """The ranking rule that produced it (``docs/api/next.md``)."""
     reason: str
+    action: str
+    """What the person is to do, in words."""
+    title: str | None = None
+    """What it is about: the session's title, the project's name, the window's app or the todo."""
+    folder: str | None = None
+    """The session's working folder or the project's path; a long one as ``…`` and its end."""
+    since: AwareDatetime | None = None
+    """When it began waiting (a todo: when it was created)."""
     go: FocusTarget | None = None
     """What a click focuses; absent when the item has nothing to focus."""
 
@@ -96,6 +104,8 @@ class CardSession(NowModel):
     """The session waits for the person (permission, input or a finished turn)."""
     text: str
     """Its one-liner, else its title, name or kind."""
+    child: bool = False
+    """Driven by the run listed above it on the card (a norn run and its agent sessions)."""
     go: FocusTarget
 
 

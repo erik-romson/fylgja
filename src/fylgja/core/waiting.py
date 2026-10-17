@@ -10,7 +10,8 @@ clients to fetch again.
 
 0. a session in ``waiting_permission`` (``permission``) or ``waiting_input`` (``input``): Claude
    through its hooks, norn runs through their waiting state;
-1. a finished turn nobody has looked at (``turn_done``; ``seen`` ends it);
+1. a finished turn nobody has looked at (``turn_done``; ``seen`` ends it), or a finished run
+   (norn) whose project has had no focus since it ended (``run_finished``, decision 0056);
 2. a failed build (``build_failed``, ``build.state == "fail"``) or a PR whose review is required
    (``review_requested``), on a project touched today;
 3. an explicit unread marker of an app (``unread``, A15): titles only, lowest rank. Nothing is
@@ -53,17 +54,19 @@ __all__ = [
 PERMISSION: Final = "permission"
 INPUT: Final = "input"
 TURN_DONE: Final = "turn_done"
+RUN_FINISHED: Final = "run_finished"
 BUILD_FAILED: Final = "build_failed"
 REVIEW_REQUESTED: Final = "review_requested"
 UNREAD: Final = "unread"
 
-KINDS: Final = (PERMISSION, INPUT, TURN_DONE, BUILD_FAILED, REVIEW_REQUESTED, UNREAD)
+KINDS: Final = (PERMISSION, INPUT, TURN_DONE, RUN_FINISHED, BUILD_FAILED, REVIEW_REQUESTED, UNREAD)
 """Every ``kind`` an entry can carry."""
 
 RANKS: Final[Mapping[str, int]] = {
     PERMISSION: 0,
     INPUT: 0,
     TURN_DONE: 1,
+    RUN_FINISHED: 1,
     BUILD_FAILED: 2,
     REVIEW_REQUESTED: 2,
     UNREAD: 3,
@@ -78,6 +81,8 @@ _SESSION_STATES: Final[Mapping[str, str]] = {
     "waiting_input": INPUT,
     "turn_done": TURN_DONE,
 }
+_RUN_OUTCOMES: Final = frozenset({"passed", "failed", "cancelled"})
+"""The terminal states of a run (the ``/now`` vocabulary of norn)."""
 _CLOSED_PR: Final = frozenset({"CLOSED", "MERGED"})
 _REVIEW_REQUIRED: Final = "REVIEW_REQUIRED"
 _MAX_REASON: Final = 120
@@ -161,6 +166,30 @@ def _session_entries(
                 target_kind="session",
                 reason=_session_reason(kind, reason),
                 since=since or row.first_seen,
+            )
+        )
+    return found
+
+
+def _run_entries(
+    sessions: Iterable[SessionRow], touched: Mapping[str, datetime]
+) -> list[WaitingEntry]:
+    """A finished run that is still listed and whose project had no focus since it ended."""
+    found: list[WaitingEntry] = []
+    for row in sessions:
+        if row.ended_at is not None or row.state not in _RUN_OUTCOMES:
+            continue
+        since = row.state_since or row.first_seen
+        focused = None if row.project_path is None else touched.get(row.project_path)
+        if focused is not None and focused >= since:
+            continue
+        found.append(
+            WaitingEntry(
+                kind=RUN_FINISHED,
+                target=row.session_key,
+                target_kind="session",
+                reason=f"{row.name or row.kind} {row.state}",
+                since=since,
             )
         )
     return found
@@ -317,10 +346,12 @@ def waiting_on_me(
     """
     live = list(sessions)
     current = {} if activity is None else activity
+    focused = {} if touched is None else touched
     today = start_of_day(now, tz)
     candidates = [
         *_session_entries(live, current),
-        *_project_entries(projects, live, current, {} if touched is None else touched, today),
+        *_run_entries(live, focused),
+        *_project_entries(projects, live, current, focused, today),
         *_unread_entries({} if contexts is None else contexts),
     ]
     best: dict[tuple[str, str], WaitingEntry] = {}

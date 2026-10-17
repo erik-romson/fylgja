@@ -18,6 +18,9 @@
     cursor: pointer; max-width: 22rem; overflow-wrap: anywhere; }
   #next-strip li.top { border-color: #c77700; border-width: 2px; }
   #next-strip .kind { font-size: .75rem; opacity: .65; display: block; }
+  #next-strip .title { font-weight: 600; display: block; }
+  #next-strip .folder { font-size: .75rem; opacity: .65; display: block; }
+  #next-strip .action { display: block; }
   #workspace-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: .75rem; }
   .card { border: 1px solid rgba(128, 128, 128, .4); border-radius: .6rem; padding: .7rem .8rem; cursor: pointer; }
   .card.focused { border-color: #1a73e8; border-width: 2px; }
@@ -28,6 +31,7 @@
   .card .part { font-size: .75rem; text-transform: uppercase; opacity: .55; margin-top: .5rem; }
   .session { cursor: pointer; border-radius: .3rem; padding: .2rem .3rem; }
   .session.waiting { background: rgba(199, 119, 0, .22); font-weight: 600; }
+  .session.child { margin-left: 1rem; }
   .state { font-size: .8rem; opacity: .75; margin-right: .4rem; }
   .muted { opacity: .65; font-size: .85rem; }
   .intro { margin: 0 0 .5rem; }
@@ -309,7 +313,12 @@ function renderNext(ov) {
   const entries = ov.next.map((ne) => {
     const li = el("li", ne.rank === 1 ? "top" : "");
     li.id = "next-" + ne.rank;
-    li.append(el("span", "kind", String(ne.kind || "").replaceAll("_", " ")), el("span", "", ne.reason));
+    li.title = ne.reason;
+    const kind = String(ne.kind || "").replaceAll("_", " ");
+    li.append(el("span", "kind", ne.since ? kind + " · " + fmtTime(ne.since) : kind));
+    if (ne.title) { li.append(el("span", "title", ne.title)); }
+    if (ne.folder) { li.append(el("span", "folder", ne.folder)); }
+    li.append(el("span", "action", ne.action));
     if (ne.go) { li.addEventListener("click", () => go(ne.go)); } else { li.style.cursor = "default"; }
     return li;
   });
@@ -335,7 +344,7 @@ function projectLine(cp) {
 }
 
 function sessionLine(cs) {
-  const li = el("li", cs.waiting ? "session waiting" : "session");
+  const li = el("li", "session" + (cs.waiting ? " waiting" : "") + (cs.child ? " child" : ""));
   li.id = "session-" + cs.key;
   li.append(el("span", "state", cs.state));
   li.append(el("span", "", cs.text));
@@ -511,7 +520,7 @@ const PART_HELP = {
   "last session": "the share of the previous work session spent here, more if you ended it here; "
     + "it fades as the current session goes on",
   waiting: "an agent session here waits for your permission or input",
-  "turn done": "an agent session here finished its turn",
+  "turn done": "an agent session here finished its turn, or a run here finished",
   build: "a build failed or a review was requested here",
   todo: "a todo here is marked next",
   unfinished: "uncommitted changes or an open pull request",

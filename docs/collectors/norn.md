@@ -64,6 +64,10 @@ of a live Claude run, with `parent_key` set to the run (`/now` shows them in `ch
 said so, the total. The one-liner (rule 2): "`<pipeline>` · `<stage>` (`<index>`/`<total>`)", or "`<pipeline>` `<state>`"
 for a finished or stale run; a run waiting for input reads "Waiting for input: `<reason>`" (rule 1).
 
+A run waiting for input is an `input` entry of `waiting[]`; a finished run is a `run_finished` entry until its project
+gains focus (decision 0056). The Overview lists a run on the workspace card of the agent session it drives, right
+above that session; without one, on the card of its project's workspace.
+
 ## Failure modes
 
 | Situation | Result |

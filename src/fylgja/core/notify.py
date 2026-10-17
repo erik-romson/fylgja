@@ -126,6 +126,7 @@ _VERBS: Final[Mapping[str, str]] = {
     "permission": "needs permission",
     "input": "waits for input",
     "turn_done": "finished a turn",
+    "run_finished": "finished a run",
     "build_failed": "has a failed build",
     "review_requested": "has a review request",
     "unread": "has unread messages",

@@ -125,7 +125,13 @@ class SummariesConfig(_Section):
 
 
 NotifyKind = Literal[
-    "permission", "input", "turn_done", "build_failed", "review_requested", "unread"
+    "permission",
+    "input",
+    "turn_done",
+    "run_finished",
+    "build_failed",
+    "review_requested",
+    "unread",
 ]
 NotifyDetail = Literal["project", "kind"]
 

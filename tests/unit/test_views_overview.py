@@ -21,6 +21,7 @@ from fylgja.api.now_models import (
     ContextItem,
     Focused,
     Freshness,
+    Host,
     LabelSource,
     NextItem,
     Now,
@@ -29,12 +30,20 @@ from fylgja.api.now_models import (
     Session,
     SessionState,
     Todo,
+    Waiting,
     Window,
     Workspace,
     dump_json,
 )
 from fylgja.api.view_models import FocusTarget, NextList, Overview
-from fylgja.api.views import MAX_CONTEXT, MAX_SESSIONS, MAX_TODOS, build_overview, scope_title
+from fylgja.api.views import (
+    ACTIONS,
+    MAX_CONTEXT,
+    MAX_SESSIONS,
+    MAX_TODOS,
+    build_overview,
+    scope_title,
+)
 from fylgja.core.todo_import import SCOPE_PROJECT, SCOPE_SESSION, SCOPE_WORKSPACE
 
 T0 = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
@@ -270,6 +279,76 @@ def test_a_card_session_carries_its_state_text_and_target() -> None:
     assert overview(bare).cards[0].sessions[0].text == "opencode"  # the kind, last
 
 
+def on_window(session: Session, window_id: str) -> Session:
+    return session.model_copy(update={"host": Host(window_id=window_id)})
+
+
+def test_a_run_is_listed_right_above_the_session_it_drives() -> None:
+    child = on_window(sess("claude:child", SessionState.WORKING), "10")
+    run = sess("norn:run", SessionState.RUNNING, one_liner="plan · check", children=[child])
+    picture = now(
+        workspaces=[ws("1", windows=[win("10")], sessions=["codex:x", "claude:child"])],
+        sessions=[run, sess("codex:x", SessionState.BUSY)],
+    )
+    (card,) = overview(picture).cards
+    assert [(s.key, s.child) for s in card.sessions] == [
+        ("codex:x", False),
+        ("norn:run", False),
+        ("claude:child", True),
+    ]
+    shown = {s.key: s for s in card.sessions}
+    assert (shown["norn:run"].text, shown["norn:run"].state) == ("plan · check", "running")
+    # the run has no window of its own: a click focuses the session it drives
+    assert shown["norn:run"].go == FocusTarget(kind="session", ref="claude:child")
+
+
+def test_a_waiting_run_puts_its_family_first() -> None:
+    child = sess("claude:child", SessionState.IDLE)
+    run = sess("norn:run", SessionState.WAITING_INPUT, children=[child])
+    picture = now(
+        workspaces=[ws("1", sessions=["codex:x", "claude:child"])],
+        sessions=[run, sess("codex:x", SessionState.BUSY)],
+    )
+    (card,) = overview(picture).cards
+    assert [s.key for s in card.sessions] == ["norn:run", "claude:child", "codex:x"]
+    assert [s.waiting for s in card.sessions] == [True, False, False]
+    # neither has a window, so each click names the session itself
+    assert card.sessions[0].go == FocusTarget(kind="session", ref="norn:run")
+
+
+def test_a_run_on_no_workspace_goes_on_the_card_of_its_project() -> None:
+    run = sess("norn:run", SessionState.WAITING_INPUT, project_path="/work/alpha/main")
+    placed = sess("claude:a", project_path="/work/alpha/main")
+    driving = sess("norn:other", project_path="/work/alpha/main", children=[placed])
+    picture = now(
+        workspaces=[
+            ws("1", windows=[win("10")], sessions=["claude:a"]),
+            ws("2", windows=[win("20")], projects=["/work/alpha/main"]),
+        ],
+        sessions=[run, driving, sess("codex:x", project_path="/work/beta/main")],
+        projects=[proj("/work/alpha/main", "alpha", workspace="2")],
+    )
+    first, second = overview(picture).cards
+    # a run that drives a placed session stays with it; a project without a workspace places nothing
+    assert [s.key for s in first.sessions] == ["norn:other", "claude:a"]
+    (line,) = second.sessions
+    assert (line.key, line.waiting, line.child) == ("norn:run", True, False)
+    # no window anywhere below the run: a click focuses the card's window
+    assert line.go == window("20")
+
+
+def test_run_lines_count_against_the_cap() -> None:
+    children = [sess(f"claude:{n}") for n in range(MAX_SESSIONS)]
+    picture = now(
+        workspaces=[ws("1", sessions=[c.key for c in children])],
+        sessions=[sess("norn:run", children=children)],
+    )
+    (card,) = overview(picture).cards
+    assert len(card.sessions) == MAX_SESSIONS
+    assert card.sessions[0].key == "norn:run"
+    assert card.sessions_more == 1
+
+
 def test_an_idle_workspace_gets_no_card() -> None:
     picture = now(
         workspaces=[
@@ -426,7 +505,7 @@ def test_each_next_target_rule() -> None:
         "/work/beta/main": None,  # a project without a workspace
         "/work/gamma/main": None,  # a project whose workspace has no window
         "3": None,  # a workspace without a window
-        "claude:child": None,  # only top-level sessions are matched, as the page did
+        "claude:child": FocusTarget(kind="session", ref="claude:child"),  # a child is matched too
         "nothing:here": None,
     }
     items = [item(ref, rank) for rank, ref in enumerate(targets, start=1)]
@@ -442,6 +521,77 @@ def test_a_next_item_without_a_rank_takes_its_position() -> None:
     unranked = NextItem(suggestion_id="x", kind="todo", target_ref="t", score=1.0, reason="r")
     answer = overview(now(), items=[item("a", rank=1), unranked])
     assert [e.rank for e in answer.next] == [1, 2]
+
+
+def test_a_next_item_names_its_target_folder_age_and_action() -> None:
+    asking = sess("claude:a", SessionState.WAITING_PERMISSION, title="Fix the parser").model_copy(
+        update={"cwd": "/work/alpha/main", "waiting_reason": "Bash"}
+    )
+    picture = now(
+        workspaces=[ws("2", windows=[win("20")], label="mail")],
+        sessions=[asking, sess("norn:run", name="plan_v2", project_path="/work/beta/main")],
+        projects=[proj("/work/alpha/main", "alpha")],
+    ).model_copy(
+        update={
+            "waiting": [
+                Waiting(kind="permission", target="claude:a", reason="r", since=T0),
+                Waiting(kind="run_finished", target="norn:run", reason="r"),
+            ]
+        }
+    )
+    noted = todo("t1", "write the notes", scope=(SCOPE_PROJECT, "/work/alpha/main"))
+    noted = noted.model_copy(update={"created_at": T0})
+    items = [
+        item("claude:a", 1, "permission"),
+        item("norn:run", 2, "run_finished"),
+        item("/work/alpha/main", 3, "build_failed"),
+        item("/work/gone/main", 4, "review_requested"),
+        item("20", 5, "unread"),
+        item("2", 6, "context_switch"),
+        item("t1", 7, "todo"),
+        item("nothing:here", 8, "something_new"),
+    ]
+    answer = overview(picture, todos=[noted], items=items)
+    assert [(e.title, e.folder, e.since, e.action) for e in answer.next] == [
+        ("Fix the parser", "/work/alpha/main", T0, "answer the permission prompt: Bash"),
+        ("plan_v2", "/work/beta/main", None, ACTIONS["run_finished"]),
+        ("alpha", "/work/alpha/main", None, ACTIONS["build_failed"]),
+        ("main", "/work/gone/main", None, ACTIONS["review_requested"]),
+        ("App", None, None, ACTIONS["unread"]),
+        ("workspace mail", None, None, ACTIONS["context_switch"]),
+        ("write the notes", "/work/alpha/main", T0, ACTIONS["todo"]),
+        (None, None, None, "have a look"),
+    ]
+    assert [e.reason for e in answer.next] == [f"reason {n}" for n in range(1, 9)]
+
+
+def test_a_long_folder_keeps_its_end() -> None:
+    deep = sess("claude:a", title="t").model_copy(
+        update={"cwd": "/Users/someone/projects/an-organisation/a-long-repository-name/main"}
+    )
+    (entry,) = overview(now(sessions=[deep]), items=[item("claude:a")]).next
+    assert entry.folder is not None
+    assert len(entry.folder) == 40
+    assert entry.folder.startswith("…")
+    assert entry.folder.endswith("/a-long-repository-name/main")
+
+
+def test_a_next_run_without_a_window_focuses_the_session_it_drives() -> None:
+    child = on_window(sess("claude:child"), "10")
+    picture = now(sessions=[sess("norn:run", children=[child])])
+    (entry,) = overview(picture, items=[item("norn:run", kind="run_finished")]).next
+    assert entry.go == FocusTarget(kind="session", ref="claude:child")
+
+
+def test_a_next_session_without_any_window_focuses_its_project_workspace() -> None:
+    picture = now(
+        workspaces=[ws("2", windows=[win("20")])],
+        sessions=[sess("norn:run", project_path="/work/alpha/main"), sess("norn:lone")],
+        projects=[proj("/work/alpha/main", "alpha", workspace="2")],
+    )
+    items = [item("norn:run", 1, "run_finished"), item("norn:lone", 2, "run_finished")]
+    entries = overview(picture, items=items).next
+    assert [e.go for e in entries] == [window("20"), FocusTarget(kind="session", ref="norn:lone")]
 
 
 def test_an_empty_next_list_is_an_empty_strip() -> None:

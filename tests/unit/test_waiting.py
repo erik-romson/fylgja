@@ -6,6 +6,7 @@ today" is judged against the start of the local day (a fake ``now`` and an expli
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
@@ -191,6 +192,35 @@ def test_an_unseen_turn() -> None:
     assert entry.reason == "finished a turn nobody has looked at"
 
 
+@pytest.mark.parametrize("state", ["passed", "failed", "cancelled"])
+def test_a_finished_run_nobody_has_looked_at(state: str) -> None:
+    row = replace(session("norn:wf:1", state, ago(5), project="/p"), name="plan_v2")
+    (entry,) = run(sessions=[row], touched={"/p": ago(30)})
+    assert (entry.kind, entry.target, entry.target_kind) == ("run_finished", "norn:wf:1", "session")
+    assert (entry.reason, entry.since) == (f"plan_v2 {state}", ago(5))
+
+
+def test_a_run_without_a_name_is_named_by_its_kind() -> None:
+    (entry,) = run(sessions=[session("norn:wf:1", "failed", ago(5))])
+    assert entry.reason == "norn failed"
+
+
+def test_focus_on_the_project_after_the_run_ended_has_seen_it() -> None:
+    row = session("norn:wf:1", "passed", ago(5), project="/p")
+    assert run(sessions=[row], touched={"/p": ago(5)}) == []
+    assert run(sessions=[row], touched={"/p": ago(1)}) == []
+
+
+def test_a_finished_run_that_left_the_view_no_longer_waits() -> None:
+    row = session("norn:wf:1", "passed", ago(5), project="/p", ended=ago(1))
+    assert run(sessions=[row]) == []
+
+
+def test_a_finished_run_without_a_state_time_dates_from_its_first_sight() -> None:
+    (entry,) = run(sessions=[session("norn:wf:1", "passed")])
+    assert entry.since == ago(600)
+
+
 @pytest.mark.parametrize(
     "state", [None, "idle", "working", "running_tool", "seen", "ended", "waiting", "busy", "error"]
 )
@@ -342,7 +372,7 @@ def test_a_session_key_that_equals_a_window_id_is_still_a_different_target() -> 
 
 
 def test_ranks_follow_the_plan() -> None:
-    assert RANKS["permission"] == RANKS["input"] < RANKS["turn_done"]
+    assert RANKS["permission"] == RANKS["input"] < RANKS["turn_done"] == RANKS["run_finished"]
     assert RANKS["turn_done"] < RANKS["build_failed"] == RANKS["review_requested"]
     assert RANKS["review_requested"] < RANKS["unread"]
     assert set(RANKS) == set(KINDS)

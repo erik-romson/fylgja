@@ -56,10 +56,27 @@ workspace it does not name follows in `/now` order. Without `rank`, the order fo
 - `kind` is `session` (`POST /focus/session/{ref}`) or `window` (`POST /focus/window/{ref}`);
 - `ref` is the session key or the AeroSpace window id.
 
-**`NextEntry`** has `rank` (1 is the top), `kind`, `reason` and an optional `go`. `go` follows the item's
-`target_ref`, trying each rule in turn:
+**`NextEntry`** has `rank` (1 is the top), `kind`, `reason`, `action` and the optional `title`, `folder`,
+`since` and `go`. The page shows the kind and `since`, then `title`, `folder` and `action`; `reason` shows
+on hover.
 
-1. a top-level session key focuses that session;
+- `title` is what the item is about: a session's title, else its name or kind; a project's name, else
+  the last part of its path; a window's app, else its title; "workspace " and a workspace's label, else
+  its name; a todo's text.
+- `folder` is a session's `cwd`, else its `project_path`; a project's path; the project of a todo of
+  project scope. A folder longer than 40 characters is cut to its end with a leading `…`.
+- `since` is the `since` of the `/now` `waiting[]` entry with the same target and kind; for a todo, its
+  `created_at`.
+- `action` says what to do, by kind (`ACTIONS` in `api/views.py`): `permission` "answer the permission
+  prompt", `input` "answer the agent" (both followed by `: ` and the session's `waiting_reason` when it
+  has one), `turn_done` "read the result and reply", `run_finished` "check the run's result", `todo` "do
+  the todo", `build_failed` "fix the build", `review_requested` "review the pull request",
+  `context_switch` "pick the work up again", `unread` "read the messages"; any other kind "have a look".
+
+`go` follows the item's `target_ref`, trying each rule in turn:
+
+1. a session key, at any depth, focuses that session; a session without a window (a norn run) focuses
+   the first session it drives that has one, else the window of its project's workspace;
 2. a project path whose project has a `workspace` focuses that workspace's window;
 3. a window id focuses that window;
 4. a workspace name focuses its window;
@@ -76,8 +93,14 @@ window.
 - `projects[]` (`CardProject`): `name`, `branch`, `dirty`, `pr_number`, `pr_checks`, `build_state` and
   `build_failed`, which is true when `build_state` is `fail`;
 - `sessions[]` (`CardSession`): `key`, `state` (`unknown` when none), `waiting`, `text` (the one-liner,
-  else the title, name or kind) and `go` (the session). Waiting sessions (`waiting`,
-  `waiting_permission`, `waiting_input`, `turn_done`) come first; otherwise the `/now` order holds;
+  else the title, name or kind), `child` and `go` (the session; for a session without a window, the
+  first session it drives that has one, else the card's `go`). Waiting sessions (`waiting`, `waiting_permission`,
+  `waiting_input`, `turn_done`) come first; otherwise the `/now` order holds. A run that drives a
+  session of the card (a norn run has no window, so it is on no workspace itself) is listed right above
+  the first such session, which has `child` true and is indented; the run and its sessions sort as
+  waiting when either waits. A top-level session on no workspace that drives none on one (a run whose
+  agent session has ended) is listed on the card of its project's workspace (`projects[].workspace`).
+  A run line counts against the cap;
 - `context[]` (`CardContext`): `text` (the title, else the kind) and `unread`, flattened over the
   card's windows in window order;
 - `todos[]` (`CardTodo`): `text` and `next`, in the `/now` order (`next` first, then oldest first).
@@ -112,7 +135,9 @@ with `SOURCE_LABELS` and shows no Done button.
   "schema": "fylgja.view.overview/1",
   "generated_at": "2026-10-05T12:00:00Z",
   "focused_workspace": "2",
-  "next": [{"rank": 1, "kind": "input", "reason": "waiting for input", "go": {"kind": "session", "ref": "claude:abc-123"}}],
+  "next": [{"rank": 1, "kind": "input", "reason": "waiting for input", "action": "answer the agent",
+            "title": "Fix the parser", "folder": "/work/alpha/main", "since": "2026-10-05T11:58:00Z",
+            "go": {"kind": "session", "ref": "claude:abc-123"}}],
   "next_list_id": "nl-0123456789abcdef",
   "cards": [{
     "name": "2", "label": "alpha", "focused": true, "windows": 1, "go": {"kind": "window", "ref": "100"},

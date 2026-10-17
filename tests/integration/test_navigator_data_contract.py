@@ -179,7 +179,7 @@ VIEW_FIELDS: dict[str, set[str]] = {
         "todos",
         "windows",
     },
-    "CardSession": {"go", "key", "state", "text", "waiting"},
+    "CardSession": {"child", "go", "key", "state", "text", "waiting"},
     "CardProject": {
         "branch",
         "build_failed",
@@ -191,7 +191,7 @@ VIEW_FIELDS: dict[str, set[str]] = {
     },
     "CardContext": {"text", "unread"},
     "CardTodo": {"next", "text"},
-    "NextEntry": {"go", "kind", "rank", "reason"},
+    "NextEntry": {"action", "folder", "go", "kind", "rank", "reason", "since", "title"},
     "TodoGroup": {"empty", "kind", "title", "todos"},
     "TodoRow": {"can_finish", "id", "next", "source", "text"},
     "FocusTarget": {"kind", "ref"},

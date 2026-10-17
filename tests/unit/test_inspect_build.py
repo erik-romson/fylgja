@@ -678,7 +678,7 @@ def test_explain_carries_the_ranking_rules_and_the_next_and_waiting_lists() -> N
     assert body.ranking[0].kind == "permission"
     assert body.ranking[0].score == 100.0
     assert [r.kind for r in body.ranking] == list(SCORES)
-    assert len(body.ranking) == 8
+    assert len(body.ranking) == 9
     assert body.idle_window_seconds == 3600.0
     assert body.max_items == 10
     assert [i.suggestion_id for i in body.next] == ["nl-1.1"]

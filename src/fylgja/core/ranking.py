@@ -8,7 +8,8 @@ workspace and the focus seconds of today. It reads no clock and does no I/O; the
 **The six rules**, in the order of ``PLAN.md`` §7 (a higher score is more urgent):
 
 1. an agent waiting for permission or input (``permission``, ``input``): 100;
-2. an agent turn finished and not seen (``turn_done``): 90;
+2. an agent turn finished and not seen (``turn_done``), or a run finished and its project not
+   focused since (``run_finished``): 90;
 3. a todo marked ``next`` in the focused workspace (``todo``): 80. A todo scoped to a project or a
    session counts for the workspace its session sits in. The todo model has no due date, so
    "due" has no input yet and only the ``next`` mark counts;
@@ -40,6 +41,7 @@ from fylgja.core.waiting import (
     INPUT,
     PERMISSION,
     REVIEW_REQUESTED,
+    RUN_FINISHED,
     TURN_DONE,
     UNREAD,
     WaitingEntry,
@@ -63,6 +65,7 @@ SCORES: Final[Mapping[str, float]] = {
     PERMISSION: 100.0,
     INPUT: 100.0,
     TURN_DONE: 90.0,
+    RUN_FINISHED: 90.0,
     TODO: 80.0,
     BUILD_FAILED: 70.0,
     REVIEW_REQUESTED: 70.0,

@@ -42,7 +42,7 @@ max_concurrent = 3
 # enabled = true needs a command. Element 0 of a command is an absolute path, because launchd's PATH is
 # minimal. Placeholders in every other element: {title}, {message}, {url} (the navigator page) and
 # {key} (the session key, empty when the alert names several sessions). There is no shell.
-# kinds: permission, input, turn_done, build_failed, review_requested, unread.
+# kinds: permission, input, turn_done, run_finished, build_failed, review_requested, unread.
 # desk_detail / away_detail: "project" adds the folder and the reason, "kind" only the kind and the source.
 # Example for terminal-notifier (3.0.0_1 or later); a click focuses the waiting session, else opens the page:
 # desk_command = ["/opt/homebrew/bin/terminal-notifier", "-title", "{title}", "-message", "{message}",

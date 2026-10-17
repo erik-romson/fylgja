@@ -10,9 +10,9 @@ changes no score. The score of an item is::
                      + LAST_SESSION_BONUS if it held the last span of that session)
                     * LAST_SESSION_SCALE * last_session_weight
                     * 0.5 ^ (active seconds of the current work session / 3600)
-    boosts        = SCORES[kind] for a waiting kind (permission or input, turn done, build failed
-                    or review requested), the todo score for a ``next`` todo, UNFINISHED_BOOST for
-                    a dirty folder or an open pull request
+    boosts        = SCORES[kind] for a waiting kind (permission or input, turn done or run
+                    finished, build failed or review requested), the todo score for a ``next``
+                    todo, UNFINISHED_BOOST for a dirty folder or an open pull request
     forgotten     = FORGOTTEN_BOOST when the item has at least FORGOTTEN_MINUTES active minutes in
                     the last FORGOTTEN_SESSIONS work sessions, none in the current or the previous
                     one, and is unfinished (dirty, open pull request or a ``next`` todo)
@@ -45,7 +45,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from fylgja.core.activity import Activity
 from fylgja.core.items import Item
 from fylgja.core.ranking import SCORES, TODO
-from fylgja.core.waiting import BUILD_FAILED, INPUT, PERMISSION, REVIEW_REQUESTED, TURN_DONE
+from fylgja.core.waiting import (
+    BUILD_FAILED,
+    INPUT,
+    PERMISSION,
+    REVIEW_REQUESTED,
+    RUN_FINISHED,
+    TURN_DONE,
+)
 from fylgja.rankers.base import Part, Ranked, RankerPlugin, RankInput, spans_by_item
 
 __all__ = ["FrecencySettings", "plugin", "rank"]
@@ -93,6 +100,7 @@ _TODO_NEXT: Final = "todo_next"
 _DIRTY: Final = "dirty"
 _PR_OPEN: Final = "pr_open"
 _WAITING_KINDS: Final = (PERMISSION, INPUT)
+_DONE_KINDS: Final = (TURN_DONE, RUN_FINISHED)
 _BUILD_KINDS: Final = (BUILD_FAILED, REVIEW_REQUESTED)
 _NEVER: Final = float("inf")
 
@@ -187,7 +195,7 @@ def rank(data: RankInput, settings: BaseModel) -> list[Ranked]:
         state = item.state
         boosts = (
             (WAITING, max((SCORES[k] for k in _WAITING_KINDS if k in state), default=0.0)),
-            (TURN_DONE_PART, SCORES[TURN_DONE] if TURN_DONE in state else 0.0),
+            (TURN_DONE_PART, max((SCORES[k] for k in _DONE_KINDS if k in state), default=0.0)),
             (BUILD, max((SCORES[k] for k in _BUILD_KINDS if k in state), default=0.0)),
             (TODO_PART, SCORES[TODO] if _TODO_NEXT in state else 0.0),
             (UNFINISHED, UNFINISHED_BOOST if state & {_DIRTY, _PR_OPEN} else 0.0),
@@ -207,7 +215,7 @@ def rank(data: RankInput, settings: BaseModel) -> list[Ranked]:
                 score += FORGOTTEN_BOOST
 
         if returned and activity.away is not None:
-            changed = any(k in state for k in (*_WAITING_KINDS, TURN_DONE, *_BUILD_KINDS))
+            changed = any(k in state for k in (*_WAITING_KINDS, *_DONE_KINDS, *_BUILD_KINDS))
             untouched = item.last_focus_at is None or item.last_focus_at <= activity.away.since
             if changed and untouched:
                 parts.append(Part(WHILE_AWAY, WHILE_AWAY_BOOST))

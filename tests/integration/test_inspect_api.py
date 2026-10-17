@@ -266,7 +266,7 @@ async def test_the_explain_route_shows_rules_placements_and_a_stable_next_list()
     assert body["schema"] == INSPECT_EXPLAIN_SCHEMA
     assert body["resolved"] is True
     assert body["ranking"][0] == {"kind": "permission", "score": 100.0}
-    assert len(body["ranking"]) == 8
+    assert len(body["ranking"]) == 9
     assert body["labels"]
     assert all("rule" in label for label in body["labels"])
     assert [p["path"] for p in body["projects"]] == ["/work/alpha/main"]
