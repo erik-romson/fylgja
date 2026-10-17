@@ -162,6 +162,10 @@ class NotifyInfo(NowModel):
     """``command_timeout``, ``command_missing`` or ``command_failed``; absent before a failure."""
     last_failure_at: AwareDatetime | None = None
     """The wall time of the last failed send."""
+    evaluation_failures: int
+    """Evaluations that raised; each one skipped its send."""
+    last_evaluation_failure_at: AwareDatetime | None = None
+    """The wall time of the last evaluation that raised; absent before one."""
 
 
 class InspectCollectors(NowModel):

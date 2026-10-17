@@ -75,7 +75,8 @@ nothing is persisted.
     "sent": 3,
     "failed": 1,
     "last_failure_kind": "command_timeout",
-    "last_failure_at": "2026-10-05T11:58:00Z"
+    "last_failure_at": "2026-10-05T11:58:00Z",
+    "evaluation_failures": 0
   }
 }
 ```
@@ -185,7 +186,8 @@ nothing else. Counters start at zero when the daemon starts.
     "away": false,
     "open": 0,
     "sent": 0,
-    "failed": 0
+    "failed": 0,
+    "evaluation_failures": 0
   }
 }
 ```
@@ -216,6 +218,8 @@ nothing else. Counters start at zero when the daemon starts.
     are off.
   - `last_failure_kind` (`command_timeout`, `command_missing` or `command_failed`) and `last_failure_at` are absent
     before a failure.
+  - `evaluation_failures` counts the evaluations that raised; each one skipped its send. The daemon log names the
+    exception type, once per type. `last_evaluation_failure_at` is absent before one.
 
 ## `GET /inspect/explain`
 

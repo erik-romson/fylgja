@@ -908,6 +908,9 @@ function renderCollectors(insp) {
   notInstalled.replaceChildren(...names);
   if (!insp.notify.enabled) {
     notifyStatus.textContent = "Off. Set [notify] enabled = true and a desk_command to get alerts.";
+  } else if (insp.notify.evaluation_failures) {
+    notifyStatus.textContent = "notify: " + insp.notify.evaluation_failures + " evaluations failed, last at "
+      + fmtTime(insp.notify.last_evaluation_failure_at) + " · see the daemon log";
   } else if (insp.notify.last_failure_kind) {
     notifyStatus.textContent = "notify: " + insp.notify.last_failure_kind + " at " + fmtTime(insp.notify.last_failure_at)
       + " · " + insp.notify.failed + " failed · " + insp.notify.sent + " sent";
@@ -973,6 +976,7 @@ function renderFlowSide(pipe) {
   const alertLine = pipe.notify.enabled
     ? "On · " + pipe.notify.open + " open · " + pipe.notify.sent + " sent · " + pipe.notify.failed + " failed"
       + (pipe.notify.last_failure_kind ? " · last failure " + pipe.notify.last_failure_kind + " at " + fmtTime(pipe.notify.last_failure_at) : "")
+      + (pipe.notify.evaluation_failures ? " · " + pipe.notify.evaluation_failures + " evaluations failed, last at " + fmtTime(pipe.notify.last_evaluation_failure_at) : "")
     : "Off. Set [notify] enabled = true and a desk_command to get alerts.";
   box.append(el("p", "", alertLine));
   flowSide.replaceChildren(box);
@@ -1126,19 +1130,22 @@ async function refresh(force) {
   try {
     do {
       again = false;
-      await loadAttention();
+      // Runs beside the tab's loader; awaited before the next pass, so the title never goes back.
+      const attention = loadAttention();
       const name = currentTab();
       showTab(name);
       const skip = !bypass && throttled(name);
       bypass = false;
-      if (skip) { continue; }
-      try {
-        await TABS[name]();
-        lastLoad = Date.now();
-        say("");
-      } catch (error) {
-        say("Cannot load: " + error.message);
+      if (!skip) {
+        try {
+          await TABS[name]();
+          lastLoad = Date.now();
+          say("");
+        } catch (error) {
+          say("Cannot load: " + error.message);
+        }
       }
+      await attention;
     } while (again);
   } finally {
     running = false;

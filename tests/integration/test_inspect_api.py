@@ -387,6 +387,7 @@ async def test_the_default_daemon_reports_alerts_as_off_in_both_answers() -> Non
         "open": 0,
         "sent": 0,
         "failed": 0,
+        "evaluation_failures": 0,
     }
     assert collectors["notify"] == notify
     assert all(row["name"] != "notify" for row in collectors["collectors"])

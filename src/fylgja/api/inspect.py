@@ -217,6 +217,8 @@ def _notify(config: Config, stats: NotifyStats) -> NotifyInfo:
         failed=stats.failed,
         last_failure_kind=stats.last_failure_kind,
         last_failure_at=stats.last_failure_at,
+        evaluation_failures=stats.evaluation_failures,
+        last_evaluation_failure_at=stats.last_evaluation_failure_at,
     )
 
 

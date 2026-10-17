@@ -552,6 +552,10 @@ async def test_an_evaluation_that_raises_is_logged_once_and_the_loop_goes_on(
         assert len(records) == 1
         assert "RuntimeError" in records[0].getMessage()
         assert "/work/notes" not in records[0].getMessage()
+        assert daemon.notifier is not None
+        failing = daemon.notifier.stats()
+        assert failing.evaluation_failures >= 2  # one per evaluation, though logged only once
+        assert failing.last_evaluation_failure_at is not None
         broken[0] = False
         assert daemon.notifier is not None
         daemon.notifier.wake()

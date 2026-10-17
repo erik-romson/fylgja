@@ -253,7 +253,11 @@ def test_the_page_copies_the_attention_title_and_icon_from_the_daemon() -> None:
     assert "document.title = att.title" in script
     assert 'iconLink.setAttribute("href", att.icon)' in script
     body = script.split("async function refresh(force) {", 1)[1]
-    assert body.index("await loadAttention();") < body.index("throttled(name)")
+    # started before the throttle check, beside the tab's loader, and awaited before the next pass
+    loop = body.split("} while (again);", 1)[0]
+    assert loop.index("const attention = loadAttention();") < loop.index("throttled(name)")
+    assert loop.index("await TABS[name]();") < loop.index("await attention;")
+    assert "continue;" not in loop
 
 
 def test_todos_are_grouped_by_scope_and_imported_ones_name_their_source() -> None:
@@ -384,6 +388,7 @@ def test_the_collectors_tab_reads_the_inspect_route_and_the_throttle_spaces_relo
     assert "doctor has not checked this switch" in script
     assert 'id="notify-status"' in _source()
     assert "insp.notify.last_failure_kind" in script
+    assert "insp.notify.evaluation_failures" in script
     assert 'notifyStatus.textContent = "notify: ok · "' in script
     assert (
         "const MIN_GAP_MS = { recall: 1000, collectors: 2000, flow: 2000, explain: 2000 };"
@@ -454,6 +459,7 @@ def test_the_flow_tab_reads_the_pipeline_route_and_has_one_throttle() -> None:
     assert script.count("MIN_GAP_MS =") == 1
     assert "Set [summaries] enabled = true" in script
     assert "pipe.notify.last_failure_kind" in script
+    assert "pipe.notify.evaluation_failures" in script
 
 
 def test_the_explain_tab_reads_the_explain_route_and_the_top_twenty_items() -> None:

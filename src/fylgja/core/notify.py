@@ -646,6 +646,10 @@ class NotifyStats:
     """The wall time of the last failed send."""
     open: int = 0
     """Episodes whose entry is still listed, announced or not."""
+    evaluation_failures: int = 0
+    """Evaluations that raised; each one skipped its send."""
+    last_evaluation_failure_at: datetime | None = None
+    """The wall time of the last evaluation that raised."""
 
 
 class Notifier:
@@ -752,8 +756,14 @@ class Notifier:
             )
 
     def _failed(self, error: Exception) -> None:
-        """Log a failing evaluation once per exception type. Only the type is logged: the
-        exception's text could carry a path."""
+        """Count a failing evaluation, and log it once per exception type. Only the type is logged:
+        the exception's text could carry a path."""
+        stats = self._stats
+        self._stats = replace(
+            stats,
+            evaluation_failures=stats.evaluation_failures + 1,
+            last_evaluation_failure_at=self._clock.now(),
+        )
         kind = type(error)
         if kind in self._logged:
             return

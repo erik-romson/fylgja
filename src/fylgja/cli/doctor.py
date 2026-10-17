@@ -1285,6 +1285,13 @@ def _notify_delivery(config: Config, fetch: FetchJson) -> Check:
     block = pipeline.get("notify") if isinstance(pipeline, dict) else None
     if not isinstance(block, dict):
         return Check("notify:delivery", Status.WARN, "cannot read /inspect/pipeline")
+    evaluation_failures = block.get("evaluation_failures")
+    if evaluation_failures:
+        return Check(
+            "notify:delivery",
+            Status.WARN,
+            f"{evaluation_failures} evaluations failed; see the daemon log",
+        )
     kind = block.get("last_failure_kind")
     if kind:
         return Check("notify:delivery", Status.WARN, f"last delivery failed: {kind}")

@@ -102,6 +102,15 @@ def test_delivery_reports_the_last_failure_or_the_sent_count(tmp_path: Path) -> 
     assert check_notify(config, True, ok)[-1] == Check("notify:delivery", Status.OK, "3 sent")
 
 
+def test_delivery_warns_on_failed_evaluations_before_the_last_send(tmp_path: Path) -> None:
+    config = _config(desk_command=[_exe(tmp_path)])
+    block = _pipeline(evaluation_failures=2, last_failure_kind="command_timeout")
+    delivery = check_notify(config, True, _Fetch({"/inspect/pipeline": block}))[-1]
+    assert delivery == Check(
+        "notify:delivery", Status.WARN, "2 evaluations failed; see the daemon log"
+    )
+
+
 def test_delivery_warns_when_the_pipeline_cannot_be_read(tmp_path: Path) -> None:
     config = _config(desk_command=[_exe(tmp_path)])
     down = _Fetch({"/inspect/pipeline": client.DaemonDown("u", "timed out")})
