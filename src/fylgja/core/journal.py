@@ -4,6 +4,8 @@ This module loads no framework and does no I/O: no clock, no file, no process an
 holds
 
 * the thread identity of J1: a thread is one checkout plus its current branch;
+* the per-thread state the tracker keeps (:class:`ThreadState`) and when an entry is due
+  (:func:`due`, J5);
 * the bounded, deterministic input of one attempt (:class:`JournalInputs`, J8), with its digest
   and its numbered sources (J9);
 * the prompt (:func:`journal_prompt`, J10);
@@ -19,21 +21,25 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from functools import cached_property
 from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any, Final, Literal, NamedTuple, Protocol, cast
 
+from fylgja.config import JournalConfig
 from fylgja.core.items import item_id
+from fylgja.core.labels import project_name
 from fylgja.core.summaries import day_bounds, input_digest, normalize
-from fylgja.store.rows import JournalItemRow, ProjectRow
+from fylgja.store.rows import JournalItemRow, ProjectRow, SessionRow
 
 __all__ = [
+    "BAD_OUTPUT",
     "COMMIT_HORIZON",
     "DONE_DAYS",
     "FIRST_LOOKBACK",
+    "HARD_TRIGGERS",
     "INPUT_MAX_BYTES",
     "KINDS",
     "LEDGER_MAX_BYTES",
@@ -49,6 +55,8 @@ __all__ = [
     "Close",
     "CommitPart",
     "DoneDay",
+    "Due",
+    "DueThread",
     "ItemKind",
     "JournalInputs",
     "MergeResult",
@@ -59,10 +67,13 @@ __all__ = [
     "Source",
     "SourceKind",
     "ThreadKey",
+    "ThreadState",
     "TodoPart",
     "Trigger",
     "caps_sentence",
     "done_by_day",
+    "due",
+    "highest_trigger",
     "in_window",
     "item_seq_id",
     "journal_prompt",
@@ -73,9 +84,12 @@ __all__ = [
     "order_open",
     "parse_log",
     "parse_reply",
+    "session_source",
     "show_argv",
     "thread_id",
     "thread_key",
+    "thread_name",
+    "thread_source",
 ]
 
 Trigger = Literal[
@@ -328,6 +342,148 @@ class OpenItem:
     def kept(self) -> bool:
         """Pinned or edited by the person: the model never closes it (J12)."""
         return self.pinned or self.edited
+
+
+def thread_name(project: ProjectRow) -> str:
+    """The name a thread goes by (J1 display): its checkout's project name."""
+    root = project.repo_root or project.path
+    return project_name(root, repo_name=project.repo_name, group_name=project.group_name)
+
+
+def thread_source(key: ThreadKey, name: str) -> Source:
+    """The source of a boundary that belongs to the thread itself (J3)."""
+    return Source("thread", thread_id(key), f"{name} · {key.branch}")
+
+
+def session_source(row: SessionRow) -> Source:
+    """The source of a boundary a session triggered (J3): labelled by its title or its kind."""
+    return Source("session", row.session_key, row.title or row.kind)
+
+
+# --------------------------------------------------------------------------------------------
+# The tracker's thread state and when an entry is due (J3, J5)
+# --------------------------------------------------------------------------------------------
+
+HARD_TRIGGERS: Final[tuple[Trigger, ...]] = (
+    "run_finished",
+    "session_end",
+    "branch_changed",
+    "focus_left",
+)
+"""The hard boundaries, highest first (J3, J5 rule 4)."""
+_RANK: Final[Mapping[Trigger, int]] = MappingProxyType(
+    {trigger: rank for rank, trigger in enumerate((*HARD_TRIGGERS, "turn_done"))}
+)
+BAD_OUTPUT: Final = "bad_output"
+"""The error kind of a reply that :func:`parse_reply` rejects (J14)."""
+
+
+@dataclass
+class ThreadState:
+    """What the tracker knows about one thread in this process (J2–J5).
+
+    ``last_input``, ``last_attempt`` and ``failed_at`` are monotonic seconds; ``first_input`` and
+    ``floor`` are wall times.
+    """
+
+    dirty: bool = False
+    """Something happened in the checkout after the last attempt took its inputs (J2)."""
+    first_input: datetime | None = None
+    """The first dirtying change of the thread in this process (the window of a new thread, J7)."""
+    last_input: float | None = None
+    """The latest dirtying change: every input restarts the quiet (J5 rule 5)."""
+    pending: dict[Trigger, Source] = field(default_factory=dict)
+    """The boundaries seen while the thread was dirty, each with its source (J3). ``turn_done``
+    holds the latest Stop; the others are hard boundaries."""
+    floor: datetime | None = None
+    """When the tracker saw the checkout switch to this branch (J7)."""
+    last_attempt: float | None = None
+    """When the latest attempt took its inputs (J5 capture)."""
+    failed_kind: str | None = None
+    failed_at: float | None = None
+    input_since_failure: bool = False
+    """Input arrived after the failed attempt took its inputs (J5 rule 3, ``bad_output``)."""
+    running: bool = False
+    """An attempt is reserved, also while it waits for a model slot (J5 rule 1)."""
+
+    @property
+    def stop_seen(self) -> bool:
+        """A turn ended (J3 ``turn_done``) since the last attempt took its inputs."""
+        return "turn_done" in self.pending
+
+    def copy(self) -> ThreadState:
+        return replace(self, pending=dict(self.pending))
+
+
+def highest_trigger(trigger: Trigger, others: Iterable[Trigger]) -> Trigger:
+    """``trigger`` raised to the highest of ``others`` in J5's order: ``run_finished``,
+    ``session_end``, ``branch_changed``, ``focus_left``, then ``turn_done``. ``manual`` is kept."""
+    if trigger == "manual":
+        return trigger
+    return min((trigger, *others), key=lambda name: _RANK.get(name, len(_RANK)))
+
+
+class DueThread(NamedTuple):
+    """A thread that gets an attempt now, with its trigger and the trigger's source."""
+
+    key: ThreadKey
+    trigger: Trigger
+    source: Source
+
+
+@dataclass(frozen=True)
+class Due:
+    """What :func:`due` decided."""
+
+    threads: tuple[DueThread, ...]
+    """The threads due now, ordered by key."""
+    next_check: float | None
+    """The earliest future instant at which a thread becomes due without new input; ``None``
+    when only new input can make one due."""
+
+
+def due(now: float, states: Mapping[ThreadKey, ThreadState], settings: JournalConfig) -> Due:
+    """Which threads get an attempt at monotonic ``now``, and when to look again (J5).
+
+    Per thread, in order: a running thread is not due; a clean one is not due; after a failure it
+    is not due before ``failed_at + min_interval_seconds``, and after ``bad_output`` not before
+    new input either; a pending hard boundary makes it due at once with the highest one;
+    otherwise a seen Stop makes it due with ``turn_done`` once ``quiet_seconds`` passed since the
+    last input and ``min_interval_seconds`` since the last attempt.
+
+    ``next_check`` is the instant the first waiting thread becomes due: the latest of the
+    deadlines (``last_input + quiet_seconds``, ``last_attempt + min_interval_seconds``,
+    ``failed_at + min_interval_seconds``) that apply to it.
+    """
+    found: list[DueThread] = []
+    next_check: float | None = None
+    for key in sorted(states):
+        state = states[key]
+        if state.running or not state.dirty:
+            continue
+        deadlines: list[float] = []
+        if state.failed_kind is not None:
+            if state.failed_kind == BAD_OUTPUT and not state.input_since_failure:
+                continue
+            if state.failed_at is not None:
+                deadlines.append(state.failed_at + settings.min_interval_seconds)
+        hard = [trigger for trigger in HARD_TRIGGERS if trigger in state.pending]
+        if hard:
+            trigger = hard[0]
+        elif state.stop_seen:
+            trigger = "turn_done"
+            if state.last_input is not None:
+                deadlines.append(state.last_input + settings.quiet_seconds)
+            if state.last_attempt is not None:
+                deadlines.append(state.last_attempt + settings.min_interval_seconds)
+        else:
+            continue
+        ready = max(deadlines, default=now)
+        if now >= ready:
+            found.append(DueThread(key, trigger, state.pending[trigger]))
+        elif next_check is None or ready < next_check:
+            next_check = ready
+    return Due(tuple(found), next_check)
 
 
 # --------------------------------------------------------------------------------------------
