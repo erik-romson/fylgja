@@ -1,0 +1,77 @@
+{
+  "thread_id": "9817b0732f843088",
+  "name": "repo",
+  "branch": "feature/report-cuts",
+  "start": "2026-10-18T08:00:00+00:00",
+  "as_of": "2026-10-18T11:30:00+00:00",
+  "trigger": "run_finished",
+  "trigger_source": {"kind": "run", "ref": "norn:demo-run", "label": "implement report cuts"},
+  "previous_where": "An automated run is building the report cuts.",
+  "sessions": [
+    {
+      "key": "norn:demo-run",
+      "kind": "norn",
+      "last_at": "2026-10-18T11:29:00+00:00",
+      "title": "implement report cuts",
+      "state": "passed",
+      "stages": ["implement", "review", "verify"]
+    },
+    {
+      "key": "claude:demo-agent",
+      "kind": "claude",
+      "last_at": "2026-10-18T11:20:00+00:00",
+      "title": "Step 3: cut the sections",
+      "state": "ended",
+      "child": true,
+      "asked": ["Implement step 3 of the plan."],
+      "one_liner": "Section cutting is done"
+    }
+  ],
+  "run_outcome": "passed",
+  "run_sections": [
+    {
+      "path": "/w/repo/tmp/demo-plan/followups.md",
+      "heading": "Follow-ups",
+      "text": "- [ ] Add a size check for very long sections\n- [ ] Name the cut in the docs"
+    },
+    {
+      "path": "/w/repo/tmp/demo-plan/handoff.md",
+      "heading": "For the human",
+      "text": "Check the cut of a file with no headings by hand.\nRun the slow tests once on a laptop."
+    },
+    {
+      "path": "/w/repo/tmp/demo-plan/handoff.md",
+      "heading": "Known limitations",
+      "text": "Headings inside quotes are treated as headings."
+    }
+  ],
+  "commits": [
+    {
+      "hash": "3333333333333333333333333333333333333333",
+      "subject": "Cut report sections by heading",
+      "committed_at": "2026-10-18T11:10:00+00:00"
+    }
+  ],
+  "focus_minutes": 5,
+  "build_state": "passing",
+  "open_items": [
+    {
+      "id": "78153d7483272360",
+      "seq": 1,
+      "kind": "next",
+      "text": "Cut the report sections by heading",
+      "pinned": false,
+      "edited": false,
+      "created_at": "2026-10-18T07:30:00+00:00"
+    },
+    {
+      "id": "8da746ddc2910eb9",
+      "seq": 2,
+      "kind": "remember",
+      "text": "The size cap counts bytes, not characters",
+      "pinned": true,
+      "edited": false,
+      "created_at": "2026-10-18T07:35:00+00:00"
+    }
+  ]
+}

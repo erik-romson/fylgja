@@ -1,0 +1,55 @@
+{
+  "thread_id": "c5a362b63d4d2e17",
+  "name": "repo",
+  "branch": "main",
+  "start": "2026-10-18T09:00:00+00:00",
+  "as_of": "2026-10-18T10:02:00+00:00",
+  "trigger": "turn_done",
+  "trigger_source": {"kind": "session", "ref": "claude:demo-1", "label": "Tidy the config loader"},
+  "previous_where": "You were splitting the config loader into two steps.",
+  "sessions": [
+    {
+      "key": "claude:demo-1",
+      "kind": "claude",
+      "last_at": "2026-10-18T10:00:00+00:00",
+      "title": "Tidy the config loader",
+      "state": "turn_done",
+      "asked": [
+        "Split the loader into a reader and a validator.",
+        "Add a test for an unknown key."
+      ],
+      "said": "The loader now reads first and validates second. A test covers an unknown key.",
+      "one_liner": "Tests for the config loader pass",
+      "files": ["/w/repo/src/loader.py", "/w/repo/tests/test_loader.py"],
+      "open_tasks": ["Document the new error message"],
+      "done_tasks": ["Split the loader", "Add the unknown-key test"]
+    }
+  ],
+  "commits": [
+    {
+      "hash": "1111111111111111111111111111111111111111",
+      "subject": "Split the config loader into reader and validator",
+      "committed_at": "2026-10-18T09:40:00+00:00"
+    },
+    {
+      "hash": "2222222222222222222222222222222222222222",
+      "subject": "Test an unknown config key",
+      "committed_at": "2026-10-18T09:55:00+00:00"
+    }
+  ],
+  "focus_minutes": 48,
+  "pr_number": 12,
+  "pr_state": "open",
+  "build_state": "passing",
+  "open_items": [
+    {
+      "id": "2f579bbb743bbfe3",
+      "seq": 1,
+      "kind": "next",
+      "text": "Add a test for an unknown config key",
+      "pinned": false,
+      "edited": false,
+      "created_at": "2026-10-17T15:00:00+00:00"
+    }
+  ]
+}
