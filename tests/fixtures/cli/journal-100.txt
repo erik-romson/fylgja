@@ -1,0 +1,20 @@
+fylgja · develop
+Last worked on today at 17:48
+
+Where you are
+You are wiring the journal read routes. The CLI render is next.
+
+Do next
+- Add the focused route
+- Render the list
+- Write the route page
+(+1 more)
+
+Keep in mind
+- The page reads no journal field yet
+
+Done lately
+- Today: You added the journal models. You wrote the builders.
+  - Done: Define the models
+- Yesterday: You planned the routes.
+- Tue 13 Oct: You started the schema.

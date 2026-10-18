@@ -243,6 +243,7 @@ async def test_canaries_reach_no_log_spool_file_database_row_or_api_response(
                 "/view/overview",
                 "/items",
                 "/rankers",
+                "/journal/threads",
                 "/inspect/collectors",
                 "/inspect/pipeline",
                 "/inspect/explain",

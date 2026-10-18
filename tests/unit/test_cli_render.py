@@ -7,6 +7,9 @@ compare, and never write them.
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -224,3 +227,81 @@ def test_render_rankers_marks_the_default_and_the_reason_a_ranker_is_off() -> No
     assert render.render_rankers({"default": "natural", "rankers": []}) == (
         "no rankers\ndefault in effect: natural"
     )
+
+
+# --- the work journal ---------------------------------------------------------------------------
+
+JOURNAL = _json("journal.json")
+JOURNAL_TODAY = date(2026, 10, 18)
+
+
+@pytest.fixture
+def utc(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Local time is UTC, as ``scripts/gen_cli_goldens.py`` renders the journal golden."""
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.delenv("TZ", raising=False)
+    time.tzset()
+
+
+@pytest.mark.usefixtures("utc")
+def test_relative_day_says_today_yesterday_or_the_date() -> None:
+    assert render.relative_day("2026-10-18T17:48:00Z", JOURNAL_TODAY) == "today at 17:48"
+    assert render.relative_day("2026-10-17T09:10:00Z", JOURNAL_TODAY) == "yesterday at 09:10"
+    assert render.relative_day("2026-10-13T10:00:00Z", JOURNAL_TODAY) == "Tue 13 Oct at 10:00"
+    assert render.relative_day("not a time", JOURNAL_TODAY) == "—"
+
+
+@pytest.mark.usefixtures("utc")
+def test_the_journal_golden() -> None:
+    assert render.render_journal(JOURNAL, 100, JOURNAL_TODAY) == _golden("journal-100.txt")
+
+
+@pytest.mark.usefixtures("utc")
+def test_empty_journal_sections_are_left_out() -> None:
+    empty = {
+        "name": "repo",
+        "branch": "main",
+        "where": {"state": "missing"},
+        "open": {"next": [], "remember": [], "blocked": []},
+        "done_recent": [],
+        "entries": [],
+    }
+    assert render.render_journal(empty, 100, JOURNAL_TODAY) == "repo · main"
+
+
+@pytest.mark.usefixtures("utc")
+def test_blocked_shows_its_items_and_no_more_line_when_all_are_shown() -> None:
+    payload = {
+        "name": "repo",
+        "branch": "main",
+        "open": {
+            "next": [],
+            "remember": [],
+            "blocked": [{"text": "Waiting for the key", "shown": True}],
+        },
+    }
+    assert render.render_journal(payload, 100, JOURNAL_TODAY) == (
+        "repo · main\n\nBlocked\n- Waiting for the key"
+    )
+
+
+@pytest.mark.usefixtures("utc")
+def test_the_thread_list_has_one_line_per_thread() -> None:
+    payload = {
+        "threads": [
+            {
+                "id": "0123456789abcdef",
+                "name": "repo",
+                "folder": "w/repo",
+                "branch": "main",
+                "last_at": "2026-10-18T17:48:00Z",
+                "open": 4,
+            }
+        ]
+    }
+    lines = render.render_journal_list(payload, 100, JOURNAL_TODAY).splitlines()
+    assert lines[0].split() == ["NAME", "BRANCH", "FOLDER", "LAST", "WORKED", "OPEN"]
+    assert lines[1].split() == ["repo", "main", "w/repo", "today", "at", "17:48", "4"]
+    assert render.render_journal_list({"threads": []}, 100) == "no journal threads"

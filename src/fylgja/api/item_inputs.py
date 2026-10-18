@@ -38,6 +38,7 @@ from fylgja.api.items_models import (
     ActivityInfo,
     AwayChange,
     DayGroup,
+    ItemJournal,
     ItemPlace,
     Items,
     ItemStory,
@@ -472,7 +473,12 @@ def _place(place: Place) -> ItemPlace:
     )
 
 
-def _nav_item(item: Item, ranked: Ranked, story: ItemStory | None = None) -> NavItem:
+def _nav_item(
+    item: Item,
+    ranked: Ranked,
+    story: ItemStory | None = None,
+    journal: ItemJournal | None = None,
+) -> NavItem:
     by_role = {field: _go(item.go_by_role.get(role)) for role, field in _GO_FIELDS}
     return NavItem(
         id=item.id,
@@ -495,6 +501,7 @@ def _nav_item(item: Item, ranked: Ranked, story: ItemStory | None = None) -> Nav
         go_agent=by_role["go_agent"],
         go_terminal=by_role["go_terminal"],
         story=story,
+        journal=journal,
     )
 
 
@@ -630,6 +637,7 @@ def build_items_answer(
     limit: int | None = None,
     summaries_enabled: bool = False,
     stories: Mapping[str, ItemStory] | None = None,
+    journals: Mapping[str, ItemJournal] | None = None,
 ) -> Items:
     """``fylgja.items/1`` of a ranking.
 
@@ -638,8 +646,10 @@ def build_items_answer(
     first ones after that. ``total`` counts the items before both and ``shown`` after. The day
     groups hold the shown items. ``while_away`` and ``last_session`` do not depend on the ranker,
     ``query`` or ``limit``. ``stories`` holds the cached folder summaries by item id
-    (:func:`fylgja.api.summary_inputs.item_stories`)."""
+    (:func:`fylgja.api.summary_inputs.item_stories`); ``journals`` the journal fields by item id
+    (``docs/decisions/0057``)."""
     found = stories or {}
+    journal = journals or {}
     pairs = list(zip(result.items, result.ranked, strict=True))
     needle = (query or "").strip().casefold()
     if needle:
@@ -658,7 +668,10 @@ def build_items_answer(
         activity=_activity_info(result.activity),
         while_away=_while_away(result, now),
         last_session=_last_session(result),
-        items=[_nav_item(item, ranked, found.get(item.id)) for item, ranked in pairs],
+        items=[
+            _nav_item(item, ranked, found.get(item.id), journal.get(item.id))
+            for item, ranked in pairs
+        ],
         days=_days(shown, _local_day(result.now)),
         summaries_enabled=summaries_enabled,
         query=query or None,

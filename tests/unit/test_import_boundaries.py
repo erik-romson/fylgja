@@ -82,6 +82,8 @@ MODULES = [
     "fylgja.api.summary_inputs",
     "fylgja.api.items_models",
     "fylgja.api.item_inputs",
+    "fylgja.api.journal_models",
+    "fylgja.api.journal_answers",
     "fylgja.api.view_models",
     "fylgja.api.views",
     "fylgja.api.inspect_models",

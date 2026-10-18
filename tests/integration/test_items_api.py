@@ -53,15 +53,19 @@ from fylgja.collectors.base import Capability
 from fylgja.collectors.registry import EntryPointLike
 from fylgja.core.daemon import Daemon, floor_time
 from fylgja.core.items import Item, item_id
+from fylgja.core.journal import ThreadKey, thread_id
 from fylgja.core.spans import Closed
 from fylgja.models import (
     ContextItemEvent,
     ContextItemPayload,
     PresenceEvent,
     PresencePayload,
+    ProjectEvent,
+    ProjectPayload,
     SessionActivity,
 )
 from fylgja.rankers.base import Part, Ranked, RankerPlugin, RankInput
+from fylgja.store import db, queries
 from fylgja.store.rows import SpanRow
 from fylgja.testing.fakes import FakeClock, FakeFS
 
@@ -842,3 +846,122 @@ async def test_a_failing_ranker_is_listed_and_offered_like_any_loaded_one() -> N
         True,
     )
     assert (body["selected"], body["stale_choice"]) == ("boom", False)
+
+
+# --------------------------------------------------------------------------------------------
+# The journal field (decision 0057, D6)
+# --------------------------------------------------------------------------------------------
+
+ALPHA_THREAD = thread_id(ThreadKey(ALPHA, "main"))
+
+
+@asynccontextmanager
+async def journal_world(*, enabled: bool) -> AsyncIterator[Daemon]:
+    """The picture of the module, with a project collector: ALPHA is a checkout on ``main`` with a
+    thread row (where you are, five open ``next`` items)."""
+    fs = FakeFS()
+    for root in (ALPHA, WORKTREE, BETA):
+        fs.add_dir(f"{root}/.git")
+    daemon = make_daemon(
+        windows_collector(),
+        sessions_collector(),
+        Synthetic("pres", frozenset({Capability.CONTEXT})),
+        Synthetic("proj", frozenset({Capability.PROJECT_STATE})),
+        user_config={"journal": {"enabled": enabled}},
+        fs=fs,
+    )
+    await daemon.start()
+    try:
+        await populate(daemon)
+        daemon.sink("proj").emit(
+            ProjectEvent(
+                source="proj",
+                entity_id=ALPHA,
+                observed_at=daemon.clock.now(),
+                payload=ProjectPayload(path=ALPHA, repo_root=ALPHA, branch="main"),
+            )
+        )
+        await daemon.settle()
+        if enabled:
+            stamp = db.to_db_time(daemon.clock.now() - timedelta(minutes=5))
+
+            def job(tx: Any) -> None:
+                queries.put_journal_thread(
+                    tx.connection,
+                    {
+                        "thread_id": ALPHA_THREAD,
+                        "repo_root": ALPHA,
+                        "branch": "main",
+                        "name": "alpha",
+                        "first_at": stamp,
+                        "last_at": stamp,
+                        "watermark": stamp,
+                        "where_text": "You are in the middle of the form.",
+                        "where_at": stamp,
+                        "last_attempt_at": stamp,
+                        "error_kind": None,
+                        "error_at": None,
+                    },
+                )
+                for seq in range(1, 6):
+                    queries.put_journal_item(
+                        tx.connection,
+                        {
+                            "id": f"{seq:016x}",
+                            "thread_id": ALPHA_THREAD,
+                            "seq": seq,
+                            "kind": "next",
+                            "text": f"do {seq}",
+                            "status": "open",
+                            "pinned": 0,
+                            "edited": 0,
+                            "source": json.dumps(
+                                {"kind": "thread", "ref": ALPHA_THREAD, "label": "alpha · main"}
+                            ),
+                            "created_at": db.to_db_time(
+                                daemon.clock.now() - timedelta(hours=1, minutes=-seq)
+                            ),
+                            "created_entry": None,
+                            "closed_at": None,
+                            "closed_by": None,
+                            "closed_entry": None,
+                            "todo_id": None,
+                            "how_text": None,
+                            "how_digest": None,
+                            "how_at": None,
+                            "how_error_kind": None,
+                        },
+                    )
+
+            await daemon.writer.execute(job)
+            assert daemon.journal is not None
+            await daemon.journal.load()
+        yield daemon
+    finally:
+        await daemon.stop()
+
+
+async def test_a_checkout_folder_item_carries_the_threads_journal() -> None:
+    async with journal_world(enabled=True) as daemon:
+        body = await get(daemon, "/items")
+    items = by_id(body)
+    assert items[ALPHA_ID]["journal"] == {
+        "thread": ALPHA_THREAD,
+        "where": "You are in the middle of the form.",
+        "next": [
+            {"id": f"{5:016x}", "text": "do 5"},
+            {"id": f"{4:016x}", "text": "do 4"},
+            {"id": f"{3:016x}", "text": "do 3"},
+        ],
+        "next_more": 2,
+    }
+    assert "journal" not in items[WORKTREE_ID]  # a checkout without a thread row
+    assert "journal" not in items[TERM_ID]  # an app
+    assert list(nulls(body)) == []
+
+
+async def test_while_the_journal_is_off_no_item_has_a_journal_field() -> None:
+    async with journal_world(enabled=False) as daemon:
+        body = await get(daemon, "/items")
+    assert body["items"]
+    assert all("journal" not in item for item in body["items"])

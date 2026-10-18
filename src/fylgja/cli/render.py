@@ -10,14 +10,17 @@ from __future__ import annotations
 
 import textwrap
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Final
 
 __all__ = [
     "DEFAULT_WIDTH",
     "render_collectors",
+    "relative_day",
     "render_history",
     "render_items",
+    "render_journal",
+    "render_journal_list",
     "render_next",
     "render_now",
     "render_rankers",
@@ -482,3 +485,101 @@ def render_rankers(payload: Row, width: int = DEFAULT_WIDTH) -> str:
             ]
         )
     return table(["NAME", "ORIGIN", "ENABLED", "LOADED", "DESCRIPTION"], body, width) + "\n" + note
+
+
+# --- the work journal -------------------------------------------------------------------------
+
+_JOURNAL_SECTIONS: Final = (
+    ("next", "Do next"),
+    ("remember", "Keep in mind"),
+    ("blocked", "Blocked"),
+)
+
+
+def relative_day(value: object, today: date) -> str:
+    """A local time as ``today at 17:48``, ``yesterday at 09:10`` or ``Mon 13 Oct at 10:00``;
+    ``—`` when ``value`` is not a time. ``today`` is the local date to count from."""
+    try:
+        moment = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    except ValueError:
+        return _DASH
+    local = moment.astimezone()
+    clock = f"{local:%H:%M}"
+    back = (today - local.date()).days
+    if back == 0:
+        return f"today at {clock}"
+    if back == 1:
+        return f"yesterday at {clock}"
+    return f"{local:%a} {local.day} {local:%b} at {clock}"
+
+
+def _journal_day(group: Row) -> str:
+    relative = group.get("relative")
+    if relative:
+        return str(relative).capitalize()
+    try:
+        day = date.fromisoformat(str(group.get("day")))
+    except ValueError:
+        return _DASH
+    return f"{day:%a} {day.day} {day:%b}"
+
+
+def _bullets(prefix: str, text: object, width: int) -> str:
+    return textwrap.fill(
+        str(text), max(width, 20), initial_indent=prefix, subsequent_indent=" " * len(prefix)
+    )
+
+
+def render_journal(payload: Row, width: int = DEFAULT_WIDTH, today: date | None = None) -> str:
+    """One thread's journal (``/journal/focused``, ``/journal/checkout`` or
+    ``/journal/threads/{id}``): its name and branch, when it was last worked on, "Where you are",
+    the shown items of "Do next", "Keep in mind" and "Blocked" with the count of more open ones,
+    and "Done lately". An empty section is left out. Nothing is ordered or counted here but the
+    ``(+N more)``."""
+    day = date.today() if today is None else today
+    parts = [_clip(f"{payload.get('name', '?')} · {payload.get('branch', '?')}", width)]
+    if payload.get("last_at"):
+        parts.append(f"Last worked on {relative_day(payload['last_at'], day)}")
+    where = payload.get("where")
+    if isinstance(where, Mapping) and where.get("text"):
+        parts += ["", "Where you are", textwrap.fill(str(where["text"]), max(width, 20))]
+    opened = payload.get("open")
+    for key, title in _JOURNAL_SECTIONS:
+        items = opened.get(key) if isinstance(opened, Mapping) else None
+        found = [item for item in items or [] if isinstance(item, Mapping)]
+        shown = [item for item in found if item.get("shown")]
+        if not shown:
+            continue
+        parts += ["", title, *(_bullets("- ", item.get("text", ""), width) for item in shown)]
+        if len(found) > len(shown):
+            parts.append(f"(+{len(found) - len(shown)} more)")
+    days = [group for group in payload.get("done_recent") or [] if isinstance(group, Mapping)]
+    if days:
+        parts += ["", "Done lately"]
+        for group in days:
+            headlines = " ".join(str(line) for line in group.get("headlines") or [])
+            parts.append(_bullets("- ", f"{_journal_day(group)}: {headlines}".rstrip(": "), width))
+            for item in group.get("items") or []:
+                if isinstance(item, Mapping):
+                    parts.append(_bullets("  - ", f"Done: {item.get('text', '')}", width))
+    return "\n".join(parts)
+
+
+def render_journal_list(payload: Row, width: int = DEFAULT_WIDTH, today: date | None = None) -> str:
+    """The threads of ``/journal/threads``: name, branch, folder, when last worked on and the
+    number of open items, one line each, in the daemon's order."""
+    day = date.today() if today is None else today
+    threads = [t for t in payload.get("threads") or [] if isinstance(t, Mapping)]
+    if not threads:
+        return "no journal threads"
+    rows = [
+        [
+            str(thread.get("name", "?")),
+            str(thread.get("branch", "?")),
+            str(thread.get("folder", "?")),
+            relative_day(thread["last_at"], day) if thread.get("last_at") else _DASH,
+            str(thread.get("open", 0)),
+        ]
+        for thread in threads
+    ]
+    return table(["NAME", "BRANCH", "FOLDER", "LAST WORKED", "OPEN"], rows, width)

@@ -1,9 +1,9 @@
 """The ``fylgja`` command line (Typer).
 
 ``serve`` runs the daemon and the API. The read commands (``now``, ``ws``, ``sessions``,
-``history``, ``next`` and ``collectors list``) are HTTP clients of that daemon (A7): each fetches
-JSON from it, prints a table or, with ``--json``, the JSON, and exits **3** with a clear message
-when the daemon is down.
+``history``, ``next``, ``journal`` and ``collectors list``) are HTTP clients of that daemon (A7):
+each fetches JSON from it, prints a table or, with ``--json``, the JSON, and exits **3** with a
+clear message when the daemon is down.
 ``next --feedback good|bad`` rates the top item of the list ``next`` showed last today (the CLI
 remembers its ``list_id`` in the state directory and posts to the daemon).
 ``todo add|done|rm|ls`` talk to the daemon as well (writes send the bearer secret; ``add`` without a
@@ -98,8 +98,10 @@ def _width() -> int:
     return shutil.get_terminal_size((render.DEFAULT_WIDTH, 24)).columns
 
 
-def _fetch(path: str) -> Any:
-    """GET ``path`` from the daemon, or leave with the exit code and message of the failure."""
+def _fetch(path: str, *, on_api_error: Callable[[client.ApiError], None] | None = None) -> Any:
+    """GET ``path`` from the daemon, or leave with the exit code and message of the failure.
+
+    ``on_api_error`` sees an error answer first and may leave with a message of its own."""
     try:
         return client.get_json(path)
     except client.DaemonDown as exc:
@@ -109,6 +111,8 @@ def _fetch(path: str) -> Any:
             client.EXIT_DAEMON_DOWN,
         )
     except client.ApiError as exc:
+        if on_api_error is not None:
+            on_api_error(exc)
         _fail(str(exc), client.EXIT_API_ERROR)
     except Exception as exc:
         # The configuration (and so the port) could not be read.
@@ -343,6 +347,55 @@ def items(
     }
     payload = _fetch("/items" + (f"?{urllib.parse.urlencode(query)}" if query else ""))
     _show(payload, as_json, lambda: render.render_items(payload, _width()))
+
+
+def _journal_error(exc: client.ApiError) -> None:
+    """The messages of the journal routes: 409 means the journal is off; a 404 says why."""
+    if exc.status == 409:
+        _fail("the journal is off; set [journal] enabled = true", client.EXIT_API_ERROR)
+    if exc.status == 404 and exc.detail:
+        _fail(exc.detail, client.EXIT_API_ERROR)
+
+
+@app.command()
+def journal(
+    thread: Annotated[
+        str | None,
+        typer.Argument(metavar="THREAD_ID", help="A thread id, as `--list` shows them."),
+    ] = None,
+    here: Annotated[
+        bool, typer.Option("--here", help="The checkout of the current directory.")
+    ] = False,
+    list_threads: Annotated[
+        bool, typer.Option("--list", help="The threads you worked on lately.")
+    ] = False,
+    days: Annotated[
+        int | None, typer.Option("--days", metavar="N", help="With --list: how many days back.")
+    ] = None,
+    as_json: JsonOption = False,
+) -> None:
+    """Where you left a checkout: where you are, what to do next and keep in mind, what you did.
+
+    Without options: the checkout of the focused window. Exits 1 when the journal is off
+    ([journal] enabled), when nothing is focused or the checkout has no journal.
+    """
+    if sum((thread is not None, here, list_threads)) > 1:
+        _fail("give a thread id, --here or --list (not several)", EXIT_CONFIG)
+    if list_threads:
+        query = f"?days={days}" if days is not None else ""
+        payload = _fetch(f"/journal/threads{query}", on_api_error=_journal_error)
+        if not payload.get("enabled", True):
+            _fail("the journal is off; set [journal] enabled = true", client.EXIT_API_ERROR)
+        _show(payload, as_json, lambda: render.render_journal_list(payload, _width()))
+        return
+    if thread is not None:
+        path = f"/journal/threads/{client.quote(thread)}"
+    elif here:
+        path = f"/journal/checkout?path={client.quote(str(Path.cwd()))}"
+    else:
+        path = "/journal/focused"
+    payload = _fetch(path, on_api_error=_journal_error)
+    _show(payload, as_json, lambda: render.render_journal(payload, _width()))
 
 
 @app.command()

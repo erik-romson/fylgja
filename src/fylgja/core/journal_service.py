@@ -24,7 +24,7 @@ import json
 import logging
 from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
@@ -74,6 +74,7 @@ from fylgja.store import db, queries
 from fylgja.store.rows import (
     ActivityIntervalRow,
     ActivityRow,
+    JournalEntryRow,
     JournalItemRow,
     JournalThreadRow,
     ProjectRow,
@@ -90,6 +91,8 @@ __all__ = [
     "JournalTracker",
     "LiveRows",
     "ThreadBrief",
+    "ThreadIdentity",
+    "ThreadRead",
     "item_values",
     "read_commits",
 ]
@@ -569,6 +572,7 @@ Listener = Callable[[str], object]
 """Called with the thread id after every journal write, a failure included (J13, J22)."""
 
 _OPEN: Final = ("open",)
+_DAY: Final = timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -580,6 +584,32 @@ class ThreadBrief:
     """Every open item of the thread, in J16 order."""
     pending: bool
     """An attempt for the thread is reserved or running."""
+
+
+@dataclass(frozen=True)
+class ThreadIdentity:
+    """A thread the reads can name: its key, its id and the name it goes by (J1 display)."""
+
+    key: ThreadKey
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ThreadRead:
+    """What a read of one thread takes from the store (J16, J17)."""
+
+    entries: tuple[JournalEntryRow, ...]
+    """The newest entries asked for, newest first."""
+    recent: tuple[JournalEntryRow, ...]
+    """Every entry of the last days "Done lately" covers, newest first."""
+    done: tuple[JournalItemRow, ...]
+    """The items closed as done in those days."""
+
+
+DONE_READ_DAYS: Final = 8
+"""Days a thread read looks back for "Done lately": the seven local days of J16 and a day of margin
+for the zone."""
 
 
 @dataclass(frozen=True)
@@ -682,6 +712,61 @@ class JournalService:
             return None
         items = tuple(order_open(self._open.get(thread_id, ())))
         return ThreadBrief(row, items, self.pending(thread_id))
+
+    def recent(self, since: datetime) -> list[ThreadBrief]:
+        """The cached threads whose latest entry is at or after ``since``, newest first (J16)."""
+        rows = [row for row in self._threads.values() if row.last_at and row.last_at >= since]
+        rows.sort(key=lambda row: (-cast(datetime, row.last_at).timestamp(), row.thread_id))
+        return [cast(ThreadBrief, self.brief(row.thread_id)) for row in rows]
+
+    def identity_of_path(self, path: str) -> ThreadIdentity | None:
+        """The current thread of the checkout at ``path`` with its name, whether it has a row or
+        not; ``None`` when the checkout has no thread (J1)."""
+        key = self.tracker.thread_of(path)
+        if key is None:
+            return None
+        tid = thread_id(key)
+        row = self._threads.get(tid)
+        if row is not None:
+            return ThreadIdentity(key, tid, row.name)
+        project = self._view.projects.get(path)
+        name = project_name(path) if project is None else thread_name(project)
+        return ThreadIdentity(key, tid, name)
+
+    def identity(self, tid: str) -> ThreadIdentity | None:
+        """The thread with this id: one with a row, or the current thread of a known checkout
+        that has no row yet (J17); ``None`` for any other id."""
+        row = self._threads.get(tid)
+        if row is not None:
+            return ThreadIdentity(ThreadKey(row.repo_root, row.branch), tid, row.name)
+        for path in tuple(self._view.projects):
+            found = self.identity_of_path(path)
+            if found is not None and found.id == tid:
+                return found
+        return None
+
+    async def read_thread(self, tid: str, entries: int) -> ThreadRead:
+        """The newest ``entries`` entries of the thread, and what "Done lately" needs, from the
+        store (a worker thread)."""
+        now = self._clock.now()
+        since = now - timedelta(days=DONE_READ_DAYS)
+        return await asyncio.to_thread(self._read_thread, tid, entries, since, now + _DAY)
+
+    def _read_thread(self, tid: str, entries: int, since: datetime, until: datetime) -> ThreadRead:
+        connection = db.connect_reader(self._writer.database)
+        try:
+            newest = queries.list_journal_entries(connection, tid, limit=entries)
+            recent = queries.entries_between(
+                connection, tid, db.to_db_time(since), db.to_db_time(until)
+            )
+            done = [
+                item
+                for item in queries.list_journal_items(connection, tid, statuses=("done",))
+                if item.closed_at is not None and item.closed_at >= since
+            ]
+            return ThreadRead(tuple(newest), tuple(recent), tuple(done))
+        finally:
+            connection.close()
 
     def add_listener(self, listener: Listener) -> Callable[[], None]:
         """Call ``listener`` with the thread id after every write; returns the function that

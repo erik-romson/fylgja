@@ -8,12 +8,17 @@ Run by hand after a deliberate change of ``fylgja.cli.render``; the tests only c
 from __future__ import annotations
 
 import json
+import os
+import time
+from datetime import date
 from pathlib import Path
 
 from fylgja.cli import render
 
 FIXTURES = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "cli"
 WIDTHS = (100, 60)
+JOURNAL_TODAY = date(2026, 10, 18)
+"""The "today" the journal golden is rendered for, in UTC (the test sets the same zone)."""
 
 
 def _load(name: str) -> object:
@@ -21,6 +26,8 @@ def _load(name: str) -> object:
 
 
 def main() -> None:
+    os.environ["TZ"] = "UTC"
+    time.tzset()
     now = _load("now.json")
     collectors = _load("collectors.json")
     assert isinstance(now, dict)
@@ -37,6 +44,10 @@ def main() -> None:
         }
         for name, text in outputs.items():
             (FIXTURES / name).write_text(text + "\n", encoding="utf-8")
+    journal = _load("journal.json")
+    assert isinstance(journal, dict)
+    text = render.render_journal(journal, 100, JOURNAL_TODAY)
+    (FIXTURES / "journal-100.txt").write_text(text + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

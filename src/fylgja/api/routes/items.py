@@ -19,6 +19,8 @@ Both are reads: no authentication, Host-checked like every route.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
@@ -31,9 +33,13 @@ from fylgja.api.item_inputs import (
     build_items_answer,
     build_rankers_answer,
 )
-from fylgja.api.items_models import ItemStory
+from fylgja.api.items_models import ItemJournal, ItemStory
+from fylgja.api.journal_answers import build_item_journal
 from fylgja.api.now_models import dump_json
 from fylgja.api.summary_inputs import item_stories
+from fylgja.core.daemon import Daemon
+from fylgja.core.items import Item
+from fylgja.core.journal import thread_id
 
 __all__ = ["router"]
 
@@ -42,6 +48,21 @@ router = APIRouter()
 
 def _unprocessable(detail: str) -> HTTPException:
     return HTTPException(status_code=422, detail=detail)
+
+
+def _journals(daemon: Daemon, items: Sequence[Item]) -> dict[str, ItemJournal]:
+    """The ``journal`` field of the folder items that are checkouts with a thread row, from the
+    journal service's cache (D6); nothing while the journal is off. No I/O."""
+    service = daemon.journal
+    found: dict[str, ItemJournal] = {}
+    if service is None:
+        return found
+    for item in items:
+        key = service.thread_for_path(item.path) if item.kind == "folder" and item.path else None
+        brief = None if key is None else service.brief(thread_id(key))
+        if brief is not None:
+            found[item.id] = build_item_journal(brief.row.thread_id, brief.row, brief.open_items)
+    return found
 
 
 @router.get("/items")
@@ -74,6 +95,7 @@ async def get_items(
         limit=limit,
         summaries_enabled=service.enabled,
         stories=stories,
+        journals=_journals(daemon, result.items),
     )
     return json_response(dump_json(answer))
 

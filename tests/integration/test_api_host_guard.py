@@ -31,6 +31,7 @@ READ_ROUTES = (
     "/view/overview",
     "/items",
     "/rankers",
+    "/journal/threads",
     "/inspect/collectors",
     "/inspect/pipeline",
     "/inspect/explain",

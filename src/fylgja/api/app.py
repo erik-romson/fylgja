@@ -10,9 +10,10 @@ shutdown; a daemon the caller already started is left to the caller.
 * ``GET /`` serves the minimal page with the secret in a ``<meta>`` tag (WP4.4).
 * The read routes (``/now``, ``/workspaces``, ``/sessions``, ``/projects``, ``/todos``,
   ``/collectors``, ``/health``, ``/history``, ``/next``, ``GET /summaries/{scope}/{ref}``,
-  ``/view/attention``, ``/view/overview``, ``/items``, ``/rankers``, ``/inspect/*`` and the
-  ``/events`` change stream) need no authentication. The interactive docs and the OpenAPI document
-  are off.
+  ``/view/attention``, ``/view/overview``, ``/items``, ``/rankers``, ``GET /journal/threads``,
+  ``GET /journal/threads/{id}``, ``GET /journal/focused``, ``GET /journal/checkout``,
+  ``/inspect/*`` and the ``/events`` change stream) need no authentication. The interactive docs
+  and the OpenAPI document are off.
 * A finished summary job publishes ``summary.ready`` (``{scope, ref, state}``) on ``/events``.
 * While the journal is enabled, every journal write publishes ``journal.changed`` (``{thread}``,
   the thread id and never text) on ``/events``. It does not touch the live view, so ``/now`` is
@@ -40,6 +41,7 @@ from fylgja.api.routes import (
     history,
     inspect,
     items,
+    journal,
     messages,
     now,
     page,
@@ -76,6 +78,7 @@ _ROUTERS = (
     todos.router,
     views.router,
     items.router,
+    journal.router,
     inspect.router,
     sse.router,
 )

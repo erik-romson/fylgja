@@ -59,9 +59,11 @@ class DaemonDown(Exception):
 class ApiError(Exception):
     """The daemon answered with a failure or with something that is not JSON."""
 
-    def __init__(self, message: str, status: int | None = None) -> None:
+    def __init__(self, message: str, status: int | None = None, detail: str = "") -> None:
         super().__init__(message)
         self.status = status
+        self.detail = detail
+        """The daemon's ``detail`` text of an error answer; empty when there is none."""
 
 
 def base_url() -> str:
@@ -95,7 +97,12 @@ def get_json(path: str, *, url: str | None = None, timeout: float | None = None)
         with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310 - loopback
             body = response.read()
     except urllib.error.HTTPError as exc:
-        raise ApiError(f"{path}: the daemon answered {exc.code} {exc.reason}", exc.code) from exc
+        detail = _detail(exc)
+        raise ApiError(
+            f"{path}: the daemon answered {exc.code} {exc.reason}{detail}",
+            exc.code,
+            detail.removeprefix(": "),
+        ) from exc
     except (urllib.error.URLError, OSError) as exc:  # URLError is an OSError; refused, timeout
         raise DaemonDown(root, _reason(exc)) from exc
     except http.client.HTTPException as exc:

@@ -117,6 +117,13 @@ The day groups hold the shown items.
   cached folder summary (decision 0053). It is present only while summaries are enabled and a summary with text is
   cached for the item, and its state is judged against the item's current inputs. Reading `/items` never asks for one:
   `POST /summaries/folder/{id}` does (`docs/api/summaries.md`).
+- `journal` (`ItemJournal`: `thread`, optional `where`, `next[]` of `{id, text}`, optional `next_more`) is the work
+  journal of the folder's thread (decision 0057, [`journal.md`](journal.md)). It is present only on a folder item whose
+  path is a checkout with a thread row, while `[journal] enabled = true`. `thread` is the 16-hex thread id
+  (`GET /journal/threads/{id}`), `where` is "where you are" and is absent while the thread has none, `next` holds at
+  most three open "Do next" items in the journal's order, and `next_more` is the number of further open ones, absent when
+  there are none. The daemon matches items to threads from the journal service's cache; reading `/items` does no I/O for
+  it and never asks for an entry.
 
 **`DayGroup`** has `day` (`YYYY-MM-DD`, local time) and `items` (item ids in rank order). An item that was never
 focused is in today's group.

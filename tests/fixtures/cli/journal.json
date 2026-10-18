@@ -1,0 +1,160 @@
+{
+  "schema": "fylgja.journal/1",
+  "enabled": true,
+  "id": "0123456789abcdef",
+  "name": "fylgja",
+  "folder": "work/fylgja",
+  "branch": "develop",
+  "repo_root": "/work/fylgja",
+  "last_at": "2026-10-18T17:48:00Z",
+  "where": {
+    "text": "You are wiring the journal read routes. The CLI render is next.",
+    "generated_at": "2026-10-18T17:48:00Z",
+    "state": "fresh"
+  },
+  "open": {
+    "next": [
+      {
+        "id": "0000000000000001",
+        "kind": "next",
+        "text": "Add the focused route",
+        "status": "open",
+        "pinned": true,
+        "shown": true,
+        "source": {
+          "kind": "session",
+          "ref": "claude:abc-123",
+          "label": "Fix the form"
+        },
+        "created_at": "2026-10-17T09:00:00Z",
+        "has_how": false
+      },
+      {
+        "id": "0000000000000002",
+        "kind": "next",
+        "text": "Render the list",
+        "status": "open",
+        "pinned": false,
+        "shown": true,
+        "source": {
+          "kind": "session",
+          "ref": "claude:abc-123",
+          "label": "Fix the form"
+        },
+        "created_at": "2026-10-17T09:00:00Z",
+        "has_how": false
+      },
+      {
+        "id": "0000000000000003",
+        "kind": "next",
+        "text": "Write the route page",
+        "status": "open",
+        "pinned": false,
+        "shown": true,
+        "source": {
+          "kind": "session",
+          "ref": "claude:abc-123",
+          "label": "Fix the form"
+        },
+        "created_at": "2026-10-17T09:00:00Z",
+        "has_how": false
+      },
+      {
+        "id": "0000000000000004",
+        "kind": "next",
+        "text": "Check the host guard",
+        "status": "open",
+        "pinned": false,
+        "shown": false,
+        "source": {
+          "kind": "session",
+          "ref": "claude:abc-123",
+          "label": "Fix the form"
+        },
+        "created_at": "2026-10-17T09:00:00Z",
+        "has_how": false
+      }
+    ],
+    "remember": [
+      {
+        "id": "0000000000000005",
+        "kind": "remember",
+        "text": "The page reads no journal field yet",
+        "status": "open",
+        "pinned": false,
+        "shown": true,
+        "source": {
+          "kind": "session",
+          "ref": "claude:abc-123",
+          "label": "Fix the form"
+        },
+        "created_at": "2026-10-17T09:00:00Z",
+        "has_how": false
+      }
+    ],
+    "blocked": []
+  },
+  "done_recent": [
+    {
+      "day": "2026-10-18",
+      "relative": "today",
+      "headlines": [
+        "You added the journal models.",
+        "You wrote the builders."
+      ],
+      "items": [
+        {
+          "id": "0000000000000006",
+          "kind": "next",
+          "text": "Define the models",
+          "status": "done",
+          "pinned": false,
+          "shown": true,
+          "source": {
+            "kind": "session",
+            "ref": "claude:abc-123",
+            "label": "Fix the form"
+          },
+          "created_at": "2026-10-17T09:00:00Z",
+          "has_how": false,
+          "closed_at": "2026-10-18T10:00:00Z",
+          "closed_by": "user"
+        }
+      ]
+    },
+    {
+      "day": "2026-10-17",
+      "relative": "yesterday",
+      "headlines": [
+        "You planned the routes."
+      ],
+      "items": []
+    },
+    {
+      "day": "2026-10-13",
+      "headlines": [
+        "You started the schema."
+      ],
+      "items": []
+    }
+  ],
+  "entries": [
+    {
+      "trigger": "turn_done",
+      "started_at": "2026-10-18T17:00:00Z",
+      "ended_at": "2026-10-18T17:48:00Z",
+      "headline": "You wrote the builders.",
+      "did": [
+        "You added a builder per answer."
+      ],
+      "sources": [
+        {
+          "id": "S1",
+          "kind": "session",
+          "ref": "claude:abc-123",
+          "label": "Fix the form"
+        }
+      ]
+    }
+  ]
+}

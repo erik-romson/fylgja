@@ -94,6 +94,7 @@ empty scratch home: no Claude sessions, projects or JetBrains project paths. Del
 | `todo`, `label` | Your todos; a manual name for a workspace |
 | `session`, `story` | Act on one session: message, focus; model-written summaries |
 | `items [--rank] [--days] [--search]` | Folders and apps you worked in, ranked |
+| `journal [--here] [--list]` | Where you left a checkout: next steps, what to keep in mind, what you did |
 | `rankers` | Installed rankers: enabled, loaded, default |
 | `collectors`, `doctor` | Plugin status; setup check |
 

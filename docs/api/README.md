@@ -36,6 +36,10 @@ label or secret.
 | `GET /history` | `since`, `until` | `fylgja.history/1`: focus spans with per-workspace, project and app totals | [`history.md`](history.md) |
 | `GET /items` | `rank`, `days`, `q`, `limit` | `fylgja.items/1`: one navigation item per git-root folder and per app, ranked | [`items.md`](items.md) |
 | `GET /rankers` | `rank` | `fylgja.rankers/1`: the discovered rankers and the selected one | [`items.md`](items.md#get-rankers) |
+| `GET /journal/threads` | `days` (1–90, default 14) | `fylgja.journal/1`: the threads with an entry lately, only each thread's shown items; `enabled: false` and no threads while `[journal] enabled = false` | [`journal.md`](journal.md#get-journalthreads) |
+| `GET /journal/threads/{id}` | `entries` (1–100, default 20) | `fylgja.journal/1`: one thread's journal; **404** for an unknown or malformed id; **409** while the journal is off | [`journal.md`](journal.md#get-journalthreadsid) |
+| `GET /journal/focused` | | `fylgja.journal/1`: the journal of the focused window's checkout; **404**; **409** while the journal is off | [`journal.md`](journal.md#get-journalfocused-and-get-journalcheckout) |
+| `GET /journal/checkout` | `path` (absolute) | `fylgja.journal/1`: the journal of the checkout that holds `path`; **404**; **409** while the journal is off; **422** for a relative path | [`journal.md`](journal.md#get-journalfocused-and-get-journalcheckout) |
 | `GET /view/overview` | `rank` | `fylgja.view.overview/1`: the page's Overview tab in one call | [`views.md`](views.md) |
 | `GET /view/attention` | | `fylgja.view.attention/1`: the tab title and icon while an agent waits | [`views.md`](views.md#get-viewattention) |
 | `GET /summaries/{scope}/{ref}` | | `SummaryResponse`, cached only; never starts a job | [`summaries.md`](summaries.md) |
