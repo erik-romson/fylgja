@@ -29,7 +29,15 @@ from fylgja.core.journal import (
 from fylgja.core.journal_service import JournalTracker
 from fylgja.core.live_view import Change, Collection, LiveUpdate, LiveView
 from fylgja.core.spans import Closed, Dropped, Opened
-from fylgja.store.rows import ActivityRow, ProjectRow, SessionRow, SpanRow, StoreRow, TodoRow
+from fylgja.store.rows import (
+    ActivityRow,
+    JournalThreadRow,
+    ProjectRow,
+    SessionRow,
+    SpanRow,
+    StoreRow,
+    TodoRow,
+)
 
 T0 = datetime(2026, 10, 18, 9, 0, tzinfo=UTC)
 REPO = "/w/repo"
@@ -859,3 +867,54 @@ def test_seed_replaces_the_memo_and_dirties_nothing() -> None:
     assert world.states == {}
     world.remove(12, Collection.TODOS, "t0")
     assert world.state_of().last_input == 12
+
+
+def thread_row(key: ThreadKey, watermark: float | None) -> JournalThreadRow:
+    return JournalThreadRow(
+        thread_id=thread_id(key),
+        repo_root=key.repo_root,
+        branch=key.branch,
+        name="repo",
+        first_at=T0,
+        last_at=None,
+        watermark=None if watermark is None else at(watermark),
+        where_text=None,
+        where_at=None,
+        last_attempt_at=None,
+        error_kind=None,
+        error_at=None,
+    )
+
+
+def test_seed_bootstraps_the_current_thread_with_activity_after_its_watermark() -> None:
+    """J6: a stored thread that is its checkout's current thread, with a session's activity
+    newer than its watermark, gets one entry ``quiet_seconds`` after the start."""
+    world = World(
+        activity(A, prompt="late", valid_from=50),
+        project(OTHER),
+        session(B, path=OTHER),
+        activity(B, valid_from=10),
+    )
+    world.clock.t = 900
+    other = ThreadKey(OTHER, "main")
+    world.tracker.seed(
+        world.view, (thread_row(MAIN, 40), thread_row(FEATURE, None), thread_row(other, 10))
+    )
+    assert set(world.states) == {MAIN}  # feature is not current; /w/other has nothing newer
+    state = world.state_of()
+    assert (state.dirty, state.stop_seen, state.last_input) == (True, True, 900)
+    assert state.first_input == at(900)
+    assert state.pending == {"turn_done": session_source(A)}
+    assert due(1019, world.states, SETTINGS).threads == ()
+    assert due(1020, world.states, SETTINGS).threads == (
+        DueThread(MAIN, "turn_done", session_source(A)),
+    )
+
+
+def test_seed_bootstraps_a_thread_row_without_a_watermark() -> None:
+    world = World(activity(A, valid_from=5))
+    world.clock.t = 30
+    world.tracker.seed(world.view, (thread_row(MAIN, None),))
+    assert world.state_of().stop_seen
+    assert world.tracker.thread_of(REPO) == MAIN
+    assert world.tracker.thread_of("/w/nowhere") is None

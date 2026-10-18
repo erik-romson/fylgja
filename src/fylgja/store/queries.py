@@ -79,6 +79,8 @@ __all__ = [
     "list_journal_items",
     "list_journal_threads",
     "load_activity_between",
+    "load_journal_threads",
+    "load_open_journal_items",
     "list_import_todos",
     "list_todos",
     "load_active_todos",
@@ -1790,6 +1792,15 @@ ON CONFLICT (id) DO UPDATE SET
 
 SELECT_JOURNAL_ITEM: Final = f"SELECT {_JOURNAL_ITEM_COLUMNS} FROM journal_items WHERE id = ?"
 
+SELECT_ALL_JOURNAL_THREADS: Final = (
+    f"SELECT {_JOURNAL_THREAD_COLUMNS} FROM journal_threads ORDER BY thread_id"
+)
+
+SELECT_OPEN_JOURNAL_ITEMS: Final = (
+    f"SELECT {_JOURNAL_ITEM_COLUMNS} FROM journal_items WHERE status = 'open' "
+    "ORDER BY thread_id, seq"
+)
+
 SELECT_LINKED_JOURNAL_ITEMS: Final = (
     f"SELECT {_JOURNAL_ITEM_COLUMNS} FROM journal_items WHERE todo_id IS NOT NULL "
     "ORDER BY thread_id, seq"
@@ -1833,6 +1844,16 @@ def list_journal_threads(connection: sqlite3.Connection, *, since: str) -> list[
     """Threads whose latest entry ended at or after ``since``, newest first."""
     found = connection.execute(SELECT_JOURNAL_THREADS, (since,))
     return [JournalThreadRow.from_db(row) for row in found]
+
+
+def load_journal_threads(connection: sqlite3.Connection) -> list[JournalThreadRow]:
+    """Every thread, also one with no entry yet (the journal service's cache at start)."""
+    return [JournalThreadRow.from_db(row) for row in connection.execute(SELECT_ALL_JOURNAL_THREADS)]
+
+
+def load_open_journal_items(connection: sqlite3.Connection) -> list[JournalItemRow]:
+    """The open items of every thread, by thread and ``seq``."""
+    return [JournalItemRow.from_db(row) for row in connection.execute(SELECT_OPEN_JOURNAL_ITEMS)]
 
 
 def insert_journal_entry(connection: sqlite3.Connection, row: Mapping[str, Any]) -> int:

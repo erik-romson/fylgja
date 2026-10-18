@@ -14,6 +14,9 @@ shutdown; a daemon the caller already started is left to the caller.
   ``/events`` change stream) need no authentication. The interactive docs and the OpenAPI document
   are off.
 * A finished summary job publishes ``summary.ready`` (``{scope, ref, state}``) on ``/events``.
+* While the journal is enabled, every journal write publishes ``journal.changed`` (``{thread}``,
+  the thread id and never text) on ``/events``. It does not touch the live view, so ``/now`` is
+  unchanged.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
 
 :func:`server_config` is the Uvicorn configuration ``fylgja serve`` runs with: it binds
@@ -92,6 +95,8 @@ def create_app(
 
     events = sse.EventHub(services.view)
     services.summaries.add_listener(_summary_ready(events))
+    if services.journal is not None:
+        services.journal.add_listener(_journal_changed(events))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -138,6 +143,19 @@ def _summary_ready(events: sse.EventHub) -> Callable[[str, str, str], None]:
         found = hub()
         if found is not None:
             found.publish("summary.ready", {"scope": scope, "ref": ref, "state": state})
+
+    return publish
+
+
+def _journal_changed(events: sse.EventHub) -> Callable[[str], None]:
+    """The listener that publishes ``journal.changed`` on ``events`` for as long as the hub (and
+    so its app) exists, as :func:`_summary_ready` does."""
+    hub = weakref.ref(events)
+
+    def publish(thread: str) -> None:
+        found = hub()
+        if found is not None:
+            found.publish("journal.changed", {"thread": thread})
 
     return publish
 

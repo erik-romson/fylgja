@@ -91,6 +91,7 @@ not that it was delivered.
 | `session.state` | `{session_key, state, version}` | A live session's state changed; `state` is `null` when it ended. Comes before the `now.changed` of the same update |
 | `focus.changed` | `{window_id, workspace, version}` | Focus moved. Comes before the `now.changed` of the same update |
 | `summary.ready` | `{scope, ref, state}` | A summary job finished ([`summaries.md`](summaries.md)) |
+| `journal.changed` | `{thread}` | A journal entry, item or answer changed; only while `[journal] enabled = true` |
 
 A `: hb` comment arrives every 15 s. At most 16 clients can connect; the next one gets **503**. A slow client loses
 its oldest frames; since every event is a hint to fetch `/now`, a later event repairs the loss.

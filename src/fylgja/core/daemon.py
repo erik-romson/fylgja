@@ -25,6 +25,10 @@ Data flows **registry → supervisor → ingest gate → writer → state engine
   configured command. It exists only while ``[notify] enabled = true``, runs on its own task and
   reads the same ``waiting[]`` list ``/now`` shows (:meth:`Daemon._attention`); every live-view
   update and every tick wake it;
+* the **journal** (:attr:`Daemon.journal`, docs/decisions/0057) writes a short entry per checkout
+  and branch at natural boundaries through the same model gate as the summaries. It exists only
+  while ``[journal] enabled = true``, runs on its own task and is woken by every live-view update,
+  every span action and every tick;
 * the **span window** (:attr:`Daemon.span_window`) holds the focus spans of the last 14 days in
   memory: read once at start, then fed by the span engine. :meth:`Daemon.activity` builds working
   time from it (docs/decisions/0050);
@@ -75,6 +79,7 @@ from fylgja.core.context_items import ContextEntry, ContextMemory
 from fylgja.core.hosts import HostData
 from fylgja.core.ingest import IngestGate, PluginSink
 from fylgja.core.items import Item
+from fylgja.core.journal_service import JournalService
 from fylgja.core.labels import LabelService
 from fylgja.core.live_view import Collection, LiveSnapshot, LiveUpdate, LiveView
 from fylgja.core.next_lists import NextLists
@@ -594,6 +599,28 @@ class Daemon:
         )
         """Attention alerts (docs/decisions/0055); built only while ``[notify] enabled = true``,
         so a disabled daemon starts no task for them and never runs their command."""
+        self.journal: JournalService | None = (
+            JournalService(
+                self.writer,
+                config.journal,
+                gate=self.model_gate,
+                clock=self.clock,
+                view=self.view,
+                state=self.state,
+                span_window=self.span_window,
+                runner=process_runner,
+                git=str(config.paths.git),
+                privacy=self.privacy,
+                debounce=resolve_debounce,
+            )
+            if config.journal.enabled
+            else None
+        )
+        """The work journal (docs/decisions/0057); built only while ``[journal] enabled = true``,
+        so a disabled daemon starts no task and no span listener for it and never calls the model
+        gate for it."""
+        if self.journal is not None:
+            self.spans.listeners.append(self.journal.on_span)
         self.rankers: tuple[RegisteredRanker, ...] = load_rankers(config, ranker_entry_points)
         """Every discovered ranker after the enable rule (docs/decisions/0052); only the enabled
         ones were imported."""
@@ -653,6 +680,8 @@ class Daemon:
             )
             self._rebuild_view()
             await self.summaries.load()
+            if self.journal is not None:
+                await self.journal.load()
             stored = [row for row in self.view.sessions.values() if row.state in HOOK_ONLY_STATES]
             hooked = await asyncio.to_thread(
                 self._read_hooked_keys, [row.session_key for row in stored]
@@ -672,6 +701,8 @@ class Daemon:
             ]
             if self.notifier is not None:
                 self._tasks.append(asyncio.create_task(self.notifier.run(), name="fylgja-notify"))
+            if self.journal is not None:
+                self._tasks.append(asyncio.create_task(self.journal.run(), name="fylgja-journal"))
             self.lifecycle.append("start:state_engine")
             self.supervisor.start()
             self.lifecycle.append("start:supervisor")
@@ -713,6 +744,8 @@ class Daemon:
                 self._unsubscribe()
                 self._unsubscribe = None
             self.lifecycle.append("stop:state_engine")
+        if self.journal is not None:
+            await self.journal.stop()  # a running model call is killed, nothing of it is written
         await self.summaries.stop()  # a running model call is killed, nothing more is queued
         if "start:writer" in self.lifecycle:
             self.spans.stop(self.clock.now())  # the open span ends with the daemon
@@ -756,6 +789,8 @@ class Daemon:
             self._mark_dirty()
         if self.notifier is not None:  # also focus changes and away transitions (view.touch)
             self.notifier.wake()
+        if self.journal is not None:  # the tracker only; the evaluation runs on its own task
+            self.journal.observe(update)
 
     def _mark_dirty(self) -> None:
         self._engine_idle.clear()
@@ -794,6 +829,8 @@ class Daemon:
             self._mark_dirty()
             if self.notifier is not None:  # a private-window focus reaches it only here
                 self.notifier.wake()
+            if self.journal is not None:
+                self.journal.wake()
 
     def _attention(self) -> Snapshot:
         """What the notifier evaluates (R1, R5, R8): the ``waiting[]`` list ``/now`` shows, the
@@ -824,6 +861,15 @@ class Daemon:
         """The resolver's window of a live session (what a focus change is matched against)."""
         row = self.view.sessions.get(key)
         return None if row is None else row.window_id
+
+    def focused_project(self) -> str | None:
+        """The project of the focused window: the live view's focus (unknown and private windows
+        leave it unchanged, so it is the last non-private window) through :meth:`_attribute`.
+        ``None`` when nothing is focused or the window has no project."""
+        focused = self.view.focused
+        if focused is None or focused.window_id is None:
+            return None
+        return self._attribute(focused.window_id)[0]
 
     def _attribute(self, window_id: str) -> tuple[str | None, str | None]:
         """The project and session of a focused window.
