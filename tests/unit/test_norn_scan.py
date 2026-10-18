@@ -3,8 +3,9 @@ and the process match, over the sanitized run files and fakes."""
 
 from __future__ import annotations
 
+import json
 import os
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,7 @@ from fylgja.collectors.codex.adapter import CommandFailure
 from fylgja.collectors.context import build_context
 from fylgja.collectors.norn import adapter, parse, state
 from fylgja.collectors.norn.collector import NornCollector, NornSettings
-from fylgja.models import HealthState, SessionActivitySnapshot
+from fylgja.models import HealthState, ReportSection, SessionActivitySnapshot
 from fylgja.testing.fakes import FakeClock, FakeFS, FakeProcessRunner, RecordingSink
 
 NOW = FILES_NOW.timestamp()
@@ -468,3 +469,233 @@ def test_a_history_record_without_a_header_is_named_by_its_file(tmp_path: Path) 
         stem="p",
     )
     assert failed.outcome == "failed"
+
+
+# --- the reports of a finished run (J21) -------------------------------------------------------
+
+REPORTS = Path(__file__).resolve().parent.parent / "fixtures" / "norn" / "reports"
+STARTED = datetime(2026, 10, 5, 11, 5, 9, tzinfo=UTC).timestamp()
+HISTORY_LINE = (
+    '{"run_id": 2, "timestamp": "2026-10-05T13:28:16+00:00", "success": true,'
+    ' "in_progress": false, "agent_provider": "claude-code", "stage_log": []}\n'
+)
+
+
+def report_fs(*, finished: bool = True, fresh: float = STARTED + 60) -> FakeFS:
+    """``/w/repo`` as norn leaves it: state files, the run directory and the demo plan."""
+    fs = FakeFS()
+    fs.add_file("/w/repo/implement_features_v3.history", HISTORY_LINE, mtime=NOW - 10)
+    fs.add_file("/w/repo/implement_features_v3.checkpoint", b"{}", mtime=NOW - 10)
+    run = json.loads((REPORTS / "run-cli.json").read_text())
+    if not finished:
+        del run["finished_at"], run["success"]
+    fs.add_file("/w/repo/implement_features_v3.runs/2/run.json", json.dumps(run), mtime=NOW - 10)
+    for source in REPORTS.rglob("*.md"):
+        relative = source.relative_to(REPORTS)
+        name = relative.name
+        # the plan's own files predate the run; the reports it wrote come after its start
+        stamp = fresh if name in {"followups.md", "handoff.md", "review.md", "report.md"} else 0.0
+        fs.add_file(f"/w/repo/{relative}", source.read_bytes(), mtime=stamp)
+    return fs
+
+
+def report_collector(fs: FakeFS, clock: FakeClock, sink: RecordingSink) -> NornCollector:
+    return NornCollector(
+        NornSettings(roots=["/w"], scan_interval_seconds=5, inbox_watch="poll"),
+        build_context("norn", sink, clock=clock),
+        seams=adapter.Seams(FakeProcessRunner(), fs, pid_alive=lambda pid: False),
+    )
+
+
+def reports_of(sink: RecordingSink) -> list[ReportSection] | None:
+    snapshots = [r for r in sink.records if isinstance(r, SessionActivitySnapshot)]
+    items = snapshots[-1].items
+    assert len(items) == 1
+    return items[0].payload.report
+
+
+def read_paths(fs: FakeFS, name: str) -> list[object]:
+    return [p for p in fs.reads if str(p).endswith(name)]
+
+
+async def test_a_finished_run_reads_its_reports_once_over_three_polls() -> None:
+    fs = report_fs()
+    clock = FakeClock(FILES_NOW)
+    sink = RecordingSink()
+    collector = report_collector(fs, clock, sink)
+    for _ in range(3):
+        await collector.poll()
+        await clock.advance(6)  # past scan_interval_seconds, so the files are scanned again
+    report = reports_of(sink)
+    assert report is not None
+    assert [s.heading for s in report] == [
+        "Unapplied review findings",
+        "Unapplied review findings",
+        "For the human",
+        "Known limitations",
+        "Overview",
+        "Verdict",
+        "Blocking findings",
+        "Run report",
+    ]
+    assert all(s.path.startswith("/w/repo/") for s in report)
+    assert report[-1].path == "/w/repo/tmp/demo-run/report.md"
+    for name in ("handoff.md", "followups.md", "review.md", "report.md"):
+        assert len(read_paths(fs, name)) == 1, name
+
+
+async def test_the_sections_come_with_every_later_snapshot_while_the_run_is_listed() -> None:
+    fs = report_fs()
+    clock = FakeClock(FILES_NOW)
+    sink = RecordingSink()
+    collector = report_collector(fs, clock, sink)
+    await collector.poll()
+    first = reports_of(sink)
+    await clock.advance(40)  # a heartbeat emits the unchanged snapshot again
+    await collector.poll()
+    assert reports_of(sink) == first
+    assert first
+
+
+async def test_a_run_that_is_no_longer_listed_forgets_its_sections() -> None:
+    fs = report_fs()
+    clock = FakeClock(FILES_NOW)
+    collector = report_collector(fs, clock, RecordingSink())
+    await collector.poll()
+    assert len(collector._reports) == 1
+    await clock.advance(3600)  # finished_seconds is 900
+    fs.add_file("/w/repo/implement_features_v3.history", HISTORY_LINE, mtime=NOW + 3590)
+    await collector.poll()
+    assert collector._reports == {}
+
+
+async def test_a_handoff_older_than_the_run_start_is_skipped() -> None:
+    fs = report_fs()
+    fs.add_file(
+        "/w/repo/demo-plan/handoff.md",
+        (REPORTS / "demo-plan/handoff.md").read_bytes(),
+        mtime=STARTED - 1,
+    )
+    sink = RecordingSink()
+    await report_collector(fs, FakeClock(FILES_NOW), sink).poll()
+    report = reports_of(sink)
+    assert report is not None
+    assert "Overview" not in [s.heading for s in report]
+    assert "Unapplied review findings" in [s.heading for s in report]
+
+
+async def test_a_plan_directory_that_resolves_outside_the_state_directory_is_not_read() -> None:
+    fs = report_fs()
+    fs.links["/w/repo/demo-plan"] = "/elsewhere/demo-plan"
+    sink = RecordingSink()
+    await report_collector(fs, FakeClock(FILES_NOW), sink).poll()
+    assert reports_of(sink) is None  # nor its README, so the run report is not found either
+    assert read_paths(fs, "handoff.md") == []
+
+
+async def test_the_run_report_is_not_read_when_it_resolves_outside_the_state_directory() -> None:
+    fs = report_fs()
+    fs.links["/w/repo/tmp"] = "/elsewhere/tmp"
+    sink = RecordingSink()
+    await report_collector(fs, FakeClock(FILES_NOW), sink).poll()
+    report = reports_of(sink)
+    assert report is not None
+    assert "Run report" not in [s.heading for s in report]
+    assert read_paths(fs, "report.md") == []
+
+
+async def test_a_large_handoff_is_skipped() -> None:
+    fs = report_fs()
+    fs.add_file("/w/repo/demo-plan/handoff.md", b"## Overview\n\n" + b"x" * (300 * 1024), mtime=NOW)
+    sink = RecordingSink()
+    await report_collector(fs, FakeClock(FILES_NOW), sink).poll()
+    report = reports_of(sink)
+    assert report is not None
+    assert "Overview" not in [s.heading for s in report]
+    assert read_paths(fs, "handoff.md") == []
+
+
+async def test_a_run_that_is_still_running_reads_nothing() -> None:
+    fs = report_fs(finished=False)
+    fs.add_file(
+        "/w/repo/implement_features_v3.history",
+        HISTORY_LINE.replace('"in_progress": false', '"in_progress": true'),
+        mtime=NOW - 10,
+    )
+    sink = RecordingSink()
+    collector = report_collector(fs, FakeClock(FILES_NOW), sink)
+    collector._matched = {}
+    await collector.poll()
+    assert reports_of(sink) is None
+    for name in ("handoff.md", "followups.md", "review.md", "report.md", "index.md"):
+        assert read_paths(fs, name) == [], name
+
+
+async def test_nothing_is_read_without_a_path_resolver() -> None:
+    class Plain:
+        """A filesystem that cannot resolve paths."""
+
+        def __init__(self, inner: FakeFS) -> None:
+            self.inner = inner
+
+        def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+            if name == "realpath":
+                raise AttributeError(name)
+            return getattr(self.inner, name)
+
+    fs = report_fs()
+    sink = RecordingSink()
+    collector = NornCollector(
+        NornSettings(roots=["/w"], inbox_watch="poll"),
+        build_context("norn", sink, clock=FakeClock(FILES_NOW)),
+        seams=adapter.Seams(FakeProcessRunner(), Plain(fs), pid_alive=lambda pid: False),  # type: ignore[arg-type]
+    )
+    await collector.poll()
+    assert reports_of(sink) is None
+    assert read_paths(fs, "handoff.md") == []
+
+
+async def test_a_norn_ui_run_finds_its_plan_directory_in_params_args() -> None:
+    fs = report_fs()
+    run = json.loads((REPORTS / "run-ui.json").read_text())
+    run["run_id"] = run["history_run_id"] = 2
+    fs.add_file("/w/repo/implement_features_v3.runs/2/run.json", json.dumps(run), mtime=NOW - 10)
+    sink = RecordingSink()
+    await report_collector(fs, FakeClock(FILES_NOW), sink).poll()
+    report = reports_of(sink)
+    assert report is not None
+    assert len(report) == 8
+
+
+async def test_a_plan_with_review_run_reads_no_plan_files() -> None:
+    fs = report_fs()
+    run = json.loads((REPORTS / "run-cli.json").read_text())
+    run["pipeline"] = "plan_with_review"
+    fs.add_file("/w/repo/implement_features_v3.runs/2/run.json", json.dumps(run), mtime=NOW - 10)
+    sink = RecordingSink()
+    await report_collector(fs, FakeClock(FILES_NOW), sink).poll()
+    assert reports_of(sink) is None
+    assert read_paths(fs, "handoff.md") == []
+
+
+def test_a_run_from_files_keeps_its_directories_and_params() -> None:
+    header = parse.parse_run_json((REPORTS / "run-ui.json").read_text())
+    record = parse.HistoryRecord(2, FILES_NOW, True, False, None, None, None, ())
+    run = state.run_from_files(
+        "norn:p@a:2",
+        record,
+        header,
+        None,
+        stem="p",
+        run_dir="/w/repo/p.runs/2",
+        state_dir="/w/repo",
+    )
+    assert (run.run_dir, run.state_dir) == ("/w/repo/p.runs/2", "/w/repo")
+    assert run.params_args == "--resume /w/repo/demo-plan"
+    merged = state.merge(state.Run(key="norn:p@a:2", plugin=True), run)
+    assert merged is not None
+    assert (merged.run_dir, merged.state_dir, merged.params_args) == (
+        run.run_dir,
+        run.state_dir,
+        run.params_args,
+    )

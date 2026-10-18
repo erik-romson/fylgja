@@ -64,6 +64,7 @@ __all__ = [
     "ProjectPayload",
     "ProjectSnapshot",
     "Record",
+    "ReportSection",
     "SessionActivity",
     "SessionActivityEvent",
     "SessionActivitySnapshot",
@@ -237,6 +238,14 @@ class TokenCounts(_Frozen):
     cache_write: int = Field(ge=0)
 
 
+class ReportSection(_Frozen):
+    """One cut section of a report file a finished run left (docs/decisions/0057)."""
+
+    path: str
+    heading: str
+    text: str
+
+
 class SessionActivity(_Frozen):
     """Normalized activity of one session (§4.6). Every field is optional."""
 
@@ -259,6 +268,8 @@ class SessionActivity(_Frozen):
     """The context window's used percentage, from the statusline snapshot (§4.7). A reading."""
     cost_usd: float | None = None
     """The session's total cost, from the statusline snapshot (§4.7). A reading."""
+    report: list[ReportSection] | None = None
+    """Sections of the reports a finished run left for the person (docs/decisions/0057)."""
 
 
 class TodoPayload(_Frozen):

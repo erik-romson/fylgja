@@ -26,13 +26,15 @@ import hashlib
 import json
 import posixpath
 import re
-from collections.abc import Iterable, Iterator, Sequence
+import shlex
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final, TypeGuard
+from typing import Any, Final, Protocol, TypeGuard
 
 from fylgja.collectors.claude.normalize import Envelope, EnvelopeError, datetime_of_ns
 from fylgja.models import (
+    ReportSection,
     SessionActivity,
     SessionActivitySnapshot,
     SessionPayload,
@@ -53,12 +55,16 @@ __all__ = [
     "RunHeader",
     "StageEntry",
     "activity_snapshot",
+    "assemble",
     "claude_session_key",
+    "cut_report",
     "events_of_lines",
     "parse_envelope_event",
     "parse_events_tail",
     "parse_history_tail",
     "parse_run_json",
+    "plan_dir",
+    "report_path",
     "run_key",
     "session_snapshot",
     "state_dir_and_stem",
@@ -104,6 +110,7 @@ STAGE_STATUSES: Final = frozenset(
 MAX_TEXT: Final = 200
 MAX_ARGV: Final = 64
 MAX_SESSIONS: Final = 64
+MAX_PARAMS_ARGS: Final = 4096
 _SESSION_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 _RUN_UUID: Final = re.compile(r"[0-9a-fA-F-]{8,64}")
 _NEWLINES: Final = re.compile(r"[\r\n]+")
@@ -405,6 +412,9 @@ class RunHeader:
     failed_stage: str | None
     cwd: str | None
     argv: tuple[str, ...]
+    params_args: str | None = None
+    """``params.args`` (at most :data:`MAX_PARAMS_ARGS` characters): the plan directory of a run
+    launched from ``norn ui`` is in here and not in ``argv``."""
 
 
 def parse_run_json(text: bytes | str) -> RunHeader | None:
@@ -415,6 +425,7 @@ def parse_run_json(text: bytes | str) -> RunHeader | None:
     run_id = raw.get("run_id")
     history = raw.get("history_run_id")
     success = raw.get("success")
+    params = raw.get("params")
     return RunHeader(
         pipeline=_text(raw.get("pipeline")),
         run_id=run_id if _is_int(run_id) else None,
@@ -427,6 +438,9 @@ def parse_run_json(text: bytes | str) -> RunHeader | None:
         failed_stage=_text(raw.get("failed_stage")),
         cwd=_text(raw.get("cwd"), 1024),
         argv=_argv(raw.get("argv")),
+        params_args=_text(params.get("args"), MAX_PARAMS_ARGS)
+        if isinstance(params, dict)
+        else None,
     )
 
 
@@ -539,3 +553,182 @@ def distinct(values: Sequence[str], extra: Iterable[str] = ()) -> tuple[str, ...
     for value in extra:
         seen.setdefault(value, None)
     return tuple(seen)[:MAX_SESSIONS]
+
+
+# --------------------------------------------------------------------------------------------
+# Run reports (docs/decisions/0057, J21)
+# --------------------------------------------------------------------------------------------
+
+PIPELINE_PREFIX: Final = "implement_features"
+"""Only these pipelines leave a plan directory with reports."""
+MAX_SECTION_BYTES: Final = 4096
+"""Every cut section is cut to this many UTF-8 bytes."""
+REPORT_DIGEST_MAX_BYTES: Final = 24576
+"""All sections of a run together stay under this (the journal's ``RUN_DIGEST_MAX_BYTES``)."""
+MAX_REPORT_LINES: Final = 20
+_H2: Final = re.compile(r"^##\s+(.*?)\s*$")
+_OPEN_ITEM: Final = re.compile(r"^\s*-\s+\[ \]\s+(.*?)\s*$")
+_REPORT_PATH: Final = re.compile(r"tmp/[A-Za-z0-9._-]+-run/report\.md")
+_DEVIATION: Final = re.compile(r"deviation|judgement|judgment", re.IGNORECASE)
+_NOTHING: Final = ("no deviation", "none")
+_HANDOFF_SECTIONS: Final = ("for the human", "known limitations", "overview")
+
+
+class RunSource(Protocol):
+    """What :func:`plan_dir` reads: a :class:`RunHeader`, or a run that carries the same fields."""
+
+    @property
+    def pipeline(self) -> str | None: ...
+
+    @property
+    def cwd(self) -> str | None: ...
+
+    @property
+    def argv(self) -> tuple[str, ...]: ...
+
+    @property
+    def params_args(self) -> str | None: ...
+
+
+def plan_dir(source: RunSource, has_index: Callable[[str], bool]) -> str | None:
+    """The plan directory of an ``implement_features*`` run, or ``None``.
+
+    The candidates are ``argv[3:]`` for ``norn run <pipeline> <args>`` and the words of
+    ``params.args`` otherwise (``norn ui``). The plan directory is the first token that, as is or
+    resolved against the run's working directory, is a directory ``has_index`` accepts (one that
+    holds ``index.md``).
+    """
+    if source.pipeline is None or not source.pipeline.startswith(PIPELINE_PREFIX):
+        return None
+    if len(source.argv) > 1 and source.argv[1] == "run":
+        tokens: list[str] = list(source.argv[3:])
+    else:
+        try:
+            tokens = shlex.split(source.params_args or "")
+        except ValueError:
+            tokens = []
+    for token in tokens:
+        if not token or token.startswith("-"):
+            continue
+        candidates = [token]
+        if not posixpath.isabs(token) and source.cwd:
+            candidates.insert(0, posixpath.join(source.cwd, token))
+        for candidate in candidates:
+            path = posixpath.normpath(candidate)
+            if has_index(path):
+                return path
+    return None
+
+
+def report_path(readme_text: str | None, index_text: str | None) -> str | None:
+    """The first ``tmp/<name>-run/report.md`` that ``README.md`` names, else ``index.md``."""
+    for text in (readme_text, index_text):
+        found = _REPORT_PATH.search(text or "")
+        if found is not None:
+            return found.group(0)
+    return None
+
+
+def _cut_bytes(text: str, limit: int = MAX_SECTION_BYTES) -> str:
+    data = text.encode("utf-8")
+    if len(data) <= limit:
+        return text
+    return data[:limit].decode("utf-8", errors="ignore").rstrip()
+
+
+def _h2_sections(text: str) -> list[tuple[str, str]]:
+    """``(heading, body)`` of each H2 section; an H3 does not end one."""
+    found: list[tuple[str, list[str]]] = []
+    for line in text.split("\n"):
+        heading = _H2.match(line)
+        if heading is not None:
+            found.append((heading.group(1), []))
+        elif found:
+            found[-1][1].append(line)
+    return [(heading, "\n".join(body).strip()) for heading, body in found]
+
+
+def _named(sections: list[tuple[str, str]], path: str, names: Sequence[str]) -> list[ReportSection]:
+    """The sections called ``names`` (case-insensitive), in the order of ``names``, with text."""
+    out: list[ReportSection] = []
+    for name in names:
+        for heading, body in sections:
+            if heading.casefold() == name and body:
+                out.append(ReportSection(path=path, heading=heading, text=_cut_bytes(body)))
+                break
+    return out
+
+
+def _followups(path: str, text: str) -> list[ReportSection]:
+    out: list[ReportSection] = []
+    heading = "Follow-ups"
+    for line in text.split("\n"):
+        title = _H2.match(line)
+        if title is not None:
+            heading = title.group(1) or heading
+            continue
+        item = _OPEN_ITEM.match(line)
+        if item is not None and item.group(1) and item.group(1).casefold() != "none":
+            out.append(ReportSection(path=path, heading=heading, text=_cut_bytes(item.group(1))))
+    return out
+
+
+def _review(path: str, text: str, *, has_followups: bool) -> list[ReportSection]:
+    out: list[ReportSection] = []
+    first = text.split("\n", 1)[0].strip()
+    if first.startswith("VERDICT:"):
+        out.append(ReportSection(path=path, heading="Verdict", text=_cut_bytes(first)))
+    names = ["blocking findings"] if has_followups else ["blocking findings", "for the human"]
+    return out + _named(_h2_sections(text), path, names)
+
+
+def _run_report(path: str, text: str) -> list[ReportSection]:
+    lines: list[str] = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        stop = line.startswith("## STOP in")
+        if not stop:
+            if not _DEVIATION.search(line):
+                continue
+            bare = line.lstrip("-* \t").casefold()
+            if bare.startswith(_NOTHING):
+                continue
+        lines.append(line)
+        if len(lines) >= MAX_REPORT_LINES:
+            break
+    if not lines:
+        return []
+    return [ReportSection(path=path, heading="Run report", text=_cut_bytes("\n".join(lines)))]
+
+
+def cut_report(name: str, text: str, *, has_followups: bool = True) -> list[ReportSection]:
+    """The sections J21 takes from one report file. ``name`` is its path; the file name decides.
+
+    ``has_followups`` says ``followups.md`` was read: ``review.md``'s "For the human" is taken only
+    when it was not. An unknown file name gives nothing.
+    """
+    base = posixpath.basename(name)
+    if base == "followups.md":
+        return _followups(name, text)
+    if base == "handoff.md":
+        return _named(_h2_sections(text), name, _HANDOFF_SECTIONS)
+    if base == "review.md":
+        return _review(name, text, has_followups=has_followups)
+    if base == "report.md":
+        return _run_report(name, text)
+    return []
+
+
+def assemble(
+    sections: Iterable[ReportSection], limit: int = REPORT_DIGEST_MAX_BYTES
+) -> list[ReportSection]:
+    """``sections`` in order, until the next one would take the digest past ``limit`` bytes."""
+    kept: list[ReportSection] = []
+    used = 0
+    for section in sections:
+        size = len(section.heading.encode("utf-8")) + len(section.text.encode("utf-8"))
+        if used + size > limit:
+            break
+        used += size
+        kept.append(section)
+    return kept

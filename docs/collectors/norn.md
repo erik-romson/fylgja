@@ -68,6 +68,29 @@ A run waiting for input is an `input` entry of `waiting[]`; a finished run is a 
 gains focus (decision 0056). The Overview lists a run on the workspace card of the agent session it drives, right
 above that session; without one, on the card of its project's workspace.
 
+## Run reports (the journal)
+
+When a run first shows `passed`, `failed` or `cancelled`, the collector reads the reports an `implement_features*` run
+left and emits their sections once, in `SessionActivity.report`: a list of `{path, heading, text}` (`path` is the
+absolute file, `heading` the section's heading, `text` its body). The sections are kept in memory only (the daemon's
+`SessionExtras.report`), are redacted at the ingest gate, and are cached per run for as long as the run is listed, so
+the files are read once. The journal reads them for a `run_finished` entry (decision 0057). No other pipeline gives any.
+
+**The plan directory** is the first token that is a directory holding `index.md`, taken as is or resolved against the
+run's `cwd`: `argv[3:]` for `norn run <pipeline> …`, otherwise the words of `run.json` `params.args` (`norn ui`).
+
+| File | Sections taken |
+|---|---|
+| `followups.md` | One section per `- [ ]` line (heading: the H2 above it). Never `- [x]`, never `- none`. |
+| `handoff.md` | H2 sections "For the human", "Known limitations" and "Overview". |
+| `review.md` | Line 1 when it starts with `VERDICT:` ("Verdict") and "Blocking findings"; "For the human" only when there is no `followups.md`. |
+| Run report | The path named first by `tmp/<name>-run/report.md` in the plan's `README.md`, then `index.md`: its `## STOP in` lines and up to 20 lines about a deviation or judgement call. One section, "Run report". |
+
+Limits: every file must be at most 256 KiB and newer than `run.json` `started_at` (the plan's own `README.md` and
+`index.md` are exempt from the age check). Its real path must lie below the real path of the run's state directory
+(the directory holding the `.history` file), which needs a filesystem that resolves symbolic links; without one nothing
+is read. Sections are cut at 4 kB and added in the order above until 24 kB, the journal's limit for a run's digest.
+
 ## Failure modes
 
 | Situation | Result |

@@ -24,6 +24,7 @@ from fylgja.models import (
     FocusPayload,
     PresenceEvent,
     PresencePayload,
+    ReportSection,
     SessionActivity,
     SessionActivityEvent,
     SessionPayload,
@@ -337,6 +338,37 @@ def test_the_facts_block_is_redacted_and_capped_like_the_activity() -> None:
         entity_id="claude:s",
         observed_at=T0,
         payload=SessionActivity(facts={"title": "plain"}),
+    )
+    assert privacy.filter(clean) is clean
+
+
+def test_a_report_section_is_redacted_at_the_gate() -> None:
+    privacy = make_filter()
+    sections = [
+        ReportSection(
+            path="/w/repo/plan/handoff.md", heading=f"For {SECRET}", text=f"Use {SECRET}"
+        ),
+        ReportSection(path="/w/repo/plan/review.md", heading="Verdict", text="VERDICT: PASS"),
+    ]
+    record = SessionActivityEvent(
+        source="norn",
+        entity_id="norn:p@a:1",
+        observed_at=T0,
+        payload=SessionActivity(report=sections),
+    )
+    filtered = privacy.filter(record)
+    assert isinstance(filtered, SessionActivityEvent)
+    result = filtered.payload.report
+    assert result is not None
+    assert SECRET[:8] not in str(result)
+    assert (result[0].heading, result[0].text) == (f"For {REDACTED}", f"Use {REDACTED}")
+    assert result[0].path == sections[0].path
+    assert result[1] == sections[1]
+    clean = SessionActivityEvent(
+        source="norn",
+        entity_id="norn:p@a:1",
+        observed_at=T0,
+        payload=SessionActivity(report=[sections[1]]),
     )
     assert privacy.filter(clean) is clean
 

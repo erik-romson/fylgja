@@ -56,12 +56,14 @@ from fylgja.collectors.norn.adapter import (
     list_candidates,
     read_events_tail,
     read_history,
+    read_reports,
     read_run_header,
     run_dirs,
 )
 from fylgja.models import (
     HealthReport,
     HealthState,
+    ReportSection,
     SessionActivity,
     SessionEvent,
     SessionPayload,
@@ -144,6 +146,7 @@ class NornCollector:
         self._file_cache: dict[str, _FileEntry] = {}
         self._matched: dict[str, int] = {}
         self._linked: dict[str, str] = {}
+        self._reports: dict[str, list[ReportSection]] = {}
         self._scan_at: float | None = None
         self._command_failure: _Failure | None = None
         self._scan_failure: _Failure | None = None
@@ -260,7 +263,15 @@ class NornCollector:
             tail = None
             if record.in_progress and known is not None:
                 tail = read_events_tail(self._seams.fs, known[0])
-            runs[key] = state.run_from_files(key, record, header, tail, stem=file.stem)
+            runs[key] = state.run_from_files(
+                key,
+                record,
+                header,
+                tail,
+                stem=file.stem,
+                run_dir=None if known is None else known[0],
+                state_dir=file.directory,
+            )
         return runs
 
     async def _match(self) -> None:
@@ -347,11 +358,23 @@ class NornCollector:
                 continue
             runs[key] = run
             states[key] = current
-            listed.append((key, state.session_payload(run), state.activity_of(run, current)))
+            report = self._report_of(run, current)
+            listed.append(
+                (key, state.session_payload(run), state.activity_of(run, current, report))
+            )
+        self._reports = {key: sections for key, sections in self._reports.items() if key in runs}
         self.states = states
         self._prune(now)
         self._link(runs, states, now)
         return listed
+
+    def _report_of(self, run: state.Run, current: str) -> list[ReportSection]:
+        """The sections of the reports a finished run left, read once while the run is listed."""
+        if current not in parse.OUTCOME_STATES:
+            return []
+        if run.key not in self._reports:
+            self._reports[run.key] = read_reports(self._seams.fs, run)
+        return self._reports[run.key]
 
     def _prune(self, now: datetime) -> None:
         """Forget plugin runs that are over and no longer listed."""

@@ -190,6 +190,18 @@ class PrivacyFilter:
             facts = self._redact_facts(payload.facts)
             if facts != payload.facts:
                 update["facts"] = facts
+        if isinstance(payload, SessionActivity) and payload.report:
+            report = [
+                section.model_copy(
+                    update={
+                        "heading": self.redact(section.heading),
+                        "text": self.redact(section.text),
+                    }
+                )
+                for section in payload.report
+            ]
+            if report != payload.report:
+                update["report"] = report
         if isinstance(payload, ContextItemPayload) and payload.data:
             data = self._redact_json(payload.data)
             if data != payload.data:

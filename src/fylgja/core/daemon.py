@@ -103,6 +103,8 @@ from fylgja.models import (
     HealthState,
     HookEvent,
     Record,
+    ReportSection,
+    SessionActivity,
     SessionActivityEvent,
     SessionActivitySnapshot,
     SessionEvent,
@@ -197,6 +199,8 @@ class SessionExtras:
     """The Lidskjalv-compatible facts block of the latest activity (already redacted)."""
     entrypoint: str | None = None
     version: str | None = None
+    report: tuple[ReportSection, ...] | None = None
+    """The report sections a finished run left, from its latest activity (already redacted)."""
 
 
 @dataclass(frozen=True)
@@ -288,6 +292,7 @@ class SessionMemory:
 
     def __init__(self) -> None:
         self._facts: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._reports: dict[str, tuple[str, tuple[ReportSection, ...]]] = {}
         self._payloads: dict[str, tuple[str, str | None, str | None]] = {}
         self._terminal: dict[str, str] = {}
 
@@ -306,12 +311,13 @@ class SessionMemory:
             self._payload(record.source, record.payload)
         elif isinstance(record, SessionActivitySnapshot):
             for activity in record.items:
-                self._activity(record.source, activity.entity_id, activity.payload.facts)
+                self._activity(record.source, activity.entity_id, activity.payload)
             if record.complete:
                 listed = {self._key(i.entity_id, record.source) for i in record.items}
                 self._prune(self._facts, record.source, listed)
+                self._prune(self._reports, record.source, listed)
         elif isinstance(record, SessionActivityEvent):
-            self._activity(record.source, record.entity_id, record.payload.facts)
+            self._activity(record.source, record.entity_id, record.payload)
         elif isinstance(record, HookEvent) and record.payload.ids:
             key = self._key(record.entity_id, record.source)
             for name, value in record.payload.ids.items():
@@ -325,12 +331,14 @@ class SessionMemory:
         key = session_key(payload.kind, payload.native_id)
         self._payloads[key] = (source, payload.entrypoint, payload.version)
 
-    def _activity(self, source: str, entity_id: str, facts: Mapping[str, Any] | None) -> None:
+    def _activity(self, source: str, entity_id: str, activity: SessionActivity) -> None:
         key = self._key(entity_id, source)
-        if facts is None:
+        if activity.facts is None:
             self._facts.pop(key, None)
         else:
-            self._facts[key] = (source, dict(facts))
+            self._facts[key] = (source, dict(activity.facts))
+        if activity.report is not None:  # the latest non-null report stays, as long as it is listed
+            self._reports[key] = (source, tuple(activity.report))
 
     @staticmethod
     def _prune(table: dict[str, Any], source: str, listed: set[str]) -> None:
@@ -339,6 +347,7 @@ class SessionMemory:
 
     def forget(self, key: str) -> None:
         self._facts.pop(key, None)
+        self._reports.pop(key, None)
         self._payloads.pop(key, None)
         for stale in [k for k in self._terminal if k.startswith(f"{key}\0")]:
             del self._terminal[stale]
@@ -346,16 +355,18 @@ class SessionMemory:
     def get(self, key: str) -> SessionExtras | None:
         facts = self._facts.get(key)
         payload = self._payloads.get(key)
-        if facts is None and payload is None:
+        report = self._reports.get(key)
+        if facts is None and payload is None and report is None:
             return None
         return SessionExtras(
             facts=None if facts is None else facts[1],
             entrypoint=None if payload is None else payload[1],
             version=None if payload is None else payload[2],
+            report=None if report is None else report[1],
         )
 
     def keys(self) -> set[str]:
-        return {*self._facts, *self._payloads}
+        return {*self._facts, *self._payloads, *self._reports}
 
 
 # --------------------------------------------------------------------------------------------

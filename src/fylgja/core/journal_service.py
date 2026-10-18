@@ -57,6 +57,7 @@ from fylgja.core.journal import (
     MergeResult,
     OpenItem,
     Reply,
+    RunSection,
     SessionPart,
     Source,
     ThreadKey,
@@ -1142,6 +1143,7 @@ class JournalService:
             trigger_source=capture.source,
             sessions=_session_parts(window.intervals, view),
             run_outcome=_run_outcome(capture),
+            run_sections=_run_sections(capture),
             commits=commits,
             todos=_todo_parts(window.todos, capture.start, capture.as_of),
             focus_minutes=capture.focus_minutes,
@@ -1808,6 +1810,16 @@ def _run_outcome(capture: _Capture) -> str | None:
         return None
     row = capture.view.live.sessions.get(capture.source.ref)
     return row.state if row is not None and row.state in _RUN_OUTCOMES else None
+
+
+def _run_sections(capture: _Capture) -> list[RunSection]:
+    """J8 section 2: the report sections of the finished run that triggered the attempt (J21)."""
+    if capture.trigger != "run_finished" or capture.source.kind != "session":
+        return []
+    extras = capture.view.sessions.get(capture.source.ref)
+    if extras is None or not extras.report:
+        return []
+    return [RunSection(path=s.path, heading=s.heading, text=s.text) for s in extras.report]
 
 
 def _todo_parts(rows: Iterable[TodoRow], start: datetime, as_of: datetime) -> list[TodoPart]:

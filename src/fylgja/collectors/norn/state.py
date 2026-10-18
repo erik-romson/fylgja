@@ -33,7 +33,7 @@ from fylgja.collectors.norn.parse import (
     RunHeader,
     distinct,
 )
-from fylgja.models import SessionActivity, SessionPayload, Stage
+from fylgja.models import ReportSection, SessionActivity, SessionPayload, Stage
 
 __all__ = [
     "HEARTBEAT_TIMEOUT_SECONDS",
@@ -89,6 +89,12 @@ class Run:
     """The agent session ids the run drove, oldest first."""
     matched_pid: int | None = None
     """The process a file-only run was matched to."""
+    params_args: str | None = None
+    """``params.args`` of ``run.json``: where a ``norn ui`` run names its plan directory."""
+    run_dir: str | None = None
+    """The run's own directory (``<stem>.runs/<n>``), when the files showed it."""
+    state_dir: str | None = None
+    """The directory holding the run's ``.history`` file: the root every report read stays below."""
 
     @property
     def finished(self) -> bool:
@@ -190,6 +196,8 @@ def run_from_files(
     tail: EventsTail | None,
     *,
     stem: str,
+    run_dir: str | None = None,
+    state_dir: str | None = None,
 ) -> Run:
     """The run the files describe. ``stem`` names the pipeline when ``run.json`` is missing."""
     outcome = _file_outcome(record, header, tail)
@@ -214,6 +222,9 @@ def run_from_files(
         argv=header.argv if header is not None else (),
         provider=(header.provider if header is not None else None) or record.provider,
         started_at=header.started_at if header is not None else None,
+        params_args=header.params_args if header is not None else None,
+        run_dir=run_dir,
+        state_dir=state_dir,
         updated_at=record.timestamp,
         stage=stage if outcome is None else last,
         stage_index=index if outcome is None else (len(names) or None),
@@ -255,6 +266,9 @@ def merge(plugin_run: Run | None, file_run: Run | None) -> Run | None:
         argv=plugin_run.argv or file_run.argv,
         provider=plugin_run.provider or file_run.provider,
         started_at=plugin_run.started_at or file_run.started_at,
+        params_args=plugin_run.params_args or file_run.params_args,
+        run_dir=plugin_run.run_dir or file_run.run_dir,
+        state_dir=plugin_run.state_dir or file_run.state_dir,
         sessions=distinct(plugin_run.sessions, file_run.sessions),
     )
     if merged.finished:
@@ -350,11 +364,13 @@ def session_payload(run: Run) -> SessionPayload:
     )
 
 
-def activity_of(run: Run, state: str) -> SessionActivity:
+def activity_of(
+    run: Run, state: str, report: Sequence[ReportSection] | None = None
+) -> SessionActivity:
     """The ``session_activity`` of a run (§4.6): pipeline, stage, waiting reason and state.
 
     A finished or stale run has a stage even without a name: the one-liner then reads
-    ``<pipeline> <state>``.
+    ``<pipeline> <state>``. ``report`` holds the sections of the reports a finished run left.
     """
     waiting = run.waiting if state == "waiting_input" else None
     stage: Stage | None = None
@@ -365,6 +381,7 @@ def activity_of(run: Run, state: str) -> SessionActivity:
         waiting_reason=None if waiting is None else parse.WAIT_REASONS.get(waiting, waiting),
         stage=stage,
         title=run.pipeline,
+        report=list(report) if report else None,
     )
 
 

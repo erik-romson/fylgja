@@ -1,0 +1,13 @@
+{
+  "pipeline": "implement_features_v3",
+  "run_id": 2,
+  "history_run_id": 2,
+  "state_key": "implement_features_v3",
+  "provider": "claude-code",
+  "params": {"args": "demo-plan"},
+  "started_at": "2026-10-05T11:05:09+00:00",
+  "cwd": "/w/repo",
+  "argv": ["/opt/norn/__main__.py", "run", "implement_features_v3", "demo-plan", "--resume"],
+  "finished_at": "2026-10-05T13:28:16+00:00",
+  "success": true
+}

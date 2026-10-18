@@ -31,8 +31,9 @@ from fylgja.collectors.codex.adapter import (
     list_open_files,
 )
 from fylgja.collectors.norn import parse
-from fylgja.collectors.norn.state import ScanProcess, argv_matches
-from fylgja.collectors.seams import FileSystem, ProcessRunner, RangeReader
+from fylgja.collectors.norn.state import Run, ScanProcess, argv_matches
+from fylgja.collectors.seams import FileSystem, PathResolver, ProcessRunner, RangeReader
+from fylgja.models import ReportSection
 
 __all__ = [
     "CommandFailure",
@@ -46,6 +47,7 @@ __all__ = [
     "pid_alive",
     "read_events_tail",
     "read_history",
+    "read_reports",
     "read_run_header",
     "read_tail",
     "run_dirs",
@@ -64,6 +66,7 @@ HISTORY_TAIL_BYTES: Final = 512 * 1024
 HISTORY_TAIL_MAX_BYTES: Final = 8 * 1024 * 1024
 EVENTS_TAIL_BYTES: Final = 128 * 1024
 RUN_JSON_MAX_BYTES: Final = 256 * 1024
+REPORT_MAX_BYTES: Final = 256 * 1024
 
 
 def pid_alive(pid: int) -> bool:
@@ -254,6 +257,86 @@ def read_events_tail(fs: FileSystem, directory: str) -> parse.EventsTail | None:
     except OSError:
         return None
     return parse.parse_events_tail(data, complete=complete)
+
+
+def _below(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _read_report_file(
+    fs: FileSystem, resolver: PathResolver, root: str, path: str, *, newer_than: float | None
+) -> str | None:
+    """A report file's text, or ``None`` when it is missing, outside ``root``, large, older than
+    ``newer_than`` (an earlier run's) or not text. Both sides of the containment are resolved."""
+    try:
+        if not _below(resolver.realpath(path), root):
+            return None
+        info = fs.stat(path)
+        if info.is_dir or info.size > REPORT_MAX_BYTES:
+            return None
+        if newer_than is not None and info.mtime < newer_than:
+            return None
+        return fs.read_bytes(path).decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def read_reports(fs: FileSystem, run: Run) -> list[ReportSection]:
+    """The report sections an ``implement_features*`` run left, cut as J21 says.
+
+    Reads ``followups.md``, ``handoff.md`` and ``review.md`` of the plan directory and the run
+    report its ``README.md`` or ``index.md`` names. A file counts when its real path is below the
+    real path of the run's state directory and it is at most 256 KiB; the report files must also
+    be newer than the run's start, so an earlier run's are left alone. A filesystem that cannot
+    resolve paths reads nothing.
+    """
+    if not isinstance(fs, PathResolver) or run.started_at is None:
+        return []
+    state_dir = run.state_dir
+    if state_dir is None and run.state_key is not None:
+        state_dir = parse.state_dir_and_stem(run.state_key, run.cwd)[0]
+    plan = parse.plan_dir(run, lambda path: fs.exists(posixpath.join(path, "index.md")))
+    if state_dir is None or plan is None:
+        return []
+    try:
+        root = fs.realpath(state_dir)
+    except OSError:
+        return []
+    started = run.started_at.timestamp()
+    texts: dict[str, str | None] = {
+        name: _read_report_file(
+            fs,
+            fs,
+            root,
+            posixpath.join(plan, name),
+            newer_than=None if name in _PLAN_FILES else started,
+        )
+        for name in (*_PLAN_FILES, *_REPORT_FILES)
+    }
+    sections: list[ReportSection] = []
+    sections += _cut(plan, "followups.md", texts)
+    sections += _cut(plan, "handoff.md", texts)
+    sections += _cut(plan, "review.md", texts, has_followups=texts["followups.md"] is not None)
+    relative = parse.report_path(texts["README.md"], texts["index.md"])
+    if relative is not None and run.cwd:
+        path = posixpath.normpath(posixpath.join(run.cwd, relative))
+        text = _read_report_file(fs, fs, root, path, newer_than=started)
+        if text is not None:
+            sections += parse.cut_report(path, text)
+    return parse.assemble(sections)
+
+
+_PLAN_FILES: Final = ("README.md", "index.md")
+_REPORT_FILES: Final = ("followups.md", "handoff.md", "review.md")
+
+
+def _cut(
+    plan: str, name: str, texts: dict[str, str | None], *, has_followups: bool = True
+) -> list[ReportSection]:
+    text = texts[name]
+    if text is None:
+        return []
+    return parse.cut_report(posixpath.join(plan, name), text, has_followups=has_followups)
 
 
 # --------------------------------------------------------------------------------------------
