@@ -84,6 +84,7 @@ STATIC_IDS = {
     "last-session": "div",
     "recall-search": "input",
     "recall-list": "div",
+    "journal-panel": "div",
     "session-table": "table",
     "focus-panel": "div",
     "window-list": "div",
@@ -501,3 +502,51 @@ def test_the_explain_tab_reads_the_explain_route_and_the_top_twenty_items() -> N
 
 def test_the_page_stays_one_file_within_its_size_budget() -> None:
     assert len(_source().splitlines()) <= 1550
+
+
+def _function_body(script: str, header: str) -> str:
+    match = re.search(re.escape(header) + r" \{(.*?)\n\}", script, re.DOTALL)
+    assert match is not None, header
+    return match.group(1)
+
+
+def test_journal_changed_rides_the_one_existing_stream() -> None:
+    script = _script(_source())
+    assert 'source.addEventListener("journal.changed", changed);' in script
+    assert script.count("new EventSource(") == 1
+    assert 'channel.postMessage("now.changed");' in script
+
+
+def test_the_journal_panel_fetches_one_thread_and_only_while_open() -> None:
+    script = _script(_source())
+    body = _function_body(script, "async function loadJournal()")
+    assert re.findall(r'call\("(\w+)", "([^"]*)"', body) == [("GET", "/journal/threads/")]
+    assert 'if (name === "recall" && journalOpen) {' in script
+
+
+def test_how_do_i_do_this_reads_once_per_refresh_and_never_polls() -> None:
+    script = _script(_source())
+    load = _function_body(script, "async function loadHow()")
+    assert re.findall(r'call\("(\w+)", "([^"]*)"', load) == [("GET", "/journal/items/")]
+    assert load.index('howAnswer.state !== "pending") { return; }') < load.index("call(")
+    show = _function_body(script, "async function showHow(item)")
+    assert re.findall(r'call\("(\w+)", "([^"]*)"', show) == [("POST", "/journal/items/")]
+    assert "howAnswer.steps" in script  # the answer's steps show at once when fresh
+    assert "setInterval(" not in script
+    for timer in re.finditer(r"setTimeout\(", script):
+        assert "loadHow" not in script[timer.start() : timer.start() + 120]
+
+
+def test_the_journals_own_fetches_wait_while_the_tab_is_hidden() -> None:
+    script = _script(_source())
+    guard = "if (document.hidden) { journalBehind = true; return; }"
+    for header in ("async function loadJournal()", "async function loadHow()"):
+        assert _function_body(script, header).lstrip().startswith(guard), header
+    assert script.count('"visibilitychange"') == 1
+    listener = re.search(r'addEventListener\("visibilitychange", (.*?)\n\}\);', script, re.DOTALL)
+    assert listener is not None
+    assert "!document.hidden && journalBehind" in listener.group(1)
+    assert listener.group(1).count("refresh()") == 1
+    for header in ("async function loadRecall()", "async function loadAttention()"):
+        assert "document.hidden" not in _function_body(script, header), header
+    assert script.count("document.hidden") == 3  # the two guards and the listener

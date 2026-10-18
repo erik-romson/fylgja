@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from fylgja.api.app import create_app
 from fylgja.api.inspect_models import InspectCollectors, InspectExplain, InspectPipeline
 from fylgja.api.items_models import Items, Rankers
+from fylgja.api.journal_models import JournalHow, JournalThread
 from fylgja.api.view_models import Attention, Overview
 from fylgja.core.daemon import Daemon
 from fylgja.testing.fakes import FakeProcessRunner
@@ -211,6 +212,8 @@ ITEMS_VARIABLES: dict[str, str] = {
     "rks": "Rankers",
     "rk": "RankerChoice",
     "spt": "ScorePart",
+    "ijn": "ItemJournal",
+    "ijx": "ItemJournalNext",
 }
 ITEMS_FIELDS: dict[str, set[str]] = {
     "Items": {
@@ -233,6 +236,7 @@ ITEMS_FIELDS: dict[str, set[str]] = {
         "go_ide",
         "go_terminal",
         "id",
+        "journal",
         "name",
         "parts",
         "places",
@@ -250,7 +254,44 @@ ITEMS_FIELDS: dict[str, set[str]] = {
     "Rankers": {"choices", "selected", "stale_choice"},
     "RankerChoice": {"default", "description", "name"},
     "ScorePart": {"name", "value"},
+    "ItemJournal": {"next", "next_more", "thread", "where"},
+    "ItemJournalNext": {"text"},
 }
+
+# The journal panel on the Recall tab renders ``GET /journal/threads/{id}`` (``fylgja.journal/1``);
+# the open "How do I do this?" checklist renders a ``JournalHow`` (the POST's answer, or ``GET
+# /journal/items/{id}/how`` while it is pending). Both are fetched only while open.
+JOURNAL_VARIABLES: dict[str, str] = {
+    "journalThread": "JournalThread",
+    "jwh": "Where",
+    "jit": "JournalItem",
+    "jdi": "JournalItem",
+    "jday": "DoneDay",
+    "jent": "JournalEntry",
+    "jsr": "EntrySource",
+}
+JOURNAL_FIELDS: dict[str, set[str]] = {
+    "JournalThread": {
+        "branch",
+        "done_recent",
+        "entries",
+        "error_kind",
+        "name",
+        "open.blocked",
+        "open.next",
+        "open.remember",
+        "where",
+    },
+    "Where": {"generated_at", "state", "text"},
+    "JournalItem": {"id", "source.label", "text"},
+    "DoneDay": {"headlines", "items", "day", "relative"},
+    "JournalEntry": {"did", "ended_at", "headline", "sources", "trigger"},
+    "EntrySource": {"id", "kind", "label"},
+}
+# The checklist's four renderings: ``fresh`` shows ``steps``, ``pending`` shows a waiting line,
+# ``failed`` adds ``error_kind`` and ``stale`` marks the steps out of date.
+HOW_VARIABLES: dict[str, str] = {"howAnswer": "JournalHow"}
+HOW_FIELDS: dict[str, set[str]] = {"JournalHow": {"error_kind", "state", "steps"}}
 
 # The Collectors tab renders ``GET /inspect/collectors`` (``fylgja.inspect.collectors/1``) only.
 INSPECT_VARIABLES: dict[str, str] = {
@@ -536,6 +577,18 @@ def test_the_recall_tab_reads_nothing_from_now() -> None:
     assert re.findall(r'call\("GET", "([^"]*)"', rankers.group(1)) == ["/rankers"]
 
 
+def test_every_field_the_journal_panel_reads_exists_in_the_journal_models() -> None:
+    _assert_declared_fields_exist(
+        JOURNAL_FIELDS, _model_resolver(JournalThread), "the journal models"
+    )
+    _assert_declared_fields_exist(HOW_FIELDS, _model_resolver(JournalHow), "JournalHow")
+
+
+def test_the_journal_panel_reads_only_the_declared_fields_and_all_of_them() -> None:
+    _assert_reads_match(JOURNAL_VARIABLES, JOURNAL_FIELDS)
+    _assert_reads_match(HOW_VARIABLES, HOW_FIELDS)
+
+
 def test_every_field_the_collectors_tab_reads_exists_in_the_inspect_model() -> None:
     _assert_declared_fields_exist(
         INSPECT_FIELDS,
@@ -551,7 +604,14 @@ def test_the_collectors_tab_reads_only_the_declared_inspect_fields_and_all_of_th
 
 
 def test_no_variable_name_is_in_two_tables() -> None:
-    tables = (PAGE_VARIABLES, VIEW_VARIABLES, ITEMS_VARIABLES, INSPECT_VARIABLES)
+    tables = (
+        PAGE_VARIABLES,
+        VIEW_VARIABLES,
+        ITEMS_VARIABLES,
+        INSPECT_VARIABLES,
+        JOURNAL_VARIABLES,
+        HOW_VARIABLES,
+    )
     names = [name for table in tables for name in table]
     assert len(names) == len(set(names))
 

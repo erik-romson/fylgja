@@ -69,6 +69,10 @@
   .item .buttons { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0; }
   .item details ul { margin: .25rem 0 0; padding-left: 1.2rem; }
   .item li.closed { opacity: .6; }
+  #journal-panel:not(:empty) { border: 1px solid rgba(128, 128, 128, .4); border-radius: .6rem; padding: .6rem .8rem; margin: 0 0 .75rem; }
+  #journal-panel h4 { margin: .6rem 0 .2rem; }
+  #journal-panel li { margin: 0 0 .3rem; overflow-wrap: anywhere; }
+  #journal-panel .side { display: block; }
   td details ul { margin: .25rem 0 0; padding-left: 1.2rem; }
   #not-installed { margin: 0 0 .75rem; padding-left: 1.2rem; }
 </style>
@@ -106,6 +110,7 @@
   <ul id="while-away"></ul>
   <div id="last-session"></div>
   <input id="recall-search" type="search" placeholder="Search" aria-label="Search">
+  <div id="journal-panel"></div>
   <div id="recall-list"></div>
 </section>
 <section id="tab-live" data-tab="live" hidden>
@@ -210,6 +215,7 @@ const awayBanner = document.getElementById("away-banner");
 const whileAway = document.getElementById("while-away");
 const lastSession = document.getElementById("last-session");
 const recallList = document.getElementById("recall-list");
+const journalPanel = document.getElementById("journal-panel");
 let searchLater = null;
 
 function say(message) { statusLine.textContent = message || ""; }
@@ -554,7 +560,21 @@ function itemRow(it, summariesEnabled) {
   box.append(explanation);
   const story = it.story && it.story.text ? it.story.text : it.summary;
   if (story) { box.append(el("div", "parts", story)); }
+  const ijn = it.journal;
+  if (ijn) {
+    if (ijn.where) { box.append(el("div", "parts", ijn.where)); }
+    const upNext = el("ul");
+    for (const ijx of ijn.next) { upNext.append(el("li", "", ijx.text)); }
+    if (ijn.next_more) { upNext.append(el("li", "muted", "+" + ijn.next_more + " more")); }
+    box.append(upNext);
+  }
   const buttons = el("div", "buttons");
+  if (ijn) {
+    const journalButton = el("button", "", "Journal");
+    journalButton.id = "journal-" + ijn.thread;
+    journalButton.addEventListener("click", () => openJournal(ijn.thread));
+    buttons.append(journalButton);
+  }
   if (summariesEnabled) {
     const summarizeButton = el("button", "", "Summarize");
     summarizeButton.id = "summarize-" + it.id;
@@ -628,6 +648,123 @@ async function loadRecall() {
   const itms = await call("GET", "/items" + itemsQuery(search.value ? { q: search.value } : {}));
   renderRecall(itms);
 }
+
+// ---- the journal panel: one thread's full journal, fetched only while the panel is open ----
+
+let journalOpen = null;
+let journalThread = null;
+let howItem = null;
+let howAnswer = null;
+// A journal fetch was held back because the tab is hidden; the next visible moment reloads once.
+let journalBehind = false;
+
+function openJournal(thread) {
+  howItem = null;
+  howAnswer = null;
+  journalThread = null;
+  journalOpen = journalOpen === thread ? null : thread;
+  drawJournal();
+  refresh(true);
+}
+
+function itemLine(jit) {
+  const li = el("li", "", jit.text);
+  li.append(el("span", "muted side", jit.source.label));
+  const how = el("button", "", "How do I do this?");
+  how.addEventListener("click", () => showHow(jit.id));
+  li.append(how);
+  if (howItem === jit.id && howAnswer) { li.append(howLines()); }
+  return li;
+}
+
+// The open checklist: steps when there are some, else the state it is in.
+function howLines() {
+  const box = el("div", "parts");
+  if (howAnswer.state === "pending") { box.append(el("span", "muted", "pending")); }
+  if (howAnswer.state === "failed") { box.append(el("span", "muted", "failed: " + howAnswer.error_kind)); }
+  if (howAnswer.state === "stale") { box.append(el("span", "muted", "out of date")); }
+  if (howAnswer.state === "missing") { box.append(el("span", "muted", "no checklist")); }
+  if (howAnswer.steps) {
+    const ol = el("ol");
+    for (const step of howAnswer.steps) { ol.append(el("li", "", step)); }
+    box.append(ol);
+  }
+  return box;
+}
+
+function itemSection(title, list) {
+  const nodes = [el("h4", "", title)];
+  const ul = el("ul");
+  for (const jit of list) { ul.append(itemLine(jit)); }
+  nodes.push(ul);
+  return nodes;
+}
+
+function drawJournal() {
+  if (!journalOpen) { journalPanel.replaceChildren(); return; }
+  if (!journalThread) { journalPanel.replaceChildren(el("p", "muted", "Loading journal")); return; }
+  const close = el("button", "", "Close");
+  close.addEventListener("click", () => openJournal(journalOpen));
+  const head = el("div", "head");
+  head.append(el("strong", "", journalThread.name + " · " + journalThread.branch), close);
+  const nodes = [head, el("h4", "", "Where you are")];
+  const jwh = journalThread.where;
+  nodes.push(el("p", "", jwh.text || (jwh.state === "pending" ? "Writing an entry" : "Nothing yet")));
+  if (jwh.generated_at) { nodes.push(el("p", "muted", fmtTime(jwh.generated_at))); }
+  if (journalThread.error_kind) { nodes.push(el("p", "muted", "Last attempt failed: " + journalThread.error_kind)); }
+  nodes.push(...itemSection("Do next", journalThread.open.next));
+  nodes.push(...itemSection("Keep in mind", journalThread.open.remember));
+  const blocked = journalThread.open.blocked;
+  if (blocked.length > 0) { nodes.push(...itemSection("Blocked", blocked)); }
+  nodes.push(el("h4", "", "Done lately"));
+  for (const jday of journalThread.done_recent) {
+    const ul = el("ul");
+    for (const headline of jday.headlines) { ul.append(el("li", "", headline)); }
+    for (const jdi of jday.items) { ul.append(el("li", "", "Done: " + jdi.text)); }
+    nodes.push(el("strong", "", jday.relative || jday.day), ul);
+  }
+  nodes.push(el("h4", "", "Entries"));
+  for (const jent of journalThread.entries) {
+    const entry = el("div");
+    entry.append(el("strong", "", jent.headline), el("span", "muted side", jent.trigger + " · " + fmtTime(jent.ended_at)));
+    const ul = el("ul");
+    for (const line of jent.did) { ul.append(el("li", "", line)); }
+    for (const jsr of jent.sources) { ul.append(el("li", "muted", jsr.id + " " + jsr.kind + ": " + jsr.label)); }
+    entry.append(ul);
+    nodes.push(entry);
+  }
+  journalPanel.replaceChildren(...nodes);
+}
+
+async function loadJournal() {
+  if (document.hidden) { journalBehind = true; return; }
+  journalThread = await call("GET", "/journal/threads/" + encodeURIComponent(journalOpen));
+  drawJournal();
+}
+
+// One checklist is open at a time. A cached one comes back in the POST; a pending one is read again
+// on each refresh (loadHow) until the finished job's event brings the steps.
+async function showHow(item) {
+  try {
+    howAnswer = await call("POST", "/journal/items/" + encodeURIComponent(item) + "/how", {});
+    howItem = item;
+  } catch (error) {
+    say("Cannot start: " + error.message);
+    return;
+  }
+  drawJournal();
+}
+
+async function loadHow() {
+  if (document.hidden) { journalBehind = true; return; }
+  if (!howItem || !howAnswer || howAnswer.state !== "pending") { return; }
+  howAnswer = await call("GET", "/journal/items/" + encodeURIComponent(howItem) + "/how");
+  drawJournal();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && journalBehind) { journalBehind = false; refresh(); }
+});
 
 // ---- live data: the sessions /now reports ----
 
@@ -1157,6 +1294,10 @@ async function refresh(force) {
       if (!skip) {
         try {
           await TABS[name]();
+          if (name === "recall" && journalOpen) {
+            await loadJournal();
+            await loadHow();
+          }
           lastLoad = Date.now();
           say("");
         } catch (error) {
@@ -1221,6 +1362,7 @@ function connect() {
   source = new EventSource("/events");
   source.addEventListener("open", () => { delay = 1000; changed(); });
   source.addEventListener("now.changed", changed);
+  source.addEventListener("journal.changed", changed);
   source.addEventListener("error", () => {
     if (source.readyState === EventSource.CLOSED) {
       source.close();
