@@ -61,6 +61,18 @@ desk_detail = "project"
 away_detail = "kind"
 timeout_seconds = 5
 
+# The work journal (docs/api/journal.md): one short entry per checkout and branch, written by a local
+# `claude -p` (Haiku) at natural boundaries. Off by default. It shares [summaries] max_concurrent and the
+# summary runner, and works with [summaries] off. Human-only: no agent can read it (decision 0018).
+# quiet_seconds: quiet time after a turn ends before an entry is due.
+# min_interval_seconds: the least time between two such entries of a thread, and the wait after a failure.
+# min_focus_seconds: focus a visit needs before leaving the project gives an entry.
+[journal]
+enabled = false
+quiet_seconds = 120
+min_interval_seconds = 600
+min_focus_seconds = 300
+
 # The Claude Code hook events `fylgja install hooks` registers, each as an async `fylgja hook <Event>`
 # command (A2). Notification and SessionEnd use the matcher "": the hook reads the notification type
 # and the end reason from the payload. High-rate events (MessageDisplay, FileChanged) stay out. The

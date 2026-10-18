@@ -108,6 +108,7 @@ collector is on by default. These are off by default:
 - `[summaries] enabled`: summaries written by a local `claude -p`
 - `[actions.message] enabled`: messaging a Claude session
 - `[notify] enabled`: desktop alerts through a command such as terminal-notifier
+- `[journal] enabled`: a short work journal per checkout and branch, written by a local `claude -p`
 - `[actions.applescript] chrome` and `iterm2`: AppleScript reads of the Chrome tab URL and the iTerm2 path
 
 `FYLGJA_CONFIG_DIR`, `FYLGJA_DATA_DIR` and `FYLGJA_STATE_DIR` move the three directories.

@@ -40,6 +40,13 @@ def test_defaults_load_without_a_user_file() -> None:
     assert (notify.grace_seconds, notify.reminder_seconds, notify.timeout_seconds) == (20, 600, 5)
     assert (notify.desk_command, notify.away_command) == ([], [])
     assert (notify.desk_detail, notify.away_detail) == ("project", "kind")
+    journal = config.journal
+    assert journal.enabled is False
+    assert (journal.quiet_seconds, journal.min_interval_seconds, journal.min_focus_seconds) == (
+        120,
+        600,
+        300,
+    )
     assert config.paths.aerospace == Path("/opt/homebrew/bin/aerospace")
     assert config.paths.git == Path("/usr/bin/git")
     assert config.privacy.redact_patterns
@@ -454,3 +461,28 @@ def test_enabled_notify_with_one_command_loads() -> None:
 def test_zero_reminder_seconds_is_valid() -> None:
     _write("[notify]\nreminder_seconds = 0\n")
     assert load_config().notify.reminder_seconds == 0
+
+
+@pytest.mark.parametrize(
+    ("body", "key"),
+    [
+        ("quiet_seconds = 0", "journal.quiet_seconds"),
+        ("min_interval_seconds = -1", "journal.min_interval_seconds"),
+        ("min_focus_seconds = 0", "journal.min_focus_seconds"),
+        ('enabled = "maybe"', "journal.enabled"),
+        ("foo = 1", "journal.foo"),
+    ],
+)
+def test_bad_journal_settings_are_refused(body: str, key: str) -> None:
+    _write(f"[journal]\n{body}\n")
+    with pytest.raises(ConfigError) as info:
+        load_config()
+    assert key in info.value.key
+
+
+def test_a_user_can_turn_the_journal_on() -> None:
+    _write("[journal]\nenabled = true\nquiet_seconds = 30\n")
+    journal = load_config().journal
+    assert journal.enabled is True
+    assert journal.quiet_seconds == 30
+    assert journal.min_interval_seconds == 600

@@ -35,6 +35,7 @@ __all__ = [
     "ConfigError",
     "HooksConfig",
     "ItemsConfig",
+    "JournalConfig",
     "NotifyConfig",
     "PathsConfig",
     "PrivacyConfig",
@@ -183,6 +184,21 @@ class NotifyConfig(_Section):
         return self
 
 
+class JournalConfig(_Section):
+    """The work journal: a short entry per checkout and branch at natural boundaries.
+
+    Off by default. It shares ``[summaries] max_concurrent`` and the summary runner.
+    """
+
+    enabled: bool = False
+    quiet_seconds: float = Field(default=120, gt=0)
+    """Quiet time after a turn ends before a soft entry is due."""
+    min_interval_seconds: float = Field(default=600, gt=0)
+    """The least time between two soft entries of a thread; a failure waits this long too."""
+    min_focus_seconds: float = Field(default=300, gt=0)
+    """The focus a visit needs before leaving the project is a boundary."""
+
+
 class SpansConfig(_Section):
     idle_threshold_seconds: float = Field(gt=0)
     """The idle threshold of the presence signal. An ``idle.start`` event is stamped when the
@@ -253,6 +269,7 @@ class Config(_Section):
     actions: ActionsConfig
     summaries: SummariesConfig
     notify: NotifyConfig
+    journal: JournalConfig
     hooks: HooksConfig
     paths: PathsConfig
     spans: SpansConfig = SpansConfig(idle_threshold_seconds=300.0)
