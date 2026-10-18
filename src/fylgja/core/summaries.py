@@ -69,7 +69,7 @@ import logging
 import os
 import re
 import shutil
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
@@ -91,6 +91,8 @@ __all__ = [
     "GUARD_ENV",
     "MAX_CHARS",
     "MODEL",
+    "ModelGate",
+    "ModelOutcome",
     "PARTS",
     "RUN_TIMEOUT",
     "SCOPES",
@@ -671,6 +673,105 @@ class ClaudeRunner:
 
 
 # --------------------------------------------------------------------------------------------
+# The model gate
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ModelOutcome:
+    """What :meth:`ModelGate.run` returns: the raw stdout, or the kind of the failure."""
+
+    stdout: str | None = None
+    error_kind: str | None = None
+
+
+class ModelGate:
+    """The one place a model call is made (PLAN-final-plan.md §4.4): the runner, one semaphore of
+    ``[summaries] max_concurrent`` slots, the summarizer cwd, the guard environment and the timeout
+    race against the daemon clock. The summary service and the journal share one instance, so
+    together they never run more than ``max_concurrent`` calls.
+
+    The gate does not look at ``[summaries] enabled``, redacts nothing and parses nothing: it
+    returns raw stdout. Call every method on the event loop thread.
+    """
+
+    def __init__(
+        self,
+        max_concurrent: int,
+        *,
+        clock: Clock,
+        runner: SummaryRunner | None = None,
+        timeout: float = RUN_TIMEOUT,
+        cwd: Callable[[], Path] = paths.summarizer_dir,
+        environ: Mapping[str, str] | None = None,
+    ) -> None:
+        self._clock = clock
+        self._runner: SummaryRunner = ClaudeRunner() if runner is None else runner
+        self._timeout = timeout
+        self._cwd = cwd
+        self._environ = environ
+        self._slots = asyncio.Semaphore(max_concurrent)
+        self.running = 0
+        """Callers holding a slot right now."""
+        self.peak_running = 0
+        """The most callers that held a slot at once."""
+        self.calls = 0
+        """Model calls started."""
+
+    @contextlib.asynccontextmanager
+    async def slot(self) -> AsyncIterator[None]:
+        """Hold one of the ``max_concurrent`` slots; call :meth:`run` inside."""
+        async with self._slots:
+            self.running += 1
+            self.peak_running = max(self.peak_running, self.running)
+            try:
+                yield
+            finally:
+                self.running -= 1
+
+    async def run(self, prompt: str) -> ModelOutcome:
+        """One model call, with its failure mapped to an error kind. Call it inside :meth:`slot`."""
+        try:
+            cwd = self._cwd()
+            cwd.mkdir(parents=True, exist_ok=True, mode=0o700)
+        except OSError:
+            return ModelOutcome(error_kind="cwd_unavailable")
+        env = summary_environment(os.environ if self._environ is None else self._environ)
+        self.calls += 1
+        try:
+            result = await self._race(
+                self._runner.run(prompt, cwd=cwd, env=env, timeout=self._timeout)
+            )
+        except TimeoutError:
+            return ModelOutcome(error_kind="timeout")
+        except FileNotFoundError:
+            return ModelOutcome(error_kind="not_installed")
+        except OSError:
+            return ModelOutcome(error_kind="spawn_failed")
+        except Exception:
+            logger.exception("the summary runner failed")
+            return ModelOutcome(error_kind="runner_error")
+        if result.returncode != 0:
+            return ModelOutcome(error_kind="nonzero_exit")
+        return ModelOutcome(stdout=result.stdout)
+
+    async def _race(self, call: Awaitable[RunOutput]) -> RunOutput:
+        """``call``, or :class:`TimeoutError` once the daemon's clock passes the timeout."""
+        work = asyncio.ensure_future(call)
+        timer = asyncio.ensure_future(self._clock.sleep(self._timeout))
+        try:
+            await asyncio.wait({work, timer}, return_when=asyncio.FIRST_COMPLETED)
+            if not work.done():
+                raise TimeoutError
+            return work.result()
+        finally:
+            for task in (work, timer):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(work, timer, return_exceptions=True)
+
+
+# --------------------------------------------------------------------------------------------
 # The cache and the answers
 # --------------------------------------------------------------------------------------------
 
@@ -794,17 +895,25 @@ class SummaryService:
         timeout: float = RUN_TIMEOUT,
         cwd: Callable[[], Path] = paths.summarizer_dir,
         environ: Mapping[str, str] | None = None,
+        gate: ModelGate | None = None,
     ) -> None:
         self._writer = writer
         self._settings = settings
         self._clock = clock
-        self._runner: SummaryRunner = ClaudeRunner() if runner is None else runner
+        self._gate = (
+            ModelGate(
+                settings.max_concurrent,
+                clock=clock,
+                runner=runner,
+                timeout=timeout,
+                cwd=cwd,
+                environ=environ,
+            )
+            if gate is None
+            else gate
+        )
         self._privacy = privacy
         self._on_change = on_change
-        self._timeout = timeout
-        self._cwd = cwd
-        self._environ = environ
-        self._slots = asyncio.Semaphore(settings.max_concurrent)
         self._cache: dict[Key, CachedSummary] = {}
         self._jobs: dict[Key, asyncio.Task[None]] = {}
         self._attempts: dict[Key, datetime] = {}
@@ -945,7 +1054,7 @@ class SummaryService:
     ) -> None:
         key = inputs.key
         try:
-            async with self._slots:
+            async with self._gate.slot():
                 self.running += 1
                 self.peak_running = max(self.peak_running, self.running)
                 try:
@@ -973,28 +1082,11 @@ class SummaryService:
 
     async def _generate(self, inputs: SummaryInputs, previous: CachedSummary | None) -> _Outcome:
         prompt = _PROMPTS[inputs.scope](inputs, previous)
-        try:
-            cwd = self._cwd()
-            cwd.mkdir(parents=True, exist_ok=True, mode=0o700)
-        except OSError:
-            return _Outcome(error_kind="cwd_unavailable")
-        env = summary_environment(os.environ if self._environ is None else self._environ)
-        self.calls += 1
-        try:
-            result = await self._race(
-                self._runner.run(prompt, cwd=cwd, env=env, timeout=self._timeout)
-            )
-        except TimeoutError:
-            return _Outcome(error_kind="timeout")
-        except FileNotFoundError:
-            return _Outcome(error_kind="not_installed")
-        except OSError:
-            return _Outcome(error_kind="spawn_failed")
-        except Exception:
-            logger.exception("the summary runner failed")
-            return _Outcome(error_kind="runner_error")
-        if result.returncode != 0:
-            return _Outcome(error_kind="nonzero_exit")
+        result = await self._gate.run(prompt)
+        if result.error_kind != "cwd_unavailable":
+            self.calls += 1
+        if result.stdout is None:
+            return _Outcome(error_kind=result.error_kind)
         output = result.stdout if self._privacy is None else self._privacy.redact(result.stdout)
         if inputs.scope == "session":
             arc, now = parse_story(output)
@@ -1007,21 +1099,6 @@ class SummaryService:
         if text is None:
             return _Outcome(error_kind="empty_output")
         return _Outcome({"text": text})
-
-    async def _race(self, call: Awaitable[RunOutput]) -> RunOutput:
-        """``call``, or :class:`TimeoutError` once the daemon's clock passes the timeout."""
-        work = asyncio.ensure_future(call)
-        timer = asyncio.ensure_future(self._clock.sleep(self._timeout))
-        try:
-            await asyncio.wait({work, timer}, return_when=asyncio.FIRST_COMPLETED)
-            if not work.done():
-                raise TimeoutError
-            return work.result()
-        finally:
-            for task in (work, timer):
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(work, timer, return_exceptions=True)
 
     def _result(
         self,

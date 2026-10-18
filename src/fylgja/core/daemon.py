@@ -85,7 +85,7 @@ from fylgja.core.retention import MaintenanceJob
 from fylgja.core.sessions import HOOK_ONLY_STATES, SessionStateEngine
 from fylgja.core.shown import shown_sessions, shown_waiting
 from fylgja.core.span_window import SpanWindow
-from fylgja.core.summaries import SummaryRunner, SummaryService
+from fylgja.core.summaries import ModelGate, SummaryRunner, SummaryService
 from fylgja.core.system import LocalFileSystem, SubprocessRunner
 from fylgja.core.todos import TodoService
 from fylgja.core.usage_view import UsageMemory, UsageMeta
@@ -459,6 +459,8 @@ class Daemon:
         self._tick = tick
         self._home = str(Path.home()) if home is None else home
         filesystem: FileSystem = LocalFileSystem() if fs is None else fs
+        self.fs: FileSystem = filesystem
+        """The filesystem seam of the host adapters, the locator and (later) file excerpts."""
         process_runner: ProcessRunner = SubprocessRunner() if runner is None else runner
         self.runner: ProcessRunner = process_runner
         """The process runner of the host adapters and of the focus actions."""
@@ -563,11 +565,16 @@ class Daemon:
         """Manual workspace labels (WP4.2); every write goes through the writer."""
         self.next_lists = NextLists(self.writer, clock=self.clock)
         """The ranked "what next" lists: ids, ``suggestions_log`` and feedback (WP6.2)."""
+        self.model_gate = ModelGate(
+            config.summaries.max_concurrent, clock=self.clock, runner=summary_runner
+        )
+        """The model runner and its ``[summaries] max_concurrent`` slots, shared by the summary
+        service and the journal. Always built; it does not look at ``[summaries] enabled``."""
         self.summaries = SummaryService(
             self.writer,
             config.summaries,
             clock=self.clock,
-            runner=summary_runner,
+            gate=self.model_gate,
             privacy=PrivacyFilter.from_config(config.privacy),
             on_change=self.view.touch,
         )
