@@ -28,6 +28,11 @@ limit):
 * ``POST /journal/threads/{id}/refresh`` starts a manual attempt (**202** ``pending``), joins the
   one that runs (**202**) or finds nothing new (**200** ``nothing_new``).
 
+* ``POST /journal/items/{id}/how`` answers the item's "How do I do this?" checklist: **200**
+  ``fresh`` with its steps when the stored ones match, otherwise **202** ``pending`` (a job runs,
+  started now or joined). ``GET /journal/items/{id}/how`` reads its state and never starts a job.
+  Both answer ``JournalHow``; the finished job publishes ``journal.changed``.
+
 Every journal route but the list answers **409** while ``[journal] enabled`` is false.
 """
 
@@ -42,7 +47,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from fylgja.api.deps import daemon_of, json_response, not_found
-from fylgja.api.journal_answers import build_thread, build_threads, item_model
+from fylgja.api.journal_answers import build_thread, build_threads, how_model, item_model
 from fylgja.api.journal_models import JournalRefresh
 from fylgja.api.now import todo_model
 from fylgja.api.now_models import dump_json
@@ -253,3 +258,25 @@ async def refresh_thread(request: Request, thread: str) -> Response:
         raise not_found("journal thread") from None
     answer = JournalRefresh(thread=thread, state=state)  # type: ignore[arg-type]
     return json_response(dump_json(answer), status_code=200 if state == "nothing_new" else 202)
+
+
+@router.post("/journal/items/{item}/how")
+async def request_how(request: Request, item: str) -> Response:
+    service = journal_of(daemon_of(request))
+    try:
+        answer = await service.request_how(item)
+    except ItemNotFound:
+        raise not_found("journal item") from None
+    return json_response(
+        dump_json(how_model(answer)), status_code=200 if answer.state == "fresh" else 202
+    )
+
+
+@router.get("/journal/items/{item}/how")
+async def get_how(request: Request, item: str) -> Response:
+    service = journal_of(daemon_of(request))
+    try:
+        answer = await service.how(item)
+    except ItemNotFound:
+        raise not_found("journal item") from None
+    return json_response(dump_json(how_model(answer)))

@@ -11,6 +11,11 @@ It holds
   :class:`~fylgja.core.summaries.ModelGate`, and writes the entry, the ledger merge and the thread
   row in one writer job. Its listeners are told the thread id after every write.
 
+"How do I do this?" (:meth:`JournalService.request_how`, :meth:`~JournalService.how`; J20) turns an
+item into a checklist: one model job per item, cached by the digest of the item, its source and the
+excerpt the service read from it. The excerpt is read only below the thread's resolved checkout and
+never from a directory the person keeps private.
+
 The person's actions (:meth:`JournalService.patch_item`, :meth:`~JournalService.add_item`,
 :meth:`~JournalService.make_todo`, :meth:`~JournalService.refresh`; J18, J19) write through the
 writer and tell the listeners, and never dirty a thread. A todo made from an item is registered as
@@ -27,21 +32,26 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import sqlite3
 from collections.abc import Callable, Container, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from fylgja.collectors.base import Clock
-from fylgja.collectors.seams import ProcessRunner
+from fylgja.collectors.seams import FileSystem, PathResolver, ProcessRunner
 from fylgja.config import JournalConfig
 from fylgja.core import spans
 from fylgja.core.journal import (
     BAD_OUTPUT,
     COMMIT_HORIZON,
+    EXCERPT_MAX_BYTES,
+    FILE_MAX_BYTES,
     FIRST_LOOKBACK,
+    NEVER_READ,
     CommitPart,
     JournalInputs,
     MergeResult,
@@ -53,9 +63,12 @@ from fylgja.core.journal import (
     ThreadState,
     TodoPart,
     Trigger,
+    cut_bytes,
     due,
     highest_trigger,
+    how_prompt,
     in_window,
+    inside,
     item_seq_id,
     journal_prompt,
     log_argv,
@@ -64,7 +77,11 @@ from fylgja.core.journal import (
     order_open,
     parse_log,
     parse_reply,
+    parse_steps,
+    refused_name,
+    section_excerpt,
     session_source,
+    show_argv,
     thread_id,
     thread_key,
     thread_name,
@@ -74,7 +91,7 @@ from fylgja.core.labels import project_name
 from fylgja.core.live_view import Change, Collection, LiveUpdate, LiveView
 from fylgja.core.span_window import SpanWindow
 from fylgja.core.spans import Action, Closed, Opened
-from fylgja.core.summaries import MODEL, ModelGate
+from fylgja.core.summaries import MODEL, ModelGate, input_digest, normalize
 from fylgja.core.todo_import import SCOPE_PROJECT
 from fylgja.core.todos import TodoNotFound, TodoService, new_todo_id
 from fylgja.core.writer import Tx, Writer, WriterClosed
@@ -96,6 +113,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GIT_TIMEOUT",
+    "HowAnswer",
     "ITEM_TEXT_MAX",
     "InvalidItemText",
     "ItemNotFound",
@@ -119,6 +137,9 @@ GIT_TIMEOUT = 5.0
 
 ITEM_TEXT_MAX: Final = 200
 """The longest text the person may give an item (J18)."""
+
+_COMMIT_REF: Final = re.compile(r"[0-9a-f]{7,40}")
+"""A commit source's ref must look like this before it reaches ``git`` (J20)."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -658,6 +679,29 @@ class ItemResult:
 
 
 @dataclass(frozen=True)
+class HowAnswer:
+    """The "How do I do this?" state of an item (J17, J20)."""
+
+    item: str
+    state: str
+    """``fresh``, ``stale``, ``pending``, ``failed`` or ``missing``."""
+    steps: tuple[str, ...] | None = None
+    """The stored steps, whatever the state, when there are any."""
+    generated_at: datetime | None = None
+    error_kind: str | None = None
+    """Set for ``failed``."""
+
+
+@dataclass(frozen=True)
+class _HowInput:
+    """What a checklist is made from: the item's source and the excerpt read from it."""
+
+    source: Source
+    excerpt: str | None
+    digest: str
+
+
+@dataclass(frozen=True)
 class _Acted:
     """What an action's writer job returns."""
 
@@ -725,6 +769,7 @@ class JournalService:
         git: str,
         privacy: PrivacyFilter,
         debounce: float,
+        fs: FileSystem,
     ) -> None:
         self._writer = writer
         self._settings = settings
@@ -738,6 +783,7 @@ class JournalService:
         self._git = git
         self._privacy = privacy
         self._debounce = debounce
+        self._fs = fs
         self.tracker = JournalTracker(settings, clock)
         """Dirty threads and boundaries (J1–J6)."""
         self._threads: dict[str, JournalThreadRow] = {}
@@ -749,6 +795,10 @@ class JournalService:
         """Per attempt started by a refresh: resolved once the attempt knows whether its window
         holds something new (J18)."""
         self._todo_lock = asyncio.Lock()
+        self._how_lock = asyncio.Lock()
+        """Serializes the decision of :meth:`request_how`, so two requests make one job."""
+        self._how_jobs: dict[str, asyncio.Task[None]] = {}
+        """The "How do I do this?" job of each item that has one running (J20)."""
         self._background: set[asyncio.Task[None]] = set()
         self._listeners: list[Listener] = []
         self._wake = asyncio.Event()
@@ -875,13 +925,19 @@ class JournalService:
         current = asyncio.current_task()
         tasks = [
             task
-            for task in (self._loop, *self._attempts.values(), *self._background)
+            for task in (
+                self._loop,
+                *self._attempts.values(),
+                *self._how_jobs.values(),
+                *self._background,
+            )
             if task is not None and task is not current
         ]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self._attempts.clear()
+        self._how_jobs.clear()
 
     # -- wake-ups -----------------------------------------------------------------------------
 
@@ -1345,6 +1401,230 @@ class JournalService:
         decided: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._start(found.key, "manual", thread_source(found.key, found.name), decided)
         return await decided
+
+    # -- "How do I do this?" (J20) ------------------------------------------------------------
+
+    async def request_how(self, item_id: str) -> HowAnswer:
+        """The checklist of an item, started if need be (J20).
+
+        ``fresh`` when the stored steps match the item as it is now (no job, no event);
+        ``pending`` while a job runs for the item, joined when one already does, and otherwise
+        started now. Raises :class:`ItemNotFound` for an unknown item."""
+        async with self._how_lock:
+            item = await asyncio.to_thread(self._read_item, item_id)
+            if item is None:
+                raise ItemNotFound(item_id)
+            if item_id in self._how_jobs:
+                return self._how_answer(item, None)
+            material = await self._how_input(item)
+            answer = self._how_answer(item, material.digest)
+            if answer.state == "fresh":
+                return answer
+            task = asyncio.create_task(self._how_job(item, material), name="fylgja-journal-how")
+            self._how_jobs[item_id] = task
+            return self._how_answer(item, material.digest)
+
+    async def how(self, item_id: str) -> HowAnswer:
+        """The checklist state of an item. Never starts a job (J20). Raises
+        :class:`ItemNotFound` for an unknown item."""
+        item = await asyncio.to_thread(self._read_item, item_id)
+        if item is None:
+            raise ItemNotFound(item_id)
+        if item_id in self._how_jobs or item.how_text is None:
+            return self._how_answer(item, None)
+        return self._how_answer(item, (await self._how_input(item)).digest)
+
+    def _how_answer(self, item: JournalItemRow, digest: str | None) -> HowAnswer:
+        """The state of ``item``; ``digest`` is that of its current material, when known."""
+        steps = None if item.how_text is None else tuple(item.how_text.split("\n"))
+        if item.id in self._how_jobs:
+            state = "pending"
+        elif steps is not None and digest is not None and item.how_digest == digest:
+            state = "fresh"
+        elif item.how_error_kind is not None:
+            state = "failed"
+        else:
+            state = "missing" if steps is None else "stale"
+        return HowAnswer(
+            item=item.id,
+            state=state,
+            steps=steps,
+            generated_at=item.how_at,
+            error_kind=item.how_error_kind if state == "failed" else None,
+        )
+
+    async def _how_input(self, item: JournalItemRow) -> _HowInput:
+        thread = self._threads.get(item.thread_id)
+        found = item.source
+        source = Source(
+            kind=found.get("kind", "person"),
+            ref=str(found.get("ref", "")),
+            label=str(found.get("label", "")),
+            path=found.get("path"),
+            section=found.get("section"),
+        )
+        excerpt = None if thread is None else await self._excerpt(thread.repo_root, source)
+        digest = input_digest(
+            "journal-how", normalize({"text": item.text, "source": found, "excerpt": excerpt})
+        )
+        return _HowInput(source, excerpt, digest)
+
+    async def _how_job(self, item: JournalItemRow, material: _HowInput) -> None:
+        """One model call for an item, then one write and one event, a failure included."""
+        try:
+            async with self._gate.slot():
+                outcome = await self._gate.run(
+                    how_prompt(item.text, material.source, material.excerpt)
+                )
+            steps: list[str] | None = None
+            kind = outcome.error_kind
+            if outcome.stdout is not None:
+                steps = parse_steps(outcome.stdout, self._privacy.redact)
+                kind = BAD_OUTPUT if steps is None else None
+            kind = None if steps is not None else kind or "runner_error"
+            acted = await self._write_how(item.id, steps, material.digest, kind)
+            self._how_jobs.pop(item.id, None)
+            self._result(acted)
+            if kind is None:
+                log.info("journal checklist for item %s: written", item.id)
+            else:
+                log.warning("journal checklist for item %s failed: %s", item.id, kind)
+        except asyncio.CancelledError:  # a daemon stop: nothing is written
+            raise
+        except WriterClosed:
+            log.debug("the writer stopped before a journal checklist was stored")
+        except Exception as error:
+            self._failed_once("a journal checklist", error)
+        finally:
+            if self._how_jobs.get(item.id) is asyncio.current_task():
+                del self._how_jobs[item.id]
+
+    async def _write_how(
+        self, item_id: str, steps: list[str] | None, digest: str, kind: str | None
+    ) -> _Acted:
+        """Steps replace the stored answer; a failure keeps it and records the kind."""
+        now = self._clock.now()
+
+        def job(tx: Tx) -> _Acted:
+            connection = tx.connection
+            current = queries.get_journal_item(connection, item_id)
+            if current is None:  # pragma: no cover - items are never deleted
+                raise ItemNotFound(item_id)
+            if steps is not None:
+                row = replace(
+                    current,
+                    how_text="\n".join(steps),
+                    how_digest=digest,
+                    how_at=now,
+                    how_error_kind=None,
+                )
+            else:
+                row = replace(current, how_error_kind=kind)
+            stored = queries.put_journal_item(connection, item_values(row))
+            open_items = queries.list_journal_items(connection, row.thread_id, statuses=_OPEN)
+            return _Acted(stored, tuple(open_items), True)
+
+        return await self._writer.execute(job)
+
+    async def _excerpt(self, root: str, source: Source) -> str | None:
+        """The text of the item's source that goes into the prompt, redacted and cut to
+        :data:`~fylgja.core.journal.EXCERPT_MAX_BYTES`; ``None`` when the source gives none or
+        cannot be read safely (J20)."""
+        redact = self._privacy.redact
+        text: str | None = None
+        match source.kind:
+            case "file":
+                text = await asyncio.to_thread(self._file_text, root, source)
+            case "session":
+                text = await self._session_text(source.ref)
+            case "commit":
+                text = await self._commit_text(root, source.ref)
+            case "todo":
+                text = await asyncio.to_thread(self._todo_text, source.ref)
+            case _:
+                return None
+        if not text:
+            return None
+        # Redact before the cut, so a secret the cut would split is not left half there.
+        return cut_bytes(redact(text), EXCERPT_MAX_BYTES) or None
+
+    def _file_text(self, root: str, source: Source) -> str | None:
+        """The section of a file source below the thread's resolved checkout (J20)."""
+        fs = self._fs
+        if not isinstance(fs, PathResolver) or not source.path:
+            return None
+        candidate = source.path if source.path.startswith("/") else f"{root}/{source.path}"
+        try:
+            real = fs.realpath(candidate)
+            if not inside(real, fs.realpath(root)):
+                return None
+            home = Path.home()
+            if any(inside(real, fs.realpath(str(home / name))) for name in NEVER_READ):
+                return None
+            if refused_name(PurePosixPath(candidate).name) or refused_name(
+                PurePosixPath(real).name
+            ):
+                return None
+            info = fs.stat(real)
+            if info.is_dir or info.size > FILE_MAX_BYTES:
+                return None
+            data = fs.read_bytes(real)
+            if b"\x00" in data:
+                return None
+            text = data.decode("utf-8")
+        except (OSError, UnicodeDecodeError, ValueError):
+            return None
+        return section_excerpt(text, source.section, 1 << 30)
+
+    async def _session_text(self, ref: str) -> str | None:
+        """What a session source shows: the live session's facts and latest prompt and reply,
+        otherwise its newest stored interval."""
+        view = self._state()
+        extras = view.sessions.get(ref)
+        files, open_tasks, done_tasks = _facts(None if extras is None else extras.facts)
+        live = view.live.activity.get(ref)
+        found = live if live is not None else await asyncio.to_thread(self._latest_activity, ref)
+        lines: list[str] = []
+        if found is not None:
+            for label, value in (
+                ("Asked", found.last_prompt),
+                ("Said", found.last_reply),
+                ("Summary", found.one_liner),
+            ):
+                if value:
+                    lines.append(f"{label}: {value}")
+        if files:
+            names = [PurePosixPath(name).name for name in files[:10]]
+            lines.append("Files: " + ", ".join(names))
+        lines += [f"Open task: {task}" for task in open_tasks[:4]]
+        lines += [f"Done task: {task}" for task in done_tasks[:4]]
+        return "\n".join(lines) or None
+
+    def _latest_activity(self, ref: str) -> ActivityIntervalRow | None:
+        connection = db.connect_reader(self._writer.database)
+        try:
+            return queries.latest_activity(connection, ref)
+        finally:
+            connection.close()
+
+    async def _commit_text(self, root: str, ref: str) -> str | None:
+        if not _COMMIT_REF.fullmatch(ref):
+            return None
+        try:
+            result = await self._runner.run(show_argv(self._git, root, ref), timeout=GIT_TIMEOUT)
+        except (TimeoutError, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.decode("utf-8", errors="replace")
+
+    def _todo_text(self, ref: str) -> str | None:
+        connection = db.connect_reader(self._writer.database)
+        try:
+            todo = queries.get_todo(connection, ref)
+        finally:
+            connection.close()
+        return None if todo is None else todo.text
 
     # -- the write (J13) ----------------------------------------------------------------------
 

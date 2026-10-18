@@ -57,7 +57,8 @@ neither headlines nor items is left out. The days follow the local time zone, da
 `started_at`, `ended_at`, `headline`, `did[]` and `sources[]` (`EntrySource`). `entries` are newest first.
 
 **`JournalHow`**: `item`, `state` (`fresh`, `stale`, `pending`, `failed`, `missing`), `steps[]`, `generated_at` and
-`error_kind`. The routes that answer it come with the "How do I do this?" action.
+`error_kind`. `steps` is present whenever an answer is stored, also while `stale`, `pending` or `failed`;
+`error_kind` only for `failed`. See [`POST /journal/items/{id}/how`](#post-journalitemsidhow).
 
 ## `GET /journal/threads`
 
@@ -149,6 +150,49 @@ and the wait after a failure.
 | 409 | The journal is off. |
 
 The answer comes once the attempt knows whether there is something new, which can take as long as a free model slot.
+
+## `POST /journal/items/{id}/how`
+
+Body `{}`. "How do I do this?": turns the item into a checklist of at most six short steps, made by one model call
+(Haiku, through the same slots as the summaries). Answers `JournalHow`.
+
+| Status | When |
+|---|---|
+| 200 | `state: fresh`: the stored `steps` match the item as it is now. No job runs and no event follows. |
+| 202 | `state: pending`: a job was started, or one already runs for the item (joined, so there is never a second call). |
+| 404 | No item has this id. |
+| 409 | The journal is off. |
+
+The finished job (steps, or a failure) publishes `journal.changed`. A failed job keeps the earlier `steps` and sets
+`error_kind` (the model gate's kinds, or `bad_output` when the reply holds no step).
+
+What the checklist is made from, besides the item text and the source's label, is an excerpt of the source of at
+most 16 kB, redacted:
+
+- `file`: the section named by the source's `section` (an ATX heading up to the next heading of the same or a higher
+  level; headings in code fences do not count), or the start of the file. The path is resolved to its real path and
+  must lie below the real path of the thread's checkout and below none of `~/.claude`, `~/.config`, `~/.local`,
+  `~/Library` and `~/.ssh`. Names matching `.env*`, `*.pem`, `*.key` or `id_*`, files over 1 MiB, files with a NUL
+  byte and files that are not UTF-8 are refused.
+- `session`: the facts of a live session, or its newest stored activity.
+- `commit`: `git show --stat` of the hash, only for a hash of 7–40 hex digits.
+- `todo`: the todo's text.
+- Anything else, or a source that cannot be read: no excerpt; the checklist comes from the item text alone.
+
+## `GET /journal/items/{id}/how`
+
+Answers `JournalHow` and never starts a job. Status 200, or 404 for an unknown item, or 409 while the journal is off.
+
+| `state` | When |
+|---|---|
+| `pending` | A job runs for the item. |
+| `fresh` | The steps were made from the item, source and excerpt as they are now. |
+| `stale` | The item text, the source or the excerpt changed since the steps were made. The steps are still sent. |
+| `failed` | The last job failed; any earlier steps are kept. |
+| `missing` | No answer was ever stored. |
+
+Reading a `file`, `session` or `commit` item's state rebuilds its excerpt (a file read, or one `git show`) to compare
+the digests; nothing is sent to a model.
 
 ## The `journal` field of `/items`
 

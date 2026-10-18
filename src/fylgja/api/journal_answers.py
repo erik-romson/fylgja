@@ -17,6 +17,7 @@ from fylgja.api.journal_models import (
     DoneDay,
     EntrySource,
     JournalEntry,
+    JournalHow,
     JournalItem,
     JournalSource,
     JournalThread,
@@ -27,12 +28,14 @@ from fylgja.api.journal_models import (
 )
 from fylgja.core.items import folder_name
 from fylgja.core.journal import SHOWN_PER_KIND, done_by_day, mark_shown, order_open
+from fylgja.core.journal_service import HowAnswer
 from fylgja.store.rows import JournalEntryRow, JournalItemRow, JournalThreadRow
 
 __all__ = [
     "build_item_journal",
     "build_thread",
     "build_threads",
+    "how_model",
     "item_model",
     "open_items",
     "where_of",
@@ -201,4 +204,15 @@ def build_item_journal(
         where=row.where_text,
         next=[ItemJournalNext(id=item.id, text=item.text) for item in shown],
         next_more=more or None,
+    )
+
+
+def how_model(answer: HowAnswer) -> JournalHow:
+    """The "How do I do this?" answer of an item (J17, J20)."""
+    return JournalHow(
+        item=answer.item,
+        state=answer.state,  # type: ignore[arg-type]
+        steps=None if answer.steps is None else list(answer.steps),
+        generated_at=answer.generated_at,
+        error_kind=answer.error_kind,
     )

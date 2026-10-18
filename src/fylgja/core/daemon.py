@@ -613,6 +613,7 @@ class Daemon:
                 git=str(config.paths.git),
                 privacy=self.privacy,
                 debounce=resolve_debounce,
+                fs=self.fs,
             )
             if config.journal.enabled
             else None

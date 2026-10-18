@@ -20,6 +20,7 @@ __all__ = [
     "FileInfo",
     "FileSystem",
     "LineStream",
+    "PathResolver",
     "ProcessResult",
     "ProcessRunner",
     "RangeReader",
@@ -99,6 +100,19 @@ class RangeReader(Protocol):
 
     def read_range(self, path: Path | str, offset: int, length: int) -> bytes:
         """Up to ``length`` bytes starting at ``offset`` (fewer at the end of the file)."""
+        ...
+
+
+@runtime_checkable
+class PathResolver(Protocol):
+    """A filesystem that can resolve symlinks, so a containment check compares real paths.
+
+    Kept apart from :class:`FileSystem`, as :class:`RangeReader` is. A consumer that gets a plain
+    :class:`FileSystem` has no resolver and reads no file whose location it must check.
+    """
+
+    def realpath(self, path: Path | str) -> str:
+        """``path`` with every symlink followed and ``..`` removed; a missing tail stays."""
         ...
 
 

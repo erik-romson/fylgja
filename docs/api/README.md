@@ -44,6 +44,8 @@ label or secret.
 | `POST /journal/threads/{id}/items` | `{kind: "next" \| "remember" \| "blocked", text}` | **201** `JournalItem` with source kind `person`; **404** for a thread with no row; **409** while the journal is off; **422** | [`journal.md`](journal.md#post-journalthreadsiditems) |
 | `POST /journal/items/{id}/todo` | `{}` | **201** `Todo` made from the item (scope `project`, the checkout), or **200** with the todo it already has; **404**; **409** while the journal is off | [`journal.md`](journal.md#post-journalitemsidtodo) |
 | `POST /journal/threads/{id}/refresh` | `{}` | **202** `{thread, state: "pending"}` (an attempt started or joined); **200** `{thread, state: "nothing_new"}`; **404**; **409** while the journal is off | [`journal.md`](journal.md#post-journalthreadsidrefresh) |
+| `POST /journal/items/{id}/how` | `{}` | `fylgja.journal/1` `JournalHow`: **200** `state: fresh` with the stored `steps` when they match the item as it is now; **202** `state: pending` when a job runs (started now, or joined); **404**; **409** while the journal is off | [`journal.md`](journal.md#post-journalitemsidhow) |
+| `GET /journal/items/{id}/how` | | `JournalHow`: `fresh`, `stale`, `pending`, `failed` or `missing`; never starts a job; **404**; **409** while the journal is off | [`journal.md`](journal.md#get-journalitemsidhow) |
 | `GET /view/overview` | `rank` | `fylgja.view.overview/1`: the page's Overview tab in one call | [`views.md`](views.md) |
 | `GET /view/attention` | | `fylgja.view.attention/1`: the tab title and icon while an agent waits | [`views.md`](views.md#get-viewattention) |
 | `GET /summaries/{scope}/{ref}` | | `SummaryResponse`, cached only; never starts a job | [`summaries.md`](summaries.md) |

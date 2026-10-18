@@ -53,6 +53,9 @@ class LocalFileSystem:
     def unlink(self, path: Path | str) -> None:
         Path(path).unlink()
 
+    def realpath(self, path: Path | str) -> str:
+        return os.path.realpath(path)
+
 
 class SubprocessRunner:
     """Runs a command to completion in its own process group; a missing binary raises

@@ -19,6 +19,7 @@ import asyncio
 import errno
 import heapq
 import itertools
+import posixpath
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
@@ -241,6 +242,8 @@ class FakeFS:
         self._errors: dict[PurePosixPath, OSError] = {}
         self.reads: list[PurePosixPath] = []
         """Every path read, in order."""
+        self.links: dict[str, str] = {}
+        """Symlinks for :meth:`realpath`: a path at or below a key continues below its value."""
         for path, data in (files or {}).items():
             self.add_file(path, data)
 
@@ -327,6 +330,17 @@ class FakeFS:
             raise self._missing(key)
         del self._files[key]
         self._inodes.pop(key, None)
+
+    def realpath(self, path: Path | str) -> str:
+        """``path`` with the first matching prefix of :attr:`links` replaced (longest first, once),
+        then ``..`` and ``.`` removed. The file store itself is not remapped: a test that reads a
+        link adds the file under its target."""
+        text = str(path)
+        for prefix in sorted(self.links, key=len, reverse=True):
+            if text == prefix or text.startswith(prefix.rstrip("/") + "/"):
+                text = self.links[prefix] + text[len(prefix) :]
+                break
+        return posixpath.normpath(text)
 
 
 # --------------------------------------------------------------------------------------------

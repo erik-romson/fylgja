@@ -101,6 +101,9 @@ class LocalFileSystem:
     def unlink(self, path: Path | str) -> None:
         os.unlink(path)  # noqa: PTH108
 
+    def realpath(self, path: Path | str) -> str:
+        return os.path.realpath(path)
+
 
 class SubprocessRunner:
     """Runs a command to completion; a missing binary raises ``FileNotFoundError``."""

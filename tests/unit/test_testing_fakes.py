@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from fylgja.collectors.base import Clock, RecordSink
-from fylgja.collectors.seams import FileSystem, LineStream, ProcessRunner
+from fylgja.collectors.seams import FileSystem, LineStream, PathResolver, ProcessRunner
 from fylgja.models import EntityKind, PresenceEvent, PresencePayload, TodoEvent, TodoPayload
 from fylgja.testing import fixtures
 from fylgja.testing.fakes import (
@@ -234,6 +234,31 @@ def test_fs_unlink_removes_the_file() -> None:
     fs.unlink("/inbox/1.json")
     assert not fs.exists("/inbox/1.json")
     assert fs.listdir("/inbox") == []
+
+
+def test_fs_realpath_follows_links_by_prefix_and_normalizes() -> None:
+    fs = FakeFS()
+    assert isinstance(fs, PathResolver)
+    assert fs.realpath("/repo/docs/../a.md") == "/repo/a.md"
+    fs.links["/repo/link.md"] = "/home/x/.ssh/id"
+    fs.links["/repo/dir"] = "/elsewhere"
+    fs.links["/repo/dir/deep"] = "/deeper"
+    assert fs.realpath("/repo/link.md") == "/home/x/.ssh/id"
+    assert fs.realpath("/repo/dir/a.md") == "/elsewhere/a.md"
+    assert fs.realpath("/repo/dir/deep/a.md") == "/deeper/a.md"  # the longest prefix wins
+    assert fs.realpath("/repo/directory/a.md") == "/repo/directory/a.md"  # whole components only
+
+
+def test_real_filesystems_resolve_paths(tmp_path: Path) -> None:
+    from fylgja.collectors.codex.adapter import LocalFileSystem as CodexFileSystem
+    from fylgja.core.system import LocalFileSystem
+
+    target = tmp_path / "real"
+    target.mkdir()
+    (tmp_path / "link").symlink_to(target)
+    for fs in (LocalFileSystem(), CodexFileSystem()):
+        assert isinstance(fs, PathResolver)
+        assert fs.realpath(tmp_path / "link" / "x.md") == str(target.resolve() / "x.md")
 
 
 # --- line stream ----------------------------------------------------------------------

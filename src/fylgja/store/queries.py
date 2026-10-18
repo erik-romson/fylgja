@@ -1815,6 +1815,16 @@ WHERE s.project_path = :project_path AND a.valid_from > :since AND a.valid_from 
 ORDER BY a.valid_from, a.id
 """
 
+LATEST_ACTIVITY: Final = """
+SELECT a.session_key, s.kind, s.title, s.parent_key, a.valid_from, a.state, a.last_prompt,
+       a.last_reply, a.one_liner, a.open_task, a.stage
+FROM session_snapshots a
+JOIN sessions s ON s.session_key = a.session_key
+WHERE a.session_key = ?
+ORDER BY a.valid_from DESC, a.id DESC
+LIMIT 1
+"""
+
 TODOS_BETWEEN: Final = (
     f"SELECT {_TODO_COLUMNS} FROM todos WHERE deleted_at IS NULL "
     "AND scope_kind = 'project' AND scope_ref = :scope_ref "
@@ -1924,6 +1934,11 @@ def load_activity_between(
         LOAD_ACTIVITY_BETWEEN, {"project_path": project_path, "since": since, "until": until}
     )
     return [ActivityIntervalRow.from_db(row) for row in found]
+
+
+def latest_activity(connection: sqlite3.Connection, session_key: str) -> ActivityIntervalRow | None:
+    """The newest activity interval of one session, or ``None`` when it has none."""
+    return _row(ActivityIntervalRow, connection.execute(LATEST_ACTIVITY, (session_key,)).fetchone())
 
 
 def todos_between(
