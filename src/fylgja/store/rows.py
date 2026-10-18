@@ -17,11 +17,15 @@ from typing import Any, ClassVar, Self
 from fylgja.store.db import from_db_time
 
 __all__ = [
+    "ActivityIntervalRow",
     "ActivityRow",
     "DaySessionRow",
     "FocusRow",
     "HealthRow",
     "ImportedTodoRow",
+    "JournalEntryRow",
+    "JournalItemRow",
+    "JournalThreadRow",
     "ProjectRow",
     "SessionRow",
     "SpanRow",
@@ -350,3 +354,94 @@ class SummaryRow(StoreRow):
     error_kind: str | None
 
     _times = frozenset({"generated_at"})
+
+
+@dataclass(frozen=True)
+class ActivityIntervalRow(StoreRow):
+    """One ``session_snapshots`` interval with its session's identity, for the journal window."""
+
+    session_key: str
+    kind: str
+    title: str | None
+    parent_key: str | None
+    valid_from: datetime
+    state: str | None
+    last_prompt: str | None
+    last_reply: str | None
+    one_liner: str | None
+    open_task: str | None
+    stage: dict[str, Any] | None
+
+    _times = frozenset({"valid_from"})
+    _json = frozenset({"stage"})
+
+
+@dataclass(frozen=True)
+class JournalThreadRow(StoreRow):
+    """One ``journal_threads`` row: a checkout on a branch (docs/decisions/0057)."""
+
+    thread_id: str
+    repo_root: str
+    branch: str
+    name: str
+    first_at: datetime
+    last_at: datetime | None
+    watermark: datetime | None
+    where_text: str | None
+    where_at: datetime | None
+    last_attempt_at: datetime | None
+    error_kind: str | None
+    error_at: datetime | None
+
+    _times = frozenset(
+        {"first_at", "last_at", "watermark", "where_at", "last_attempt_at", "error_at"}
+    )
+
+
+@dataclass(frozen=True)
+class JournalEntryRow(StoreRow):
+    """One ``journal_entries`` row; ``did`` and ``sources`` are decoded JSON lists."""
+
+    id: int
+    thread_id: str
+    started_at: datetime
+    ended_at: datetime
+    trigger: str
+    headline: str
+    did: list[Any]
+    sources: list[Any]
+    input_digest: str
+    model: str
+    generated_at: datetime
+
+    _times = frozenset({"started_at", "ended_at", "generated_at"})
+    _json = frozenset({"did", "sources"})
+
+
+@dataclass(frozen=True)
+class JournalItemRow(StoreRow):
+    """One ``journal_items`` row of a thread's ledger; ``source`` is a decoded JSON object."""
+
+    id: str
+    thread_id: str
+    seq: int
+    kind: str
+    text: str
+    status: str
+    pinned: bool
+    edited: bool
+    source: dict[str, Any]
+    created_at: datetime
+    created_entry: int | None
+    closed_at: datetime | None
+    closed_by: str | None
+    closed_entry: int | None
+    todo_id: str | None
+    how_text: str | None
+    how_digest: str | None
+    how_at: datetime | None
+    how_error_kind: str | None
+
+    _times = frozenset({"created_at", "closed_at", "how_at"})
+    _flags = frozenset({"pinned", "edited"})
+    _json = frozenset({"source"})

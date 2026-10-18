@@ -21,11 +21,15 @@ from enum import StrEnum
 from typing import Any, Final
 
 from fylgja.store.rows import (
+    ActivityIntervalRow,
     ActivityRow,
     DaySessionRow,
     FocusRow,
     HealthRow,
     ImportedTodoRow,
+    JournalEntryRow,
+    JournalItemRow,
+    JournalThreadRow,
     ProjectRow,
     SessionRow,
     SpanRow,
@@ -56,16 +60,25 @@ __all__ = [
     "delete_expired",
     "end_missing_sessions",
     "ensure_session",
+    "entries_between",
+    "get_journal_item",
+    "get_journal_thread",
     "get_session",
     "get_todo",
     "get_workspace",
     "drop_open_span",
     "insert_event",
+    "insert_journal_entry",
     "insert_open_span",
     "insert_suggestions",
     "insert_todo",
     "last_observed_at",
     "latest_focus",
+    "linked_journal_items",
+    "list_journal_entries",
+    "list_journal_items",
+    "list_journal_threads",
+    "load_activity_between",
     "list_import_todos",
     "list_todos",
     "load_active_todos",
@@ -87,6 +100,8 @@ __all__ = [
     "optimize",
     "put_activity",
     "put_health",
+    "put_journal_item",
+    "put_journal_thread",
     "put_summaries",
     "put_usage",
     "rate_suggestion",
@@ -94,6 +109,7 @@ __all__ = [
     "set_activity_readings",
     "set_manual_label",
     "soft_delete_todo",
+    "todos_between",
     "unfocus_other_workspaces",
     "update_imported_todo",
     "update_session_from_activity",
@@ -1686,3 +1702,215 @@ def put_summaries(connection: sqlite3.Connection, rows: Sequence[Mapping[str, An
 def load_summaries(connection: sqlite3.Connection) -> list[SummaryRow]:
     """Every stored summary row, grouped by scope."""
     return [SummaryRow.from_db(row) for row in connection.execute(SELECT_SUMMARIES)]
+
+
+# --------------------------------------------------------------------------------------------
+# journal (docs/decisions/0057)
+# --------------------------------------------------------------------------------------------
+
+_JOURNAL_THREAD_COLUMNS: Final = (
+    "thread_id, repo_root, branch, name, first_at, last_at, watermark, where_text, where_at, "
+    "last_attempt_at, error_kind, error_at"
+)
+
+PUT_JOURNAL_THREAD: Final = """
+INSERT INTO journal_threads (thread_id, repo_root, branch, name, first_at, last_at, watermark,
+                             where_text, where_at, last_attempt_at, error_kind, error_at)
+VALUES (:thread_id, :repo_root, :branch, :name, :first_at, :last_at, :watermark, :where_text,
+        :where_at, :last_attempt_at, :error_kind, :error_at)
+ON CONFLICT (thread_id) DO UPDATE SET
+    name = excluded.name,
+    last_at = excluded.last_at,
+    watermark = excluded.watermark,
+    where_text = excluded.where_text,
+    where_at = excluded.where_at,
+    last_attempt_at = excluded.last_attempt_at,
+    error_kind = excluded.error_kind,
+    error_at = excluded.error_at
+"""
+
+SELECT_JOURNAL_THREAD: Final = (
+    f"SELECT {_JOURNAL_THREAD_COLUMNS} FROM journal_threads WHERE thread_id = ?"
+)
+
+SELECT_JOURNAL_THREADS: Final = (
+    f"SELECT {_JOURNAL_THREAD_COLUMNS} FROM journal_threads "
+    "WHERE last_at IS NOT NULL AND last_at >= ? ORDER BY last_at DESC, thread_id"
+)
+
+_JOURNAL_ENTRY_COLUMNS: Final = (
+    "id, thread_id, started_at, ended_at, trigger, headline, did, sources, input_digest, model, "
+    "generated_at"
+)
+
+INSERT_JOURNAL_ENTRY: Final = """
+INSERT INTO journal_entries (thread_id, started_at, ended_at, trigger, headline, did, sources,
+                             input_digest, model, generated_at)
+VALUES (:thread_id, :started_at, :ended_at, :trigger, :headline, :did, :sources, :input_digest,
+        :model, :generated_at)
+"""
+
+SELECT_JOURNAL_ENTRIES: Final = (
+    f"SELECT {_JOURNAL_ENTRY_COLUMNS} FROM journal_entries WHERE thread_id = ? "
+    "ORDER BY ended_at DESC, id DESC LIMIT ?"
+)
+
+SELECT_JOURNAL_ENTRIES_BETWEEN: Final = (
+    f"SELECT {_JOURNAL_ENTRY_COLUMNS} FROM journal_entries "
+    "WHERE thread_id = :thread_id AND ended_at >= :since AND ended_at < :until "
+    "ORDER BY ended_at DESC, id DESC"
+)
+
+_JOURNAL_ITEM_COLUMNS: Final = (
+    "id, thread_id, seq, kind, text, status, pinned, edited, source, created_at, created_entry, "
+    "closed_at, closed_by, closed_entry, todo_id, how_text, how_digest, how_at, how_error_kind"
+)
+
+PUT_JOURNAL_ITEM: Final = """
+INSERT INTO journal_items (id, thread_id, seq, kind, text, status, pinned, edited, source,
+                           created_at, created_entry, closed_at, closed_by, closed_entry, todo_id,
+                           how_text, how_digest, how_at, how_error_kind)
+VALUES (:id, :thread_id, :seq, :kind, :text, :status, :pinned, :edited, :source, :created_at,
+        :created_entry, :closed_at, :closed_by, :closed_entry, :todo_id, :how_text, :how_digest,
+        :how_at, :how_error_kind)
+ON CONFLICT (id) DO UPDATE SET
+    text = excluded.text,
+    status = excluded.status,
+    pinned = excluded.pinned,
+    edited = excluded.edited,
+    closed_at = excluded.closed_at,
+    closed_by = excluded.closed_by,
+    closed_entry = excluded.closed_entry,
+    todo_id = excluded.todo_id,
+    how_text = excluded.how_text,
+    how_digest = excluded.how_digest,
+    how_at = excluded.how_at,
+    how_error_kind = excluded.how_error_kind
+"""
+
+SELECT_JOURNAL_ITEM: Final = f"SELECT {_JOURNAL_ITEM_COLUMNS} FROM journal_items WHERE id = ?"
+
+SELECT_LINKED_JOURNAL_ITEMS: Final = (
+    f"SELECT {_JOURNAL_ITEM_COLUMNS} FROM journal_items WHERE todo_id IS NOT NULL "
+    "ORDER BY thread_id, seq"
+)
+
+LOAD_ACTIVITY_BETWEEN: Final = """
+SELECT a.session_key, s.kind, s.title, s.parent_key, a.valid_from, a.state, a.last_prompt,
+       a.last_reply, a.one_liner, a.open_task, a.stage
+FROM session_snapshots a
+JOIN sessions s ON s.session_key = a.session_key
+WHERE s.project_path = :project_path AND a.valid_from > :since AND a.valid_from <= :until
+ORDER BY a.valid_from, a.id
+"""
+
+TODOS_BETWEEN: Final = (
+    f"SELECT {_TODO_COLUMNS} FROM todos WHERE deleted_at IS NULL "
+    "AND scope_kind = 'project' AND scope_ref = :scope_ref "
+    "AND ((created_at > :since AND created_at <= :until) "
+    "OR (done_at IS NOT NULL AND done_at > :since AND done_at <= :until)) "
+    "AND id NOT IN (SELECT todo_id FROM journal_items WHERE todo_id IS NOT NULL) "
+    "ORDER BY created_at, rowid"
+)
+
+
+def put_journal_thread(connection: sqlite3.Connection, row: Mapping[str, Any]) -> JournalThreadRow:
+    """Insert a thread, or update everything but its identity and ``first_at``."""
+    connection.execute(PUT_JOURNAL_THREAD, row)
+    stored = get_journal_thread(connection, row["thread_id"])
+    if stored is None:  # pragma: no cover - the upsert above just wrote it
+        raise RuntimeError("journal thread vanished after upsert")
+    return stored
+
+
+def get_journal_thread(connection: sqlite3.Connection, thread_id: str) -> JournalThreadRow | None:
+    return _row(
+        JournalThreadRow, connection.execute(SELECT_JOURNAL_THREAD, (thread_id,)).fetchone()
+    )
+
+
+def list_journal_threads(connection: sqlite3.Connection, *, since: str) -> list[JournalThreadRow]:
+    """Threads whose latest entry ended at or after ``since``, newest first."""
+    found = connection.execute(SELECT_JOURNAL_THREADS, (since,))
+    return [JournalThreadRow.from_db(row) for row in found]
+
+
+def insert_journal_entry(connection: sqlite3.Connection, row: Mapping[str, Any]) -> int:
+    """Insert an entry and return its id. ``did`` and ``sources`` are JSON text."""
+    cursor = connection.execute(INSERT_JOURNAL_ENTRY, row)
+    if cursor.lastrowid is None:  # pragma: no cover - an INSERT always sets it
+        raise RuntimeError("journal entry has no row id")
+    return cursor.lastrowid
+
+
+def list_journal_entries(
+    connection: sqlite3.Connection, thread_id: str, *, limit: int
+) -> list[JournalEntryRow]:
+    """The newest ``limit`` entries of the thread, newest first."""
+    found = connection.execute(SELECT_JOURNAL_ENTRIES, (thread_id, limit))
+    return [JournalEntryRow.from_db(row) for row in found]
+
+
+def entries_between(
+    connection: sqlite3.Connection, thread_id: str, since: str, until: str
+) -> list[JournalEntryRow]:
+    """The entries of the thread that ended in ``[since, until)``, newest first."""
+    found = connection.execute(
+        SELECT_JOURNAL_ENTRIES_BETWEEN, {"thread_id": thread_id, "since": since, "until": until}
+    )
+    return [JournalEntryRow.from_db(row) for row in found]
+
+
+def put_journal_item(connection: sqlite3.Connection, row: Mapping[str, Any]) -> JournalItemRow:
+    """Insert an item, or update its mutable columns. An existing item keeps its ``thread_id``,
+    ``seq``, ``kind``, ``source``, ``created_at`` and ``created_entry``."""
+    connection.execute(PUT_JOURNAL_ITEM, row)
+    stored = get_journal_item(connection, row["id"])
+    if stored is None:  # pragma: no cover - the upsert above just wrote it
+        raise RuntimeError("journal item vanished after upsert")
+    return stored
+
+
+def list_journal_items(
+    connection: sqlite3.Connection, thread_id: str, *, statuses: Collection[str] = ()
+) -> list[JournalItemRow]:
+    """The thread's items in ``seq`` order, optionally of some statuses only."""
+    sql = f"SELECT {_JOURNAL_ITEM_COLUMNS} FROM journal_items WHERE thread_id = ?"
+    params: list[str] = [thread_id]
+    if statuses:
+        ordered = sorted(statuses)
+        sql += f" AND status IN ({', '.join('?' for _ in ordered)})"
+        params.extend(ordered)
+    sql += " ORDER BY seq"
+    return [JournalItemRow.from_db(row) for row in connection.execute(sql, params)]
+
+
+def get_journal_item(connection: sqlite3.Connection, item_id: str) -> JournalItemRow | None:
+    return _row(JournalItemRow, connection.execute(SELECT_JOURNAL_ITEM, (item_id,)).fetchone())
+
+
+def linked_journal_items(connection: sqlite3.Connection) -> list[JournalItemRow]:
+    """Every item that names a todo, of any status."""
+    return [JournalItemRow.from_db(row) for row in connection.execute(SELECT_LINKED_JOURNAL_ITEMS)]
+
+
+def load_activity_between(
+    connection: sqlite3.Connection, *, project_path: str, since: str, until: str
+) -> list[ActivityIntervalRow]:
+    """The activity intervals of the sessions of one checkout that opened in ``(since, until]``,
+    oldest first."""
+    found = connection.execute(
+        LOAD_ACTIVITY_BETWEEN, {"project_path": project_path, "since": since, "until": until}
+    )
+    return [ActivityIntervalRow.from_db(row) for row in found]
+
+
+def todos_between(
+    connection: sqlite3.Connection, *, scope_ref: str, since: str, until: str
+) -> list[TodoRow]:
+    """The project-scoped todos of ``scope_ref`` (not deleted, not linked from a journal item)
+    created or finished in ``(since, until]``, oldest first."""
+    found = connection.execute(
+        TODOS_BETWEEN, {"scope_ref": scope_ref, "since": since, "until": until}
+    )
+    return [TodoRow.from_db(row) for row in found]

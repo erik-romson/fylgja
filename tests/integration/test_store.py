@@ -321,6 +321,54 @@ EXPECTED_COLUMNS = {
         "bytes",
         "error_kind",
     },
+    "journal_threads": {
+        "thread_id",
+        "repo_root",
+        "branch",
+        "name",
+        "first_at",
+        "last_at",
+        "watermark",
+        "where_text",
+        "where_at",
+        "last_attempt_at",
+        "error_kind",
+        "error_at",
+    },
+    "journal_entries": {
+        "id",
+        "thread_id",
+        "started_at",
+        "ended_at",
+        "trigger",
+        "headline",
+        "did",
+        "sources",
+        "input_digest",
+        "model",
+        "generated_at",
+    },
+    "journal_items": {
+        "id",
+        "thread_id",
+        "seq",
+        "kind",
+        "text",
+        "status",
+        "pinned",
+        "edited",
+        "source",
+        "created_at",
+        "created_entry",
+        "closed_at",
+        "closed_by",
+        "closed_entry",
+        "todo_id",
+        "how_text",
+        "how_digest",
+        "how_at",
+        "how_error_kind",
+    },
     "summaries": {
         "scope_kind",
         "scope_ref",
@@ -343,7 +391,7 @@ def test_migration_from_empty_creates_every_table(db_path: Path) -> None:
     assert not db_path.exists()
     connection = db.open_store(db_path)
     try:
-        assert db.schema_version(connection) == len(db.load_migrations()) == 2
+        assert db.schema_version(connection) == len(db.load_migrations()) == 3
         tables = {
             row[0]
             for row in connection.execute(
@@ -447,7 +495,7 @@ def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
         with pytest.raises(sqlite3.IntegrityError):  # version 1 knows no folder scope
             connection.execute(_SUMMARY_ROW, folder)
 
-        assert db.migrate(connection) == 2
+        assert db.migrate(connection, db.load_migrations()[:2]) == 2
         assert db.schema_version(connection) == 2
         assert _summaries(connection) == kept
         connection.execute(_SUMMARY_ROW, folder)
@@ -468,7 +516,7 @@ def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
 
     again = db.open_store(db_path)  # a rerun on the migrated file is a no-op
     try:
-        assert db.schema_version(again) == 2
+        assert db.schema_version(again) == 3
         assert [row[0] for row in _summaries(again)] == [7, 8, 9, 12, 20]
         stored = queries.load_summaries(again)
         assert [
@@ -476,6 +524,33 @@ def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
         ] == [("folder", "0123456789abcdef", "a folder")]
     finally:
         again.close()
+
+
+def test_migration_0003_adds_the_journal(db_path: Path) -> None:
+    """0003 adds the three journal tables and leaves a version 2 database's rows intact."""
+    connection = db.connect_writer(db_path)
+    try:
+        assert db.migrate(connection, db.load_migrations()[:2]) == 2
+        noon = "2026-10-05T12:00:00.000000Z"
+        kept = [(7, "session", "claude:x", "arc", "an arc", "d" * 64, "haiku", noon, None)]
+        connection.executemany(_SUMMARY_ROW, kept)
+
+        assert db.migrate(connection) == 3
+        assert db.schema_version(connection) == 3
+        assert _summaries(connection) == kept
+        objects = {
+            (row[0], row[1]) for row in connection.execute("SELECT type, name FROM sqlite_master")
+        }
+        for table in ("journal_threads", "journal_entries", "journal_items"):
+            assert ("table", table) in objects
+            assert _columns(connection, table) == EXPECTED_COLUMNS[table]
+        assert ("index", "journal_entries_thread") in objects
+        assert ("index", "journal_items_thread") in objects
+        assert ("index", "journal_items_todo") in objects
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()
 
 
 def test_failed_migration_leaves_the_previous_version(db_path: Path) -> None:

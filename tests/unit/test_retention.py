@@ -192,6 +192,38 @@ async def test_one_microsecond_later_the_boundary_rows_go(writer: Writer) -> Non
     assert remaining["todos"] == ["old"]
 
 
+async def test_journal_rows_are_kept_forever(writer: Writer) -> None:
+    old = db.to_db_time(NOW - timedelta(days=400))
+
+    def seed_journal(tx: Tx) -> None:
+        tx.connection.execute(
+            "INSERT INTO journal_threads (thread_id, repo_root, branch, name, first_at, last_at) "
+            "VALUES ('t1', '/w/repo', 'main', 'repo', ?, ?)",
+            (old, old),
+        )
+        tx.connection.execute(
+            "INSERT INTO journal_entries (id, thread_id, started_at, ended_at, trigger, headline, "
+            "did, sources, input_digest, model, generated_at) "
+            "VALUES (1, 't1', ?, ?, 'turn_done', 'h', '[]', '[]', 'd', 'haiku', ?)",
+            (old, old, old),
+        )
+        tx.connection.execute(
+            "INSERT INTO journal_items (id, thread_id, seq, kind, text, source, created_at) "
+            "VALUES ('i1', 't1', 1, 'next', 'x', '{}', ?)",
+            (old,),
+        )
+
+    def counts(tx: Tx) -> list[int]:
+        return [
+            tx.connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for table in ("journal_threads", "journal_entries", "journal_items")
+        ]
+
+    await writer.execute(seed_journal)
+    await writer.execute(lambda tx: apply_retention(tx.connection, NOW, RetentionPolicy()))
+    assert await writer.execute(counts) == [1, 1, 1]
+
+
 async def test_checkpoint_is_skipped_while_busy(writer: Writer) -> None:
     job = MaintenanceJob(writer, clock=FakeClock(NOW), is_idle=lambda: False)
     report = await job.run_once()

@@ -59,6 +59,7 @@ MODULES = [
     "fylgja.core.context_items",
     "fylgja.core.window_folders",
     "fylgja.core.items",
+    "fylgja.core.journal",
     "fylgja.rankers",
     "fylgja.rankers.base",
     "fylgja.rankers.registry",

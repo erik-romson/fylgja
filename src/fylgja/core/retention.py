@@ -7,7 +7,8 @@
 * ``focus_spans`` and the closed change intervals of ``windows_snapshot``, ``session_snapshots``
   and ``usage_snapshots`` that *ended* more than one year (365 days) ago are deleted. Open spans
   and intervals are current state and are never deleted.
-* ``todos`` are kept forever; nothing else is deleted either.
+* ``todos`` are kept forever; nothing else is deleted either. That includes the ``journal_threads``,
+  ``journal_entries`` and ``journal_items`` rows (decision 0057): a model call cannot be repeated.
 * Quarantined hook-inbox files (``hook-inbox/<source>/quarantine/``) whose mtime is more than 7 days
   old are deleted (:func:`prune_quarantine`). They are plain files, so the writer is not involved.
 
