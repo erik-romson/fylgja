@@ -20,7 +20,7 @@ import json
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from functools import cached_property
 from pathlib import PurePosixPath
 from types import MappingProxyType
@@ -63,13 +63,17 @@ __all__ = [
     "Trigger",
     "caps_sentence",
     "done_by_day",
+    "in_window",
     "item_seq_id",
     "journal_prompt",
+    "log_argv",
     "mark_shown",
     "merge",
     "normalized_text",
     "order_open",
+    "parse_log",
     "parse_reply",
+    "show_argv",
     "thread_id",
     "thread_key",
 ]
@@ -1235,3 +1239,73 @@ def done_by_day[C: _Closed](
         if headlines or done:
             days.append(DoneDay(day, _RELATIVE.get(back), headlines[:HEADLINES_PER_DAY], done))
     return days
+
+
+# --------------------------------------------------------------------------------------------
+# Commit subjects from git (J8 section 3, D3)
+# --------------------------------------------------------------------------------------------
+
+LOG_LIMIT: Final = 50
+"""Commits ``git log`` prints at most; the prompt keeps :data:`MAX_COMMITS` of them."""
+_COMMIT_HASH: Final = re.compile(r"[0-9a-f]{40}")
+
+
+def log_argv(git: str, root: str, branch: str, since: datetime) -> list[str]:
+    """The ``git log`` command for the commits of ``branch`` since ``since``.
+
+    ``--since`` takes whole epoch seconds, is inclusive and has no upper bound, so it is only a
+    coarse prefilter: :func:`in_window` enforces the window.
+    """
+    return [
+        git,
+        "--no-optional-locks",
+        "-C",
+        root,
+        "log",
+        "--no-merges",
+        "--format=%H%x00%ct%x00%s",
+        f"--since=@{int(since.timestamp())}",
+        "-n",
+        str(LOG_LIMIT),
+        f"refs/heads/{branch}",
+        "--",
+    ]
+
+
+def parse_log(stdout: str, redact: Callable[[str], str]) -> list[CommitPart]:
+    """The commits :func:`log_argv` printed. The text is split on ``"\n"`` only, so a subject
+    holding another line separator stays whole. A line that is not ``hash NUL time NUL subject``
+    with a 40-hex hash and an integer time is skipped."""
+    commits: list[CommitPart] = []
+    for line in stdout.split("\n"):
+        parts = line.split("\x00")
+        if len(parts) != 3 or not _COMMIT_HASH.fullmatch(parts[0]):
+            continue
+        try:
+            committed_at = datetime.fromtimestamp(int(parts[1]), UTC)
+        except (ValueError, OverflowError, OSError):
+            continue
+        subject = _cut(redact(_collapse(parts[2])), SHORT_MAX_CHARS)
+        commits.append(CommitPart(parts[0], subject, committed_at))
+    return commits
+
+
+def in_window(commits: Iterable[CommitPart], since: datetime, as_of: datetime) -> list[CommitPart]:
+    """The commits with ``since < committed_at <= as_of`` (J8 section 3), so a commit lands in at
+    most one window."""
+    return [commit for commit in commits if since < commit.committed_at <= as_of]
+
+
+def show_argv(git: str, root: str, commit_hash: str) -> list[str]:
+    """The ``git show`` command for the excerpt of a commit source (J20)."""
+    return [
+        git,
+        "--no-optional-locks",
+        "-C",
+        root,
+        "show",
+        "--stat",
+        "--format=%s%n%n%b",
+        commit_hash,
+        "--",
+    ]

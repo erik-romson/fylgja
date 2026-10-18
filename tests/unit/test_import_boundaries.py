@@ -60,6 +60,7 @@ MODULES = [
     "fylgja.core.window_folders",
     "fylgja.core.items",
     "fylgja.core.journal",
+    "fylgja.core.journal_service",
     "fylgja.rankers",
     "fylgja.rankers.base",
     "fylgja.rankers.registry",
