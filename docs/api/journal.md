@@ -16,7 +16,7 @@ enabled = true
 The routes below are registered either way. While the journal is off, `GET /journal/threads` answers 200 with
 `enabled: false` and no threads, and every other journal route answers **409**. Stored rows are left as they are.
 
-All four routes here are reads: no authentication, `Host` checked like every route. The answers follow the `/now`
+The reads need no authentication; every route is `Host` checked. The four writes (the person's actions) are mutating routes behind the usual guards: bearer secret, `Origin`, `Content-Type` and body size. The answers follow the `/now`
 serialization rule: **a field without a value is absent, never `null`**. Lists are always present. The models are in
 `src/fylgja/api/journal_models.py` and are not reachable from `/now`, which is unchanged.
 
@@ -87,6 +87,68 @@ Both answer a `JournalThread`, with `entries` at the default of 20.
 | 404 | `nothing is focused`; or `no journal for this checkout`: no git checkout, a detached HEAD, or no branch seen yet. |
 | 409 | The journal is off. |
 | 422 | `path` is not absolute. |
+
+## `PATCH /journal/items/{id}`
+
+Body `{status?, pinned?, text?}`: `status` is `open`, `done` or `dropped`; `pinned` is a bool; `text` is cleaned
+(whitespace collapsed, redacted) and must then be 1–200 characters. At least one field is required, and an explicit
+`null` is **422**.
+
+- `done` or `dropped` sets `closed_at` to now and `closed_by` to `user`.
+- `open` on a closed item clears `closed_at` and `closed_by`, and marks the item edited.
+- A new `text` marks the item edited. An edited or pinned item is never closed by the model.
+- A change that changes nothing answers 200 and writes nothing.
+
+| Status | When |
+|---|---|
+| 200 | The `JournalItem` after the change. |
+| 404 | No item has this id. |
+| 409 | The journal is off. |
+| 422 | A bad body: no field, a `null`, an unknown field or status, or a `text` of the wrong length. |
+
+A write publishes `journal.changed`. The action does not make the thread dirty, so it starts no entry.
+
+## `POST /journal/threads/{id}/items`
+
+Body `{kind, text}`: `kind` is `next`, `remember` or `blocked`; `text` follows the rule above. It adds an open, edited
+item with source `{kind: "person", ref: <thread id>, label: "you"}`.
+
+| Status | When |
+|---|---|
+| 201 | The `JournalItem`. |
+| 404 | The thread has no row. |
+| 409 | The journal is off. |
+| 422 | A bad body, an unknown `kind`, or a `text` of the wrong length. |
+
+## `POST /journal/items/{id}/todo`
+
+Body `{}`. Makes a Fylgja todo from the item's text, scoped `project` to the thread's checkout, and links it
+(`todo_id`). The linked todo is not journal input.
+
+| Status | When |
+|---|---|
+| 201 | The new `Todo` (the model `POST /todos` answers with). |
+| 200 | The item already has a todo that exists: the same `Todo`. |
+| 404 | No item has this id. |
+| 409 | The journal is off. |
+
+When the todo is **done**, an open item becomes `done` with `closed_by: user` and `closed_at` set to the todo's
+`done_at`. When it is **deleted**, the item's `todo_id` is cleared and the item stays as it is. Reopening the todo
+changes nothing. Both are also checked once at daemon start. Each change publishes `journal.changed`.
+
+## `POST /journal/threads/{id}/refresh`
+
+Body `{}`. Asks for an entry now, with trigger `manual`. A manual attempt ignores the minimum interval between entries
+and the wait after a failure.
+
+| Status | Answer |
+|---|---|
+| 202 | `{thread, state: "pending"}`: an attempt was started, or one already runs for the thread (joined, so no second call). The finished attempt publishes `journal.changed`. |
+| 200 | `{thread, state: "nothing_new"}`: the window since the last entry holds nothing, so no call is made. |
+| 404 | The id is neither a thread with a row nor the current thread of a known checkout. |
+| 409 | The journal is off. |
+
+The answer comes once the attempt knows whether there is something new, which can take as long as a free model slot.
 
 ## The `journal` field of `/items`
 

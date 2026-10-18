@@ -11,6 +11,11 @@ It holds
   :class:`~fylgja.core.summaries.ModelGate`, and writes the entry, the ledger merge and the thread
   row in one writer job. Its listeners are told the thread id after every write.
 
+The person's actions (:meth:`JournalService.patch_item`, :meth:`~JournalService.add_item`,
+:meth:`~JournalService.make_todo`, :meth:`~JournalService.refresh`; J18, J19) write through the
+writer and tell the listeners, and never dirty a thread. A todo made from an item is registered as
+linked before it is written, so its changes are never journal input (J2).
+
 The tracker does no I/O and reads only the rows it is given; :func:`~fylgja.core.journal.due`
 says which thread gets an attempt and when to look again. No log line carries a prompt, a reply,
 a headline, an item text, a label, a name, a branch or a path (J14).
@@ -22,7 +27,8 @@ import asyncio
 import contextlib
 import json
 import logging
-from collections.abc import Callable, Container, Iterable, Mapping, Sequence
+import sqlite3
+from collections.abc import Callable, Container, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from types import MappingProxyType
@@ -50,8 +56,10 @@ from fylgja.core.journal import (
     due,
     highest_trigger,
     in_window,
+    item_seq_id,
     journal_prompt,
     log_argv,
+    mark_shown,
     merge,
     order_open,
     parse_log,
@@ -68,6 +76,7 @@ from fylgja.core.span_window import SpanWindow
 from fylgja.core.spans import Action, Closed, Opened
 from fylgja.core.summaries import MODEL, ModelGate
 from fylgja.core.todo_import import SCOPE_PROJECT
+from fylgja.core.todos import TodoNotFound, TodoService, new_todo_id
 from fylgja.core.writer import Tx, Writer, WriterClosed
 from fylgja.privacy import PrivacyFilter
 from fylgja.store import db, queries
@@ -87,11 +96,17 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GIT_TIMEOUT",
+    "ITEM_TEXT_MAX",
+    "InvalidItemText",
+    "ItemNotFound",
+    "ItemResult",
+    "JournalError",
     "JournalService",
     "JournalTracker",
     "LiveRows",
     "ThreadBrief",
     "ThreadIdentity",
+    "ThreadNotFound",
     "ThreadRead",
     "item_values",
     "read_commits",
@@ -101,6 +116,9 @@ log = logging.getLogger("fylgja.journal")
 
 GIT_TIMEOUT = 5.0
 """Seconds ``git log`` may take."""
+
+ITEM_TEXT_MAX: Final = 200
+"""The longest text the person may give an item (J18)."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -612,6 +630,42 @@ DONE_READ_DAYS: Final = 8
 for the zone."""
 
 
+class JournalError(Exception):
+    """A person's action the journal refuses; the routes map each subclass to a status."""
+
+
+class ItemNotFound(JournalError):
+    """No journal item has this id."""
+
+
+class ThreadNotFound(JournalError):
+    """No journal thread has this id (it has no row and is not a known checkout's current one)."""
+
+
+class InvalidItemText(JournalError):
+    """An item text that is empty or longer than :data:`ITEM_TEXT_MAX` after cleaning."""
+
+
+@dataclass(frozen=True)
+class ItemResult:
+    """An item after a person's action (J18)."""
+
+    item: JournalItemRow
+    shown: bool
+    """Among the first three open items of its kind."""
+    changed: bool
+    """The action wrote something (and told the listeners)."""
+
+
+@dataclass(frozen=True)
+class _Acted:
+    """What an action's writer job returns."""
+
+    item: JournalItemRow
+    open_items: tuple[JournalItemRow, ...]
+    changed: bool
+
+
 @dataclass(frozen=True)
 class _Capture:
     """What one attempt took at its capture (J5): the instant, the trigger raised to the highest
@@ -662,6 +716,7 @@ class JournalService:
         settings: JournalConfig,
         *,
         gate: ModelGate,
+        todos: TodoService,
         clock: Clock,
         view: LiveView,
         state: Callable[[], StateView],
@@ -674,6 +729,7 @@ class JournalService:
         self._writer = writer
         self._settings = settings
         self._gate = gate
+        self._todos = todos
         self._clock = clock
         self._view = view
         self._state = state
@@ -689,6 +745,11 @@ class JournalService:
         self._linked: set[str] = set()
         """The todos linked from journal items: their changes are never input (J2)."""
         self._attempts: dict[str, asyncio.Task[None]] = {}
+        self._decisions: dict[str, asyncio.Future[str]] = {}
+        """Per attempt started by a refresh: resolved once the attempt knows whether its window
+        holds something new (J18)."""
+        self._todo_lock = asyncio.Lock()
+        self._background: set[asyncio.Task[None]] = set()
         self._listeners: list[Listener] = []
         self._wake = asyncio.Event()
         self._loop: asyncio.Task[Any] | None = None
@@ -784,6 +845,7 @@ class JournalService:
     async def load(self) -> None:
         """Read the thread rows, the open items and the linked todos, and seed the tracker from
         the live view with the bootstrap of J6. Run at start, after the live view is rebuilt."""
+        await self._writer.execute(self._reconcile_all)  # J19 at start
         threads, open_items, linked = await asyncio.to_thread(self._read_index)
         self._threads = {row.thread_id: row for row in threads}
         grouped: dict[str, list[JournalItemRow]] = {}
@@ -813,7 +875,7 @@ class JournalService:
         current = asyncio.current_task()
         tasks = [
             task
-            for task in (self._loop, *self._attempts.values())
+            for task in (self._loop, *self._attempts.values(), *self._background)
             if task is not None and task is not current
         ]
         for task in tasks:
@@ -830,6 +892,14 @@ class JournalService:
     def observe(self, update: LiveUpdate) -> None:
         """Take one live-view update (the writer's callback): the tracker only, then a wake."""
         self.tracker.observe(update, self._view, linked=self._linked)
+        if not self._closed:
+            for change in update.changes:
+                if (
+                    change.collection is Collection.TODOS
+                    and change.row is None
+                    and change.key in self._linked
+                ):
+                    self._spawn(self._todo_gone(change.key))
         self.wake()
 
     def on_span(self, action: Action) -> None:
@@ -885,10 +955,19 @@ class JournalService:
             return None
         return found.next_check
 
-    def _start(self, key: ThreadKey, trigger: Trigger, source: Source) -> None:
+    def _start(
+        self,
+        key: ThreadKey,
+        trigger: Trigger,
+        source: Source,
+        decided: asyncio.Future[str] | None = None,
+    ) -> None:
         """Reserve the thread (J5) and start its attempt task."""
         self.tracker.reserve(key)
-        self._attempts[thread_id(key)] = asyncio.create_task(
+        tid = thread_id(key)
+        if decided is not None:
+            self._decisions[tid] = decided
+        self._attempts[tid] = asyncio.create_task(
             self._attempt(key, trigger, source), name="fylgja-journal-attempt"
         )
 
@@ -901,6 +980,7 @@ class JournalService:
         finally:
             if self._attempts.get(tid) is asyncio.current_task():
                 del self._attempts[tid]
+            self._decide(tid, "pending")  # an attempt that ended before it could say
         if wrote:
             self._notify(tid)
         self.wake()  # input during the attempt may make the thread due again
@@ -915,7 +995,9 @@ class JournalService:
                 if not inputs.has_news:  # J7: no call, no write, the thread stays cleared
                     self.tracker.nothing_new(key)
                     self._log(capture, "nothing_new")
+                    self._decide(capture.id, "nothing_new")
                     return False
+                self._decide(capture.id, "pending")
                 outcome = await self._gate.run(journal_prompt(inputs))
             reply: Reply | None = None
             kind = outcome.error_kind
@@ -1039,6 +1121,230 @@ class JournalService:
             return capture.row.name
         project = capture.view.live.projects.get(capture.key.repo_root)
         return project_name(capture.key.repo_root) if project is None else thread_name(project)
+
+    def _decide(self, tid: str, state: str) -> None:
+        """Tell the refresh that started this attempt what it found (the first word counts)."""
+        decided = self._decisions.pop(tid, None)
+        if decided is not None and not decided.done():
+            decided.set_result(state)
+
+    # -- the person's actions (J18, J19) --------------------------------------------------------
+
+    def _spawn(self, work: Coroutine[Any, Any, None]) -> None:
+        task = asyncio.create_task(work, name="fylgja-journal-todo")
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    def _result(self, acted: _Acted) -> ItemResult:
+        tid = acted.item.thread_id
+        if acted.changed:
+            self._open[tid] = acted.open_items
+            self._notify(tid)
+        return ItemResult(acted.item, self.shown(acted.item), acted.changed)
+
+    def shown(self, item: JournalItemRow) -> bool:
+        """Whether ``item`` is among the first three open items of its kind (J16)."""
+        if item.status != "open":
+            return False
+        for row, shown in mark_shown(self._open.get(item.thread_id, ())):
+            if row.id == item.id:
+                return shown
+        return False
+
+    def clean_text(self, text: str) -> str:
+        """An item text as the person gave it: whitespace collapsed, redacted, 1–200 characters."""
+        cleaned = self._privacy.redact(" ".join(text.split()))
+        if not 1 <= len(cleaned) <= ITEM_TEXT_MAX:
+            raise InvalidItemText
+        return cleaned
+
+    async def patch_item(
+        self,
+        item_id: str,
+        *,
+        status: str | None = None,
+        pinned: bool | None = None,
+        text: str | None = None,
+    ) -> ItemResult:
+        """Change an item's status, pin or text (J18). A change that changes nothing writes
+        nothing and tells nobody. Nothing here dirties the thread (J2)."""
+        cleaned = None if text is None else self.clean_text(text)
+        now = self._clock.now()
+
+        def job(tx: Tx) -> _Acted:
+            connection = tx.connection
+            current = queries.get_journal_item(connection, item_id)
+            if current is None:
+                raise ItemNotFound(item_id)
+            row = current
+            if status is not None and status != row.status:
+                if status == "open":
+                    row = replace(
+                        row,
+                        status="open",
+                        edited=True,
+                        closed_at=None,
+                        closed_by=None,
+                        closed_entry=None,
+                    )
+                else:
+                    row = replace(
+                        row, status=status, closed_at=now, closed_by="user", closed_entry=None
+                    )
+            if pinned is not None and pinned != row.pinned:
+                row = replace(row, pinned=pinned)
+            if cleaned is not None and cleaned != row.text:
+                row = replace(row, text=cleaned, edited=True)
+            return self._store_item(connection, current, row)
+
+        return self._result(await self._writer.execute(job))
+
+    async def add_item(self, thread: str, kind: str, text: str) -> ItemResult:
+        """The person adds an open item to a thread that has a row (J18)."""
+        cleaned = self.clean_text(text)
+        if thread not in self._threads:
+            raise ThreadNotFound(thread)
+        now = self._clock.now()
+        source = Source("person", thread, "you").to_json()
+
+        def job(tx: Tx) -> _Acted:
+            connection = tx.connection
+            seq = max(
+                (row.seq for row in queries.list_journal_items(connection, thread)), default=0
+            )
+            row = JournalItemRow(
+                id=item_seq_id(thread, seq + 1),
+                thread_id=thread,
+                seq=seq + 1,
+                kind=kind,
+                text=cleaned,
+                status="open",
+                pinned=False,
+                edited=True,
+                source=dict(source),
+                created_at=now,
+                created_entry=None,
+                closed_at=None,
+                closed_by=None,
+                closed_entry=None,
+                todo_id=None,
+                how_text=None,
+                how_digest=None,
+                how_at=None,
+                how_error_kind=None,
+            )
+            return self._store_item(connection, None, row)
+
+        return self._result(await self._writer.execute(job))
+
+    @staticmethod
+    def _store_item(
+        connection: sqlite3.Connection, current: JournalItemRow | None, row: JournalItemRow
+    ) -> _Acted:
+        """Write ``row`` when it differs from ``current`` and read the thread's open items back."""
+        if current is not None and row == current:
+            return _Acted(current, (), False)
+        stored = queries.put_journal_item(connection, item_values(row))
+        open_items = queries.list_journal_items(connection, row.thread_id, statuses=_OPEN)
+        return _Acted(stored, tuple(open_items), True)
+
+    async def make_todo(self, item_id: str) -> tuple[TodoRow, bool]:
+        """The Fylgja todo of an item, made now if the item has none (J19); the flag says it was
+        made. The todo is scoped ``project`` to the thread's checkout."""
+        async with self._todo_lock:
+            item = await asyncio.to_thread(self._read_item, item_id)
+            if item is None:
+                raise ItemNotFound(item_id)
+            if item.todo_id is not None:
+                try:
+                    return await self._todos.get(item.todo_id), False
+                except TodoNotFound:
+                    pass  # a deleted todo is unlinked when its removal is seen; make a new one
+            row = self._threads.get(item.thread_id)
+            if row is None:  # pragma: no cover - an item exists only with its thread row
+                raise ItemNotFound(item_id)
+            todo_id = new_todo_id()
+            self._linked.add(todo_id)  # before the write, so its change is never input (J2)
+            try:
+                todo = await self._todos.add(
+                    item.text, scope_kind=SCOPE_PROJECT, scope_ref=row.repo_root, todo_id=todo_id
+                )
+            except BaseException:
+                self._linked.discard(todo_id)
+                raise
+
+            def job(tx: Tx) -> _Acted:
+                current = queries.get_journal_item(tx.connection, item_id)
+                if current is None:  # pragma: no cover - items are never deleted
+                    raise ItemNotFound(item_id)
+                return self._store_item(tx.connection, current, replace(current, todo_id=todo_id))
+
+            self._result(await self._writer.execute(job))
+            return todo, True
+
+    def _read_item(self, item_id: str) -> JournalItemRow | None:
+        connection = db.connect_reader(self._writer.database)
+        try:
+            return queries.get_journal_item(connection, item_id)
+        finally:
+            connection.close()
+
+    async def _todo_gone(self, todo_id: str) -> None:
+        """A linked todo left the live view: it is done or deleted (fact 14). The writer job reads
+        the todo itself, so the two cannot be told apart wrongly (J19)."""
+        try:
+            changed = await self._writer.execute(lambda tx: self._reconcile(tx, todo_id))
+        except WriterClosed:
+            return
+        except Exception as error:
+            self._failed_once("reconciling a linked todo", error)
+            return
+        for acted in changed:
+            if acted.item.todo_id is None:
+                self._linked.discard(todo_id)
+            self._result(acted)
+
+    def _reconcile_all(self, tx: Tx) -> None:
+        self._reconcile(tx, None)
+
+    def _reconcile(self, tx: Tx, only: str | None) -> list[_Acted]:
+        """J19 for the items linked to ``only``, or to any todo: a done todo closes an open item
+        (``closed_by = user`` at the todo's ``done_at``), a deleted one unlinks its item."""
+        connection = tx.connection
+        found: list[_Acted] = []
+        for item in queries.linked_journal_items(connection):
+            if item.todo_id is None or (only is not None and item.todo_id != only):
+                continue
+            todo = queries.get_todo(connection, item.todo_id)
+            row = item
+            if todo is None:
+                row = replace(item, todo_id=None)
+            elif todo.status == "done" and item.status == "open":
+                row = replace(
+                    item,
+                    status="done",
+                    closed_by="user",
+                    closed_at=todo.done_at or self._clock.now(),
+                    closed_entry=None,
+                )
+            if row != item:
+                found.append(self._store_item(connection, item, row))
+        return found
+
+    async def refresh(self, tid: str) -> str:
+        """Start a manual attempt for the thread, or join the one that runs (J18).
+
+        Returns ``"pending"`` when an attempt runs (joined, or started and found something new)
+        and ``"nothing_new"`` when the window holds nothing (J7). A manual attempt ignores the
+        minimum interval and the failure wait. Raises :class:`ThreadNotFound` for an unknown id."""
+        if tid in self._attempts:
+            return "pending"
+        found = self.identity(tid)
+        if found is None:
+            raise ThreadNotFound(tid)
+        decided: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        self._start(found.key, "manual", thread_source(found.key, found.name), decided)
+        return await decided
 
     # -- the write (J13) ----------------------------------------------------------------------
 

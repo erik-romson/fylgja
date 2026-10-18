@@ -15,6 +15,19 @@ one thread's entries and its "Done lately", from the store.
   **422**). **404** when nothing is focused or the checkout has no thread (not a git checkout, a
   detached HEAD, no branch seen yet).
 
+The person's actions are mutating routes, behind the mutation guard (bearer, Origin, JSON, body
+limit):
+
+* ``PATCH /journal/items/{id}`` with ``{status?: open|done|dropped, pinned?: bool, text?: str}``, at
+  least one; an explicit ``null`` or an empty or overlong ``text`` is **422**. Answers **200** with
+  the item; a change that changes nothing writes nothing and publishes nothing.
+* ``POST /journal/threads/{id}/items`` with ``{kind, text}`` adds an open item: **201**. The thread
+  must have a row, else **404**.
+* ``POST /journal/items/{id}/todo`` makes (or returns) the Fylgja todo of the item: **201** when it
+  was made, **200** when the item already had one.
+* ``POST /journal/threads/{id}/refresh`` starts a manual attempt (**202** ``pending``), joins the
+  one that runs (**202**) or finds nothing new (**200** ``nothing_new``).
+
 Every journal route but the list answers **409** while ``[journal] enabled`` is false.
 """
 
@@ -22,16 +35,27 @@ from __future__ import annotations
 
 import re
 from datetime import timedelta
-from typing import Final
+from typing import Final, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from fylgja.api.deps import daemon_of, json_response, not_found
-from fylgja.api.journal_answers import build_thread, build_threads
+from fylgja.api.journal_answers import build_thread, build_threads, item_model
+from fylgja.api.journal_models import JournalRefresh
+from fylgja.api.now import todo_model
 from fylgja.api.now_models import dump_json
 from fylgja.core.daemon import Daemon
-from fylgja.core.journal_service import JournalService, ThreadIdentity, ThreadRead
+from fylgja.core.journal_service import (
+    InvalidItemText,
+    ItemNotFound,
+    ItemResult,
+    JournalService,
+    ThreadIdentity,
+    ThreadNotFound,
+    ThreadRead,
+)
 
 __all__ = ["router"]
 
@@ -135,3 +159,97 @@ async def get_checkout(request: Request, path: str) -> Response:
     if found is None:
         raise no_journal()
     return await _thread(daemon, service, found, DEFAULT_ENTRIES)
+
+
+# -- the person's actions (J18, J19) ----------------------------------------------------------
+
+
+class _Body(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ItemPatch(_Body):
+    """The fields are judged by ``model_fields_set``; none accepts ``null``."""
+
+    status: Literal["open", "done", "dropped"] = "open"
+    pinned: bool = False
+    text: str = ""
+
+
+class NewItem(_Body):
+    kind: Literal["next", "remember", "blocked"]
+    text: str
+
+
+def _parse[B: _Body](model: type[B], raw: bytes) -> B:
+    try:
+        return model.model_validate_json(raw)
+    except ValidationError as error:
+        fields = sorted({str(part) for e in error.errors() for part in e["loc"][:1]})
+        raise _unprocessable(f"invalid body (check: {', '.join(fields) or 'json'})") from None
+
+
+_BAD_TEXT: Final = "the text must be 1 to 200 characters"
+
+
+def _item_response(result: ItemResult, status_code: int = 200) -> Response:
+    return json_response(
+        dump_json(item_model(result.item, shown=result.shown)), status_code=status_code
+    )
+
+
+@router.patch("/journal/items/{item}")
+async def patch_item(request: Request, item: str) -> Response:
+    service = journal_of(daemon_of(request))
+    body = _parse(ItemPatch, await request.body())
+    given = body.model_fields_set
+    if not given:
+        raise _unprocessable("give status, pinned, text or several")
+    try:
+        result = await service.patch_item(
+            item,
+            status=body.status if "status" in given else None,
+            pinned=body.pinned if "pinned" in given else None,
+            text=body.text if "text" in given else None,
+        )
+    except ItemNotFound:
+        raise not_found("journal item") from None
+    except InvalidItemText:
+        raise _unprocessable(_BAD_TEXT) from None
+    return _item_response(result)
+
+
+@router.post("/journal/threads/{thread}/items")
+async def add_item(request: Request, thread: str) -> Response:
+    service = journal_of(daemon_of(request))
+    body = _parse(NewItem, await request.body())
+    try:
+        result = await service.add_item(thread, body.kind, body.text)
+    except ThreadNotFound:
+        raise not_found("journal thread") from None
+    except InvalidItemText:
+        raise _unprocessable(_BAD_TEXT) from None
+    return _item_response(result, 201)
+
+
+@router.post("/journal/items/{item}/todo")
+async def make_todo(request: Request, item: str) -> Response:
+    service = journal_of(daemon_of(request))
+    try:
+        todo, made = await service.make_todo(item)
+    except ItemNotFound:
+        raise not_found("journal item") from None
+    return json_response(dump_json(todo_model(todo)), status_code=201 if made else 200)
+
+
+@router.post("/journal/threads/{thread}/refresh")
+async def refresh_thread(request: Request, thread: str) -> Response:
+    service = journal_of(daemon_of(request))
+    try:
+        if not _ID.fullmatch(thread):
+            raise ThreadNotFound(thread)
+        state = await service.refresh(thread)
+    except ThreadNotFound:
+        raise not_found("journal thread") from None
+    answer = JournalRefresh(thread=thread, state=state)  # type: ignore[arg-type]
+    return json_response(dump_json(answer), status_code=200 if state == "nothing_new" else 202)

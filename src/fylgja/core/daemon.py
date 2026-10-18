@@ -604,6 +604,7 @@ class Daemon:
                 self.writer,
                 config.journal,
                 gate=self.model_gate,
+                todos=self.todos,
                 clock=self.clock,
                 view=self.view,
                 state=self.state,

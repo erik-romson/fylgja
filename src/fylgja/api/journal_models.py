@@ -24,6 +24,7 @@ __all__ = [
     "JournalEntry",
     "JournalHow",
     "JournalItem",
+    "JournalRefresh",
     "JournalSource",
     "JournalThread",
     "JournalThreads",
@@ -174,3 +175,12 @@ class JournalHow(NowModel):
     steps: list[str] | None = None
     generated_at: AwareDatetime | None = None
     error_kind: str | None = None
+
+
+class JournalRefresh(NowModel):
+    """The answer of ``POST /journal/threads/{id}/refresh``."""
+
+    thread: str
+    state: Literal["pending", "nothing_new"]
+    """``pending``: an attempt runs (started now or joined). ``nothing_new``: the window holds
+    nothing, so no call was made."""

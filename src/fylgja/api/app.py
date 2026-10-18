@@ -14,6 +14,9 @@ shutdown; a daemon the caller already started is left to the caller.
   ``GET /journal/threads/{id}``, ``GET /journal/focused``, ``GET /journal/checkout``,
   ``/inspect/*`` and the ``/events`` change stream) need no authentication. The interactive docs
   and the OpenAPI document are off.
+* The journal's writes (``PATCH /journal/items/{id}``, ``POST /journal/threads/{id}/items``,
+  ``POST /journal/items/{id}/todo``, ``POST /journal/threads/{id}/refresh``) are mutating routes
+  behind the same guard; they are registered while the journal is off and answer **409** then.
 * A finished summary job publishes ``summary.ready`` (``{scope, ref, state}``) on ``/events``.
 * While the journal is enabled, every journal write publishes ``journal.changed`` (``{thread}``,
   the thread id and never text) on ``/events``. It does not touch the live view, so ``/now`` is

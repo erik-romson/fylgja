@@ -165,8 +165,11 @@ class TodoService:
         scope_ref: str | None = None,
         status: str = "open",
         link: str | None = None,
+        todo_id: str | None = None,
     ) -> TodoRow:
-        """Create a native todo. Without a scope it belongs to the focused workspace."""
+        """Create a native todo. Without a scope it belongs to the focused workspace.
+
+        ``todo_id`` lets a caller know the id before the write is visible in the live view."""
         cleaned = _clean_text(text, self._privacy)
         _check_status(status)
         if status == "done":
@@ -181,7 +184,7 @@ class TodoService:
         _check_scope(scope_kind, scope_ref)
         if link is not None and (len(link) > MAX_REF_CHARS or any(ord(c) < 32 for c in link)):
             raise TodoValidationError("the link is too long or has control bytes")
-        todo_id = self._new_id()
+        todo_id = self._new_id() if todo_id is None else todo_id
         stamp = db.to_db_time(self._clock.now())
 
         def job(tx: Tx) -> TodoRow:
