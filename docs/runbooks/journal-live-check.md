@@ -6,20 +6,21 @@ daemon, never on the daily one, and write no entry text into docs or commits.
 
 ## Set up a scratch daemon
 
-Use another port, a scratch `HOME` and scratch `FYLGJA_*_DIR`, as the README's "Try a change next to the daily
-daemon" says, with the journal on:
+Use another port and scratch `FYLGJA_*_DIR`, with the journal on. Unlike the README's "Try a change next to the
+daily daemon", keep the real `HOME`: the journal's model call needs the logged-in `claude` CLI, and under a scratch
+`HOME` it fails with `nonzero_exit` ("Not logged in").
 
 ```sh
-S=$PWD/target/manual-journal; mkdir -p $S/home $S/config $S/data $S/state
+S=$PWD/target/manual-journal; mkdir -p $S/config $S/data $S/state
 printf '[api]\nport = 7329\nallowed_origins = ["http://127.0.0.1:7329"]\n[journal]\nenabled = true\n' > $S/config/config.toml
-( export HOME=$S/home FYLGJA_CONFIG_DIR=$S/config FYLGJA_DATA_DIR=$S/data FYLGJA_STATE_DIR=$S/state
+( export FYLGJA_CONFIG_DIR=$S/config FYLGJA_DATA_DIR=$S/data FYLGJA_STATE_DIR=$S/state
   uv run fylgja install secret
   uv run fylgja serve )          # http://127.0.0.1:7329/, Ctrl-C to stop
 ```
 
-The `claude` CLI must be installed and logged in. The scratch home holds no Claude sessions, so the checks below
-drive the journal from a git checkout of your choice. Run the `fylgja` commands with the same scratch variables, so
-they reach the scratch daemon.
+The scratch daemon reads the real home the way the daily one does, so it sees your other agent sessions too and
+may journal their checkouts. Its store, secret and log stay under `$S`, and its model calls store no transcript. Run
+the `fylgja` commands with the same scratch variables, so they reach the scratch daemon.
 
 ## Feed it a session
 
@@ -32,8 +33,9 @@ cd <a git checkout>
 FYLGJA_DATA_DIR=<repo>/target/manual-journal/data claude
 ```
 
-Only this session's events reach the scratch daemon; the daily daemon does not see them. Until a turn ends here,
-the Recall tab lists apps only, and no item has a "Journal" button.
+Only this session's hook events reach the scratch daemon; the daily daemon does not see them. A session started
+without the variable, such as one already running, feeds the daily daemon instead: no `hook-inbox` appears under
+`$S/data`. Until an entry is written, no item on the Recall tab has a "Journal" button.
 
 ## 1. One real entry after a turn
 
