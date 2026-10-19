@@ -418,3 +418,12 @@ async def test_checkout_resolves_a_path_below_the_checkout() -> None:
         assert body["where"]["text"] == "You are halfway through the form."
         outside = await get(daemon, f"/journal/checkout?path={PLAIN}", 404)
         assert outside["detail"] == "no journal for this checkout"
+
+
+async def test_checkout_matches_known_checkouts_and_never_looks_on_disk() -> None:
+    async with world() as daemon:
+        await fresh(daemon)
+        remembered = dict(daemon.locator._cache)  # noqa: SLF001
+        body = await get(daemon, "/journal/checkout?path=/elsewhere/customer/repo/src", 404)
+        assert body["detail"] == "no journal for this checkout"
+        assert daemon.locator._cache == remembered  # noqa: SLF001

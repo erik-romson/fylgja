@@ -12,21 +12,41 @@ Nothing here writes: :meth:`LocalFileSystem.unlink` exists only because the prot
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
+import stat
 from collections.abc import Sequence
 from pathlib import Path
 
 from fylgja.collectors.seams import FileInfo, ProcessResult
 from fylgja.collectors.supervisor import terminate_process_group
 
-__all__ = ["LocalFileSystem", "SubprocessRunner"]
+__all__ = ["LocalFileSystem", "SubprocessRunner", "read_regular_file"]
+
+
+def read_regular_file(path: Path | str) -> bytes:
+    """The bytes of a regular file. The file is opened without blocking and checked on the open
+    descriptor, so a FIFO or a device put in its place raises :class:`OSError` instead of hanging
+    the caller; a directory raises :class:`IsADirectoryError`."""
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        mode = os.fstat(fd).st_mode
+        if stat.S_ISDIR(mode):
+            raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), str(path))
+        if not stat.S_ISREG(mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
+    except BaseException:
+        os.close(fd)
+        raise
+    with open(fd, "rb") as handle:  # noqa: PTH123 - takes over the checked descriptor
+        return handle.read()
 
 
 class LocalFileSystem:
     """The real filesystem (the read side of :class:`~fylgja.collectors.seams.FileSystem`)."""
 
     def read_bytes(self, path: Path | str) -> bytes:
-        return Path(path).read_bytes()
+        return read_regular_file(path)
 
     def read_text(self, path: Path | str, encoding: str = "utf-8") -> str:
         return self.read_bytes(path).decode(encoding)

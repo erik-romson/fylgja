@@ -33,6 +33,7 @@ from fylgja.collectors.seams import (
     RangeReader,
 )
 from fylgja.collectors.supervisor import terminate_process_group
+from fylgja.core.system import read_regular_file
 
 __all__ = [
     "CommandFailure",
@@ -68,8 +69,7 @@ class LocalFileSystem:
     """The real filesystem."""
 
     def read_bytes(self, path: Path | str) -> bytes:
-        with open(path, "rb") as handle:  # noqa: PTH123
-            return handle.read()
+        return read_regular_file(path)
 
     def read_range(self, path: Path | str, offset: int, length: int) -> bytes:
         with open(path, "rb") as handle:  # noqa: PTH123

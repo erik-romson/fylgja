@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -259,6 +260,20 @@ def test_real_filesystems_resolve_paths(tmp_path: Path) -> None:
     for fs in (LocalFileSystem(), CodexFileSystem()):
         assert isinstance(fs, PathResolver)
         assert fs.realpath(tmp_path / "link" / "x.md") == str(target.resolve() / "x.md")
+
+
+def test_real_filesystems_read_only_regular_files_and_never_block(tmp_path: Path) -> None:
+    from fylgja.collectors.codex.adapter import LocalFileSystem as CodexFileSystem
+    from fylgja.core.system import LocalFileSystem
+
+    (tmp_path / "file").write_bytes(b"text")
+    os.mkfifo(tmp_path / "fifo")  # nobody writes to it: a blocking open would hang
+    for fs in (LocalFileSystem(), CodexFileSystem()):
+        assert fs.read_bytes(tmp_path / "file") == b"text"
+        with pytest.raises(OSError, match="not a regular file"):
+            fs.read_bytes(tmp_path / "fifo")
+        with pytest.raises(IsADirectoryError):
+            fs.read_bytes(tmp_path)
 
 
 # --- line stream ----------------------------------------------------------------------

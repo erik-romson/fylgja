@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import posixpath
+import time
 from pathlib import Path
 
 from fylgja.collectors.norn import parse
@@ -122,6 +123,18 @@ def test_handoff_headings_match_without_regard_to_case() -> None:
     )
     sections = parse.cut_report("handoff.md", text)
     assert headings(sections) == ["FOR THE HUMAN", "known Limitations", "overview"]
+
+
+def test_a_long_blank_run_in_a_line_is_cut_in_linear_time() -> None:
+    blank = " " * 200_000
+    started = time.perf_counter()
+    handoff = parse.cut_report(
+        "handoff.md", f"## Overview{blank}x\n\nShort.\n## For the human \n\nLook.\n"
+    )
+    followups = parse.cut_report("followups.md", f"## Open\n- [ ] a{blank}b\n- [ ]  fix it  \n")
+    assert time.perf_counter() - started < 2.0
+    assert headings(handoff) == ["For the human"]
+    assert [section.text for section in followups] == ["a", "fix it"]  # the first is cut
 
 
 def test_an_empty_section_is_left_out_and_a_long_one_is_cut() -> None:

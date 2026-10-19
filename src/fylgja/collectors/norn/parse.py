@@ -566,8 +566,10 @@ MAX_SECTION_BYTES: Final = 4096
 REPORT_DIGEST_MAX_BYTES: Final = 24576
 """All sections of a run together stay under this (the journal's ``RUN_DIGEST_MAX_BYTES``)."""
 MAX_REPORT_LINES: Final = 20
-_H2: Final = re.compile(r"^##\s+(.*?)\s*$")
-_OPEN_ITEM: Final = re.compile(r"^\s*-\s+\[ \]\s+(.*?)\s*$")
+# Greedy groups, stripped after the match: a lazy group before ``\s*$`` takes quadratic time on a
+# long blank run.
+_H2: Final = re.compile(r"^##\s+(.*)$")
+_OPEN_ITEM: Final = re.compile(r"^\s*-\s+\[ \]\s+(.*)$")
 _REPORT_PATH: Final = re.compile(r"tmp/[A-Za-z0-9._-]+-run/report\.md")
 _DEVIATION: Final = re.compile(r"deviation|judgement|judgment", re.IGNORECASE)
 _NOTHING: Final = ("no deviation", "none")
@@ -642,7 +644,7 @@ def _h2_sections(text: str) -> list[tuple[str, str]]:
     for line in text.split("\n"):
         heading = _H2.match(line)
         if heading is not None:
-            found.append((heading.group(1), []))
+            found.append((heading.group(1).strip(), []))
         elif found:
             found[-1][1].append(line)
     return [(heading, "\n".join(body).strip()) for heading, body in found]
@@ -665,11 +667,12 @@ def _followups(path: str, text: str) -> list[ReportSection]:
     for line in text.split("\n"):
         title = _H2.match(line)
         if title is not None:
-            heading = title.group(1) or heading
+            heading = title.group(1).strip() or heading
             continue
         item = _OPEN_ITEM.match(line)
-        if item is not None and item.group(1) and item.group(1).casefold() != "none":
-            out.append(ReportSection(path=path, heading=heading, text=_cut_bytes(item.group(1))))
+        text = "" if item is None else item.group(1).strip()
+        if text and text.casefold() != "none":
+            out.append(ReportSection(path=path, heading=heading, text=_cut_bytes(text)))
     return out
 
 

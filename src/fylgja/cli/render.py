@@ -8,6 +8,7 @@ first, and a cell that does not fit ends in ``…``.
 
 from __future__ import annotations
 
+import re
 import textwrap
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
@@ -38,6 +39,14 @@ _MIN_LAST: Final = 12
 _DASH: Final = "—"
 
 Row = Mapping[str, Any]
+
+_CONTROL: Final = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+"""C0 and C1 control characters but the newline: an escape sequence in model text, a folder or
+a branch name must not reach the terminal (OSC 52 writes the clipboard, OSC 8 fakes a link)."""
+
+
+def _printable(text: str) -> str:
+    return _CONTROL.sub("", text)
 
 
 def _clip(text: str, room: int) -> str:
@@ -562,7 +571,7 @@ def render_journal(payload: Row, width: int = DEFAULT_WIDTH, today: date | None 
             for item in group.get("items") or []:
                 if isinstance(item, Mapping):
                     parts.append(_bullets("  - ", f"Done: {item.get('text', '')}", width))
-    return "\n".join(parts)
+    return _printable("\n".join(parts))
 
 
 def render_journal_list(payload: Row, width: int = DEFAULT_WIDTH, today: date | None = None) -> str:
@@ -582,4 +591,4 @@ def render_journal_list(payload: Row, width: int = DEFAULT_WIDTH, today: date | 
         ]
         for thread in threads
     ]
-    return table(["NAME", "BRANCH", "FOLDER", "LAST WORKED", "OPEN"], rows, width)
+    return _printable(table(["NAME", "BRANCH", "FOLDER", "LAST WORKED", "OPEN"], rows, width))

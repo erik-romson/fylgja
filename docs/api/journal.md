@@ -79,13 +79,14 @@ never listed, but it is kept and is still readable by id. Out-of-range `days` is
 ## `GET /journal/focused` and `GET /journal/checkout`
 
 `/journal/focused` is the journal of the checkout of the focused window (the last window that is not private).
-`/journal/checkout?path=` is the journal of the checkout that holds the absolute `path`; the daemon finds the git root.
+`/journal/checkout?path=` is the journal of the nearest checkout the daemon tracks that holds the absolute `path`. The
+path is matched against the known checkouts and never looked up on disk (decision 0058).
 Both answer a `JournalThread`, with `entries` at the default of 20.
 
 | Status | When |
 |---|---|
 | 200 | `JournalThread`; the empty journal for a checkout with a thread identity but no row yet. |
-| 404 | `nothing is focused`; or `no journal for this checkout`: no git checkout, a detached HEAD, or no branch seen yet. |
+| 404 | `nothing is focused`; or `no journal for this checkout`: not inside a known checkout, a detached HEAD, or no branch seen yet. |
 | 409 | The journal is off. |
 | 422 | `path` is not absolute. |
 

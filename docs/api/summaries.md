@@ -10,7 +10,8 @@ ttl_seconds = 300     # a changed summary is rewritten at most this often per sc
 max_concurrent = 3    # model calls at once
 ```
 
-and restart the daemon. Each model call is `claude -p --model haiku --strict-mcp-config` with the prompt on stdin, run
+and restart the daemon. Each model call is `claude -p --model haiku --strict-mcp-config --tools "" --no-session-persistence` (no tools, no
+stored transcript) with the prompt on stdin, run
 in `~/.local/state/fylgja/summarizer/` with `FYLGJA_SUMMARY=1` and `LIDSKJALV_TRACK_SUMMARY=1`, and a 60 s timeout. The
 summarizer session never shows up as a session: the hooks exit at once and its cwd is always ignored. Decision 0046
 holds the details; decision 0053 adds the folder scope.

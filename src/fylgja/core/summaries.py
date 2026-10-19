@@ -6,9 +6,11 @@ newer than the transcript" gate. Off by default (``[summaries] enabled = false``
 nothing is queued and no model is ever called.
 
 **Model calls run only here**, in the daemon: never in the CLI and never on a hook path. A call is
-``claude -p --model haiku --strict-mcp-config`` with the prompt on stdin (so it never shows in a
-process listing), run in the summarizer cwd (:func:`fylgja.paths.summarizer_dir`, created on
-demand, always on the Claude collector's ``ignore_cwd`` list) with ``FYLGJA_SUMMARY=1`` and
+``claude -p --model haiku --strict-mcp-config --tools "" --no-session-persistence`` with the prompt
+on stdin (so it never shows in a process listing), without tools (the prompt carries repository
+text, which must not be able to steer a tool call) and without a stored transcript, run in the
+summarizer cwd (:func:`fylgja.paths.summarizer_dir`, created on demand, always on the Claude
+collector's ``ignore_cwd`` list) with ``FYLGJA_SUMMARY=1`` and
 ``LIDSKJALV_TRACK_SUMMARY=1`` set, so Fylgja's hook and Lidskjalv's exit at once and the summarizer
 session never becomes a user session. The runner is a seam (:class:`SummaryRunner`):
 :class:`ClaudeRunner` shells out, tests pass a fake.
@@ -133,7 +135,15 @@ PARTS: Final[Mapping[str, tuple[str, ...]]] = {
 """The ``summaries.kind`` rows a summary of each scope consists of."""
 
 MODEL: Final = "haiku"
-CLAUDE_ARGS: Final = ("-p", "--model", MODEL, "--strict-mcp-config")
+CLAUDE_ARGS: Final = (
+    "-p",
+    "--model",
+    MODEL,
+    "--strict-mcp-config",
+    "--tools",
+    "",
+    "--no-session-persistence",
+)
 """What follows the ``claude`` command; the prompt goes to stdin."""
 RUN_TIMEOUT: Final = 60.0
 """Seconds one model call may take."""
@@ -635,7 +645,7 @@ def summary_environment(base: Mapping[str, str]) -> dict[str, str]:
 
 
 class ClaudeRunner:
-    """The real runner: ``<command> -p --model haiku --strict-mcp-config``, the prompt on stdin,
+    """The real runner: ``<command>`` and :data:`CLAUDE_ARGS`, the prompt on stdin,
     in its own process group, which is killed on timeout or cancellation. ``command`` defaults to
     :func:`claude_command`, looked up at each call."""
 

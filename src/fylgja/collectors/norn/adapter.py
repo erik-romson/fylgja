@@ -269,14 +269,15 @@ def _read_report_file(
     """A report file's text, or ``None`` when it is missing, outside ``root``, large, older than
     ``newer_than`` (an earlier run's) or not text. Both sides of the containment are resolved."""
     try:
-        if not _below(resolver.realpath(path), root):
+        real = resolver.realpath(path)
+        if not _below(real, root):
             return None
-        info = fs.stat(path)
+        info = fs.stat(real)  # the checked path, not one a swapped symlink could redirect
         if info.is_dir or info.size > REPORT_MAX_BYTES:
             return None
         if newer_than is not None and info.mtime < newer_than:
             return None
-        return fs.read_bytes(path).decode("utf-8", errors="replace")
+        return fs.read_bytes(real).decode("utf-8", errors="replace")
     except OSError:
         return None
 

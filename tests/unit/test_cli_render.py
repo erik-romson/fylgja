@@ -288,6 +288,29 @@ def test_blocked_shows_its_items_and_no_more_line_when_all_are_shown() -> None:
 
 
 @pytest.mark.usefixtures("utc")
+def test_control_characters_never_reach_the_terminal() -> None:
+    osc52 = "\x1b]52;c;cm0gLXJm\x07"
+    payload = {
+        "name": f"re\x9bpo{osc52}",
+        "branch": "main",
+        "where": {"text": f"Fixing{osc52} the parser"},
+        "open": {
+            "next": [{"text": "Step\x1b[2J one", "shown": True}],
+            "remember": [],
+            "blocked": [],
+        },
+    }
+    shown = render.render_journal(payload, 100, JOURNAL_TODAY)
+    assert (
+        shown
+        == "repo]52;c;cm0gLXJm · main\n\nWhere you are\nFixing]52;c;cm0gLXJm the parser\n\n"
+        + ("Do next\n- Step[2J one")
+    )
+    listed = render.render_journal_list({"threads": [{"name": f"a{osc52}", "branch": "b\x1b"}]})
+    assert not any(char in listed for char in "\x1b\x07\x9b")
+
+
+@pytest.mark.usefixtures("utc")
 def test_the_thread_list_has_one_line_per_thread() -> None:
     payload = {
         "threads": [

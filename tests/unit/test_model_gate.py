@@ -107,13 +107,24 @@ def test_a_gate_without_a_runner_calls_haiku() -> None:
     gate = ModelGate(1, clock=FakeClock())
     assert isinstance(gate._runner, ClaudeRunner)  # noqa: SLF001
     assert MODEL == "haiku"
-    assert CLAUDE_ARGS == ("-p", "--model", "haiku", "--strict-mcp-config")
+    assert CLAUDE_ARGS == (
+        "-p",
+        "--model",
+        "haiku",
+        "--strict-mcp-config",
+        "--tools",
+        "",
+        "--no-session-persistence",
+    )
     assert ClaudeRunner(("claude",)).argv() == [
         "claude",
         "-p",
         "--model",
         "haiku",
         "--strict-mcp-config",
+        "--tools",
+        "",
+        "--no-session-persistence",
     ]
 
 

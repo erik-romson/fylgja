@@ -869,7 +869,8 @@ async def test_the_real_runner_passes_the_flags_the_prompt_the_cwd_and_the_guard
     script = _stand_in(tmp_path, _RECORDER)
     runner = ClaudeRunner([sys.executable, str(script)])
     assert runner.argv() == [sys.executable, str(script), *CLAUDE_ARGS]
-    assert CLAUDE_ARGS == ("-p", "--model", "haiku", "--strict-mcp-config")
+    assert CLAUDE_ARGS[:4] == ("-p", "--model", "haiku", "--strict-mcp-config")
+    assert CLAUDE_ARGS[4:] == ("--tools", "", "--no-session-persistence")
     cwd = tmp_path / "summarizer"
     cwd.mkdir()
     env = summary_environment({**os.environ, "CLAUDECODE": "1"})

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import re
 from datetime import timedelta
+from pathlib import PurePosixPath
 from typing import Final, Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -61,6 +62,7 @@ from fylgja.core.journal_service import (
     ThreadNotFound,
     ThreadRead,
 )
+from fylgja.core.project_roots import MAX_DEPTH
 
 __all__ = ["router"]
 
@@ -153,13 +155,25 @@ async def get_focused(request: Request) -> Response:
     return await _thread(daemon, service, found, DEFAULT_ENTRIES)
 
 
+def _known_checkout(daemon: Daemon, path: str) -> str | None:
+    """The nearest checkout the daemon tracks that holds ``path``. The path is matched against
+    the known checkouts, never looked up on disk, so any page that can send a GET cannot make the
+    daemon probe the filesystem or learn which of its folders exist."""
+    projects = daemon.view.projects
+    start = PurePosixPath(path)
+    for directory in (start, *start.parents)[:MAX_DEPTH]:
+        if str(directory) in projects:
+            return str(directory)
+    return None
+
+
 @router.get("/journal/checkout")
 async def get_checkout(request: Request, path: str) -> Response:
     daemon = daemon_of(request)
     service = journal_of(daemon)
     if not path.startswith("/"):
         raise _unprocessable("path must be absolute")
-    root = daemon.locator.locate(path).git_root
+    root = _known_checkout(daemon, path)
     found = None if root is None else service.identity_of_path(root)
     if found is None:
         raise no_journal()
