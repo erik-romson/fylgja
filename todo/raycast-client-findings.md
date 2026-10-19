@@ -1,7 +1,7 @@
 # Findings from the Raycast client
 
-The Raycast extension (`~/projects/erik-romson/fylgja-raycast/main`) ran its live contract check against the daemon on
-2026-10-19. These are daemon-side issues it found. Nothing here blocks the extension.
+Daemon-side issues found through the Raycast extension (`~/projects/erik-romson/fylgja-raycast/main`), from its live
+contract check against the daemon and from using the extension, both on 2026-10-19. Nothing here blocks the extension.
 
 - [ ] Every live session lacked a process chain (`no process chain recorded for the session`, decision 0029), so no
       session could be focused: `POST /focus/session` answered 409 "session has no window".
