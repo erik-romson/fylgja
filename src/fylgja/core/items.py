@@ -65,6 +65,8 @@ class Place:
     open: bool
     waiting: bool
     last_focus_at: datetime | None
+    focusable: bool = True
+    """A session without a window is open but cannot be focused: no Go button targets it."""
 
 
 @dataclass(frozen=True)
@@ -100,7 +102,7 @@ class Item:
     summary: str
     """Deterministic: built from fixed parts in a fixed order."""
     go: GoTarget | None
-    """``None`` when nothing is open: there is no button."""
+    """``None`` when nothing open can be focused: there is no button."""
     go_by_role: Mapping[str, GoTarget]
     """``ide``, ``agent`` and ``terminal`` to the best open place of that role."""
 
@@ -145,9 +147,9 @@ def order_places(places: Iterable[Place]) -> tuple[Place, ...]:
 
 
 def choose_go(places: Sequence[Place]) -> GoTarget | None:
-    """A waiting session first, then the open place focused most recently, then any open place by
-    ``ref``. ``None`` when no place is open."""
-    candidates = [place for place in places if place.open]
+    """Among the open places that can be focused: a waiting session first, then the place focused
+    most recently, then any by ``ref``. ``None`` when there is none."""
+    candidates = [place for place in places if place.open and place.focusable]
     if not candidates:
         return None
     best = min(

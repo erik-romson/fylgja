@@ -10,6 +10,7 @@ from typing import Any
 from fylgja.api.item_inputs import build_items
 from fylgja.api.now_models import (
     ContextItem,
+    Host,
     LabelSource,
     Now,
     Project,
@@ -73,6 +74,7 @@ def session(
     one_liner: str | None = None,
     branch: str | None = None,
     children: Sequence[Session] = (),
+    window_id: str | None = None,
 ) -> Session:
     kind, _, native = key.partition(":")
     return Session(
@@ -83,6 +85,7 @@ def session(
         project_path=path,
         one_liner=one_liner,
         branch=branch,
+        host=None if window_id is None else Host(kind="cmux", window_id=window_id),
         children=list(children) or None,
     )
 
@@ -143,7 +146,9 @@ def alpha_picture() -> tuple[Now, dict[str, str]]:
     ide = window("w1", kinds=["ide_project"], title="alpha – source.xml")
     picture = now(
         workspaces=[workspace("1", windows=[ide], sessions=["claude:s1"])],
-        sessions=[session("claude:s1", ALPHA, one_liner="Fixing the port mapping test")],
+        sessions=[
+            session("claude:s1", ALPHA, one_liner="Fixing the port mapping test", window_id="t1")
+        ],
         projects=[
             project(
                 ALPHA,
@@ -179,6 +184,18 @@ def test_a_window_and_a_session_in_one_folder_make_one_item() -> None:
     }
     assert item.state == {"input", "dirty", "pr_open"}
     assert len(item.id) == 16
+
+
+def test_a_session_without_a_window_is_open_but_no_go_target() -> None:
+    picture, folders = alpha_picture()
+    windowless = session("claude:s1", ALPHA, one_liner="Fixing the port mapping test")
+    (item,) = build_items(
+        picture.model_copy(update={"sessions": [windowless]}), folders, [], CONFIG
+    )
+    (agent,) = [p for p in item.places if p.kind == "session"]
+    assert (agent.open, agent.focusable) == (True, False)
+    assert item.go == GoTarget(kind="window", ref="w1")
+    assert "agent" not in item.go_by_role
 
 
 def test_the_summary_is_exact() -> None:

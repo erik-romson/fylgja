@@ -112,6 +112,7 @@ class _Draft:
     workspace: str | None
     open: bool
     waiting: bool = False
+    focusable: bool = True
     last: datetime | None = None
     one_liner: str | None = None
     branch: str | None = None
@@ -128,6 +129,7 @@ class _Draft:
             open=self.open,
             waiting=self.waiting,
             last_focus_at=self.last,
+            focusable=self.focusable,
         )
 
 
@@ -233,6 +235,7 @@ class _Builder:
                     workspace=self.workspace_of_session.get(session.key),
                     open=True,
                     waiting=bool(kinds),
+                    focusable=session.host is not None and session.host.window_id is not None,
                     one_liner=session.one_liner,
                     branch=session.branch,
                 ),
@@ -647,7 +650,7 @@ def build_items_answer(
 
     ``now`` is the ``/now`` picture of the request (its waiting entries feed ``while_away``).
     ``query`` keeps the items :func:`item_matches` accepts, in rank order; ``only_open`` keeps the
-    items with an open place (those with a ``go``); ``limit`` keeps the first ones after that.
+    items with an open place; ``limit`` keeps the first ones after that.
     ``total`` counts the items before all three and ``shown`` after. The day groups hold the shown
     items. ``while_away`` and ``last_session`` do not depend on the ranker, ``query``,
     ``only_open`` or ``limit``. ``stories`` holds the cached folder summaries by item id

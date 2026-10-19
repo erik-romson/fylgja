@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -91,6 +92,12 @@ def test_choose_go_then_takes_the_most_recently_focused_open_place() -> None:
 
 def test_choose_go_falls_back_to_the_ref_when_nothing_was_focused() -> None:
     assert choose_go([place("w2"), place("w1")]) == GoTarget(kind="window", ref="w1")
+
+
+def test_choose_go_skips_a_place_that_cannot_be_focused() -> None:
+    windowless = replace(place("s1", kind="session", waiting=True), focusable=False)
+    assert choose_go([windowless, place("w1")]) == GoTarget(kind="window", ref="w1")
+    assert choose_go([windowless]) is None
 
 
 def test_choose_go_is_none_without_an_open_place() -> None:

@@ -27,7 +27,7 @@ shows "`shown` of `total`" and fills its ranker list from `choices`; it never fi
 | `rank` | A loaded ranker, or `natural` (the floor). Default: the default ranker in effect (see `GET /rankers`). An empty value is the default. |
 | `days` | How far back an item without an open place may have had focus: 1 to 14. Default 14. |
 | `q` | Search text, at most 200 characters. Case-insensitive; matched against the item name, its tickets, its path, its summary, its `story` text and its place titles. |
-| `open` | `1` or `true`: keep only the items with at least one open place, which are exactly the items that have `go`. Default `false`. |
+| `open` | `1` or `true`: keep only the items with at least one open place. Default `false`. An open item can lack `go` when its open places are all sessions without a window (decision 0060). |
 | `limit` | Keep the first `limit` items: 1 to 500. Default: all. |
 
 **422** with a `detail`: a `rank` that names neither a loaded ranker nor `natural` (an unknown, disabled, uninstalled
@@ -110,10 +110,11 @@ all three, `shown` the number after all three (the length of `items`). The day g
 - `last_focus_at` is optional; `seconds_today` is the focus time since local midnight.
 - `summary` is deterministic: tickets, branch, `PR #n <state>`, `dirty`, the IDE file and the first session one-liner,
   joined with `·`.
-- `go` is the Go button: a waiting session first, else the open place focused most recently. `go_ide`, `go_agent` and
-  `go_terminal` are the same choice per role. A target (`GoTarget`: `kind`, `ref`) is focused with
-  `POST /focus/session/{ref}` or `POST /focus/window/{ref}`. An item with nothing open has no `go`: nothing is started
-  or reopened.
+- `go` is the Go button: a waiting session first, else the open place focused most recently, among the open places
+  that can be focused. A session without a window is open but cannot be focused (`POST /focus/session/{ref}` answers
+  **409**), so it is never a Go target (decision 0060). `go_ide`, `go_agent` and `go_terminal` are the same choice per
+  role. A target (`GoTarget`: `kind`, `ref`) is focused with `POST /focus/session/{ref}` or
+  `POST /focus/window/{ref}`. An item with nothing that can be focused has no `go`: nothing is started or reopened.
 - `story` (`ItemStory`: optional `text` and `generated_at`, and `state`: `fresh`, `stale`, `pending` or `failed`) is the
   cached folder summary (decision 0053). It is present only while summaries are enabled and a summary with text is
   cached for the item, and its state is judged against the item's current inputs. Reading `/items` never asks for one:
