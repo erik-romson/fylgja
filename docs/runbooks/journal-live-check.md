@@ -21,9 +21,23 @@ The `claude` CLI must be installed and logged in. The scratch home holds no Clau
 drive the journal from a git checkout of your choice. Run the `fylgja` commands with the same scratch variables, so
 they reach the scratch daemon.
 
+## Feed it a session
+
+The installed Claude Code hooks run `$HOME/.local/bin/fylgja hook`, which delivers to `$FYLGJA_DATA_DIR/hook-inbox`.
+Start one agent session in a git checkout with only that variable on scratch. Keep the real `HOME`, so `claude` stays
+logged in and finds its hooks:
+
+```sh
+cd <a git checkout>
+FYLGJA_DATA_DIR=<repo>/target/manual-journal/data claude
+```
+
+Only this session's events reach the scratch daemon; the daily daemon does not see them. Until a turn ends here,
+the Recall tab lists apps only, and no item has a "Journal" button.
+
 ## 1. One real entry after a turn
 
-1. In a git checkout, work with an agent until a turn ends, then wait two quiet minutes.
+1. In that session, work until a turn ends, then wait two quiet minutes.
 2. Run `fylgja journal --here` from that checkout (with the scratch variables). It should show "Where you are", and
    the entry should cite its sources.
 3. The thread's `error_kind` stays absent. If it is set, the kind names what failed (for example `not_installed`).
