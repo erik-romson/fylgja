@@ -27,9 +27,14 @@ not compare either.
   title shows: `parent-chain+project-path` at `medium`, with that folder as `host_ref`. Several such windows give the
   workspace-level answer, as a shared name does today.
 - **Window titles also match `<parent> <directory>`** of a listed project.
+- **An IDE with one window takes the session.** When neither a listed project nor a title places the session, and
+  the IDE process that owns it has exactly one window, the join is that window: `parent-chain` at `low`. DataGrip is
+  the usual case: one project window, and a terminal in a folder outside the project.
 
 ## Consequences
 
 - A bare `<directory>` title of an unlisted project is still not resolved by appcontext; a session inside it still
   is, by the resolver.
 - The check costs one `is_dir` per unmatched IDE title change or focus; nothing is read.
+- A session placed by the single-window rule gets a working Go, but the window's focus still goes to the item the
+  window belongs to, not to the session's folder.

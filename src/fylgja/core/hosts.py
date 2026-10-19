@@ -652,7 +652,9 @@ class JetBrainsHost:
 
     def _join_by_title(self, cwd: str, windows: Sequence[WindowRow]) -> Join:
         """A project the IDE opened after it last saved ``recentProjects.xml``: the nearest folder
-        of the cwd (below the home directory) whose name a window title shows, at ``medium``."""
+        of the cwd (below the home directory) whose name a window title shows, at ``medium``.
+        Without one, an IDE with a single window (DataGrip with its one project and a terminal in
+        another folder) gives that window at ``low``."""
         folder = cwd
         while path_contains(self._home, folder) and folder != self._home:
             names = folder_names(folder)
@@ -677,6 +679,16 @@ class JetBrainsHost:
                     **extra,
                 )
             folder = os.path.dirname(folder)
+        if len(windows) == 1:
+            window = windows[0]
+            return Join(
+                host=self.kind,
+                via=VIA_CHAIN,
+                confidence=LOW,
+                window_id=window.window_id,
+                workspace=window.workspace,
+                note="no opened project contains the cwd; the IDE's only window",
+            )
         return _unresolved(self.kind, "no opened JetBrains project contains the cwd")
 
 

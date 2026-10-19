@@ -586,10 +586,22 @@ def test_jetbrains_project_opened_after_the_last_save_is_found_by_its_title() ->
 
 
 def test_jetbrains_reasons_for_no_project() -> None:
-    windows = [window("1", "2", PYCHARM, 10, title="x")]
+    windows = [window("1", "2", PYCHARM, 10, title="x"), window("2", "2", PYCHARM, 10, title="y")]
     assert _jb().join(_session(cwd=""), windows).unresolved == "session has no cwd"
     none = _jb(JetBrainsProject("/other")).join(_session(cwd=f"{HOME}/app"), windows)
     assert none.unresolved == "no opened JetBrains project contains the cwd"
+
+
+def test_jetbrains_with_one_window_and_no_project_for_the_cwd_takes_that_window() -> None:
+    only = [window("1", "6", PYCHARM, 10, title="test – query.sql")]
+    join = _jb(JetBrainsProject(f"{HOME}/projects/test")).join(_session(cwd=f"{HOME}/db"), only)
+    assert (join.window_id, join.workspace, join.via, join.confidence) == (
+        "1",
+        "6",
+        "parent-chain",
+        "low",
+    )
+    assert join.unresolved is None
 
 
 def test_jetbrains_uses_the_product_of_the_window() -> None:
@@ -599,7 +611,8 @@ def test_jetbrains_uses_the_product_of_the_window() -> None:
     )
     windows = [window("1", "2", INTELLIJ, 10, title="app")]
     assert host.join(_session(cwd="/ij/app"), windows).window_id == "1"
-    assert host.join(_session(cwd="/py/app"), windows).unresolved is not None
+    other = host.join(_session(cwd="/py/app"), windows)  # not PyCharm's project: the only window
+    assert (other.host_ref, other.via, other.confidence) == (None, "parent-chain", "low")
 
 
 def test_jetbrains_ide_name_names_the_window_when_the_directory_does_not() -> None:
