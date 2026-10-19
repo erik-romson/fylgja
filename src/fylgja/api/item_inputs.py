@@ -11,7 +11,8 @@ from what the page shows. Pure: no FastAPI, no I/O and no clock (``now.generated
   ``folder:<git root>``; one without a folder is a place of ``app:<bundle id>`` (else the app
   name).
 * A span of a window that is no longer open makes a closed place of ``folder:<span.project_path>``,
-  else ``app:<span.app_bundle_id>``. A span of an open window joins that place.
+  else ``app:<span.app_bundle_id>`` (else the app name). A span of an open window joins that
+  place. An app item without an open window takes its name from its spans.
 
 An item is listed when it has an open place or focus in the last ``days``. Worktrees are separate
 keys and never merged. The role of a place comes from its kind (a session is an ``agent``) or from
@@ -273,9 +274,8 @@ class _Builder:
             return self.window_keys[span.window_id]
         if span.project_path:
             return FOLDER_PREFIX + span.project_path
-        if span.app_bundle_id:
-            return APP_PREFIX + span.app_bundle_id
-        return None
+        app = span.app_bundle_id or span.app_name
+        return APP_PREFIX + app if app else None
 
     def _span(self, span: SpanRow) -> None:
         end = span.ended_at or self.moment
@@ -285,6 +285,8 @@ class _Builder:
         if key is None:
             return
         acc = self.acc(key)
+        if acc.kind == "app" and acc.name is None and span.app_name:
+            acc.name = span.app_name
         acc.last = _newest(acc.last, end)
         begin = max(span.started_at, self.day_start)
         clipped_end = min(end, self.moment)
@@ -312,7 +314,7 @@ class _Builder:
                 kind="window",
                 ref=span.window_id,
                 role="app",
-                label=span.app_bundle_id or "window",
+                label=span.app_name or span.app_bundle_id or "window",
                 title=span.title,
                 workspace=span.workspace,
                 open=False,
@@ -592,8 +594,9 @@ def _span_owner(span: SpanRow, by_window: Mapping[str, str], keys: set[str]) -> 
     key = by_window.get(span.window_id) if span.window_id else None
     if key is None and span.project_path and FOLDER_PREFIX + span.project_path in keys:
         key = FOLDER_PREFIX + span.project_path
-    if key is None and span.app_bundle_id and APP_PREFIX + span.app_bundle_id in keys:
-        key = APP_PREFIX + span.app_bundle_id
+    app = span.app_bundle_id or span.app_name
+    if key is None and app and APP_PREFIX + app in keys:
+        key = APP_PREFIX + app
     return key
 
 

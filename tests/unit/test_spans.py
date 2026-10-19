@@ -327,7 +327,11 @@ def focus_event(minutes: float, window_id: str | None, workspace: str = "1") -> 
         entity_id="focus",
         observed_at=at(minutes),
         payload=FocusPayload(
-            window_id=window_id, workspace=workspace, app_bundle_id="com.app", title="t"
+            window_id=window_id,
+            workspace=workspace,
+            app_bundle_id="com.app",
+            app_name="App",
+            title="t",
         ),
     )
 
@@ -384,6 +388,16 @@ def test_the_engine_stores_a_span_open_and_closes_it(rig: Rig) -> None:
     ]
     rig.engine.stop(at(15))
     assert rig.rows()[1] == ("b", stamp(10), stamp(15), "shutdown", None)
+
+
+def test_a_stored_span_keeps_the_app_name_of_its_focus_event(rig: Rig) -> None:
+    rig.engine.observe(focus_event(0, "a"))
+    rig.engine.observe(focus_event(10, "b"))
+    stored = queries.load_spans(rig.connection, since=stamp(0), until=stamp(20))
+    assert [(s.window_id, s.app_bundle_id, s.app_name) for s in stored] == [
+        ("a", "com.app", "App"),
+        ("b", "com.app", "App"),
+    ]
 
 
 def test_the_engine_turns_presence_events_into_idle_and_lock_closes(rig: Rig) -> None:

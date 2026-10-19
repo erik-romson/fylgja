@@ -72,6 +72,8 @@ WINDOW_FORMAT: Final = (
 WORKSPACE_FORMAT: Final = "%{workspace} %{workspace-is-focused} %{monitor-id}"
 
 _VERSION: Final = re.compile(r"client version:\s*(\S+)")
+NO_BUNDLE_ID: Final = "NULL-APP-BUNDLE-ID"
+"""What AeroSpace prints for a window whose app has no bundle id; read as no bundle id."""
 
 
 # --------------------------------------------------------------------------------------------
@@ -92,6 +94,13 @@ def _ident(value: Any) -> str | None:
 
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _bundle_id(value: Any) -> str | None:
+    """A bundle id, or ``None``: AeroSpace's placeholder is not one, so those windows fall back
+    to their app name instead of sharing one made-up app."""
+    text = _text(value)
+    return None if text in (None, "", NO_BUNDLE_ID) else text
 
 
 def _integer(value: Any) -> int | None:
@@ -297,7 +306,7 @@ def parse_windows(data: bytes | str) -> ParsedWindows:
         windows[window_id] = WindowInfo(
             window_id=window_id,
             workspace=_ident(entry.get("workspace")),
-            app_bundle_id=_text(entry.get("app-bundle-id")),
+            app_bundle_id=_bundle_id(entry.get("app-bundle-id")),
             app_name=_text(entry.get("app-name")),
             app_pid=_integer(entry.get("app-pid")),
             title=_text(entry.get("window-title")),
@@ -386,6 +395,7 @@ def focus_event(
     window_id: str | None,
     workspace: str | None,
     app_bundle_id: str | None = None,
+    app_name: str | None = None,
     title: str | None = None,
 ) -> FocusEvent:
     return FocusEvent(
@@ -393,6 +403,10 @@ def focus_event(
         entity_id=FOCUS_ENTITY_ID,
         observed_at=observed_at,
         payload=FocusPayload(
-            window_id=window_id, workspace=workspace, app_bundle_id=app_bundle_id, title=title
+            window_id=window_id,
+            workspace=workspace,
+            app_bundle_id=app_bundle_id,
+            app_name=app_name,
+            title=title,
         ),
     )

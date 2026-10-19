@@ -203,6 +203,7 @@ EXPECTED_COLUMNS = {
         "window_id",
         "workspace",
         "app_bundle_id",
+        "app_name",
         "title",
         "project_path",
         "session_key",
@@ -391,7 +392,7 @@ def test_migration_from_empty_creates_every_table(db_path: Path) -> None:
     assert not db_path.exists()
     connection = db.open_store(db_path)
     try:
-        assert db.schema_version(connection) == len(db.load_migrations()) == 3
+        assert db.schema_version(connection) == len(db.load_migrations()) == 4
         tables = {
             row[0]
             for row in connection.execute(
@@ -516,7 +517,7 @@ def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
 
     again = db.open_store(db_path)  # a rerun on the migrated file is a no-op
     try:
-        assert db.schema_version(again) == 3
+        assert db.schema_version(again) == 4
         assert [row[0] for row in _summaries(again)] == [7, 8, 9, 12, 20]
         stored = queries.load_summaries(again)
         assert [
@@ -535,7 +536,7 @@ def test_migration_0003_adds_the_journal(db_path: Path) -> None:
         kept = [(7, "session", "claude:x", "arc", "an arc", "d" * 64, "haiku", noon, None)]
         connection.executemany(_SUMMARY_ROW, kept)
 
-        assert db.migrate(connection) == 3
+        assert db.migrate(connection, db.load_migrations()[:3]) == 3
         assert db.schema_version(connection) == 3
         assert _summaries(connection) == kept
         objects = {
@@ -549,6 +550,61 @@ def test_migration_0003_adds_the_journal(db_path: Path) -> None:
         assert ("index", "journal_items_todo") in objects
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()
+
+
+_SNAPSHOT_ROW = (
+    "INSERT INTO windows_snapshot (source, window_id, app_bundle_id, app_name, valid_from, "
+    "valid_to) VALUES ('aerospace', ?, ?, ?, ?, ?)"
+)
+_SPAN_ROW = (
+    "INSERT INTO focus_spans (id, window_id, app_bundle_id, started_at, ended_at) "
+    "VALUES (?, ?, ?, ?, ?)"
+)
+
+
+def test_migration_0004_names_the_apps_of_stored_spans(db_path: Path) -> None:
+    """0004 adds focus_spans.app_name, fills it from the newest snapshot name of the span's
+    bundle id (else of its window) and clears AeroSpace's NULL-APP-BUNDLE-ID placeholder."""
+    connection = db.connect_writer(db_path)
+    try:
+        assert db.migrate(connection, db.load_migrations()[:3]) == 3
+        t1, t2, t3 = (f"2026-10-0{day}T12:00:00.000000Z" for day in (1, 2, 3))
+        connection.executemany(
+            _SNAPSHOT_ROW,
+            [
+                ("1", "com.example.edit", "Old Edit", t1, t2),
+                ("2", "com.example.edit", "Edit", t2, None),
+                ("3", "NULL-APP-BUNDLE-ID", "Bundleless", t1, None),
+                ("4", "NULL-APP-BUNDLE-ID", None, t1, None),
+            ],
+        )
+        connection.executemany(
+            _SPAN_ROW,
+            [
+                (1, "1", "com.example.edit", t1, t2),
+                (2, "3", "NULL-APP-BUNDLE-ID", t1, t2),
+                (3, "9", "com.example.gone", t2, t3),
+                (4, "4", "NULL-APP-BUNDLE-ID", t2, t3),
+            ],
+        )
+
+        assert db.migrate(connection) == 4
+        spans = connection.execute(
+            "SELECT id, app_bundle_id, app_name FROM focus_spans ORDER BY id"
+        ).fetchall()
+        assert [tuple(row) for row in spans] == [
+            (1, "com.example.edit", "Edit"),  # the newest name of the bundle id
+            (2, None, "Bundleless"),  # no bundle id: the name of its window
+            (3, "com.example.gone", None),  # no snapshot names it
+            (4, None, None),
+        ]
+        bundles = {
+            row[0] for row in connection.execute("SELECT app_bundle_id FROM windows_snapshot")
+        }
+        assert bundles == {"com.example.edit", None}
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     finally:
         connection.close()
 

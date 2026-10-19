@@ -198,6 +198,7 @@ class AerospaceCollector:
                 window_id=window_id,
                 workspace=workspace,
                 app_bundle_id=None if known is None else known.app_bundle_id,
+                app_name=None if known is None else known.app_name,
                 title=None if known is None else known.title,
             )
         )

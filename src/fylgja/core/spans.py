@@ -98,6 +98,7 @@ class Target:
     workspace: str | None = None
     app_bundle_id: str | None = None
     title: str | None = None
+    app_name: str | None = None
 
 
 # --------------------------------------------------------------------------------------------
@@ -210,6 +211,7 @@ class SpanTracker:
             window_id=target.window_id,
             workspace=target.workspace,
             app_bundle_id=target.app_bundle_id,
+            app_name=target.app_name,
             title=target.title,
             project_path=project,
             session_key=session,
@@ -282,7 +284,13 @@ def _target_of(event: FocusEvent) -> Target | None:
     payload = event.payload
     if payload.window_id is None:
         return None
-    return Target(payload.window_id, payload.workspace, payload.app_bundle_id, payload.title)
+    return Target(
+        payload.window_id,
+        payload.workspace,
+        payload.app_bundle_id,
+        payload.title,
+        app_name=payload.app_name,
+    )
 
 
 def _persist(action: Action) -> Callable[[Tx], object]:
@@ -296,6 +304,7 @@ def _persist(action: Action) -> Callable[[Tx], object]:
             window_id=span.window_id,
             workspace=span.workspace,
             app_bundle_id=span.app_bundle_id,
+            app_name=span.app_name,
             title=span.title,
             project_path=span.project_path,
             session_key=span.session_key,

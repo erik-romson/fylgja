@@ -1365,8 +1365,11 @@ def close_imported_session_todos(
 
 INSERT_OPEN_SPAN: Final = """
 INSERT INTO focus_spans
-    (window_id, workspace, app_bundle_id, title, project_path, session_key, started_at)
-VALUES (:window_id, :workspace, :app_bundle_id, :title, :project_path, :session_key, :started_at)
+    (window_id, workspace, app_bundle_id, app_name, title, project_path, session_key, started_at)
+VALUES (
+    :window_id, :workspace, :app_bundle_id, :app_name, :title, :project_path, :session_key,
+    :started_at
+)
 """
 
 CLOSE_OPEN_SPAN: Final = """
@@ -1392,7 +1395,7 @@ DELETE_SPAN_BY_ID: Final = "DELETE FROM focus_spans WHERE id = ?"
 LAST_OBSERVED_AT: Final = "SELECT MAX(observed_at) FROM events"
 
 LOAD_SPANS: Final = """
-SELECT window_id, workspace, app_bundle_id, title, project_path, session_key,
+SELECT window_id, workspace, app_bundle_id, app_name, title, project_path, session_key,
        started_at, ended_at, end_reason
 FROM focus_spans
 WHERE started_at < :until AND (ended_at IS NULL OR ended_at > :since)
@@ -1400,7 +1403,7 @@ ORDER BY started_at, id
 """
 
 LOAD_SPANS_BEFORE: Final = """
-SELECT window_id, workspace, app_bundle_id, title, project_path, session_key,
+SELECT window_id, workspace, app_bundle_id, app_name, title, project_path, session_key,
        started_at, ended_at, end_reason
 FROM focus_spans
 WHERE ended_at IS NOT NULL AND ended_at <= :before
@@ -1432,6 +1435,7 @@ def insert_open_span(
     project_path: str | None,
     session_key: str | None,
     started_at: str,
+    app_name: str | None = None,
 ) -> None:
     """Open a span (``ended_at`` stays ``NULL`` until it is closed)."""
     connection.execute(
@@ -1440,6 +1444,7 @@ def insert_open_span(
             "window_id": window_id,
             "workspace": workspace,
             "app_bundle_id": app_bundle_id,
+            "app_name": app_name,
             "title": title,
             "project_path": project_path,
             "session_key": session_key,

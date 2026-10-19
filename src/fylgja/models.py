@@ -155,6 +155,7 @@ class FocusPayload(_Frozen):
     window_id: str | None = None
     workspace: str | None = None
     app_bundle_id: str | None = None
+    app_name: str | None = None
     title: str | None = None
 
 

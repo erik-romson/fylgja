@@ -166,6 +166,20 @@ def test_unknown_fields_and_missing_optional_fields_in_windows() -> None:
     assert parsed.windows[1].title is None
 
 
+def test_the_no_bundle_id_placeholder_is_read_as_no_bundle_id() -> None:
+    data = json.dumps(
+        [
+            {"window-id": 1, "app-bundle-id": parse.NO_BUNDLE_ID, "app-name": "Bundleless"},
+            {"window-id": 2, "app-bundle-id": "", "app-name": "Empty"},
+        ]
+    )
+    windows = parse.parse_windows(data).windows
+    assert [(w.app_bundle_id, w.app_name) for w in windows] == [
+        (None, "Bundleless"),
+        (None, "Empty"),
+    ]
+
+
 def test_unusable_window_entries_are_skipped_and_counted() -> None:
     data = json.dumps([{"window-id": 1}, {"window-id": 1}, {"title": "x"}, 5, {"window-id": True}])
     parsed = parse.parse_windows(data)
@@ -266,9 +280,12 @@ def test_workspace_snapshot_record_is_complete_and_schema_valid() -> None:
 
 
 def test_focus_event_record() -> None:
-    record = parse.focus_event(NOW, window_id="9", workspace="2", app_bundle_id="com.x", title="T")
+    record = parse.focus_event(
+        NOW, window_id="9", workspace="2", app_bundle_id="com.x", app_name="X", title="T"
+    )
     assert record.entity_kind is EntityKind.FOCUS
     assert record.entity_id == parse.FOCUS_ENTITY_ID
     assert record.payload.window_id == "9"
     assert record.payload.workspace == "2"
+    assert record.payload.app_name == "X"
     assert parse_record(record.model_dump(mode="json")) == record

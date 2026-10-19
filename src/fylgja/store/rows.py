@@ -229,6 +229,8 @@ class SpanRow(StoreRow):
     started_at: datetime
     ended_at: datetime | None
     end_reason: str | None
+    app_name: str | None = None
+    """The app's name when the span opened; ``None`` for a span the app had no name for."""
 
     _times = frozenset({"started_at", "ended_at"})
 

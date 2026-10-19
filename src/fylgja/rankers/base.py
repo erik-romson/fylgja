@@ -205,7 +205,8 @@ def spans_by_item(data: RankInput) -> dict[str, list[int]]:
     """The indexes of ``data.activity.spans`` of each item, in span order.
 
     A span belongs to the item that holds its window as a place; a span of a window that is no
-    longer a place belongs to the folder or the app it was recorded in. A span of none of the items
+    longer a place belongs to the folder or the app it was recorded in (its bundle id, else its
+    name). A span of none of the items
     is left out.
     """
     by_window: dict[str, str] = {}
@@ -219,8 +220,9 @@ def spans_by_item(data: RankInput) -> dict[str, list[int]]:
         key = by_window.get(span.window_id) if span.window_id else None
         if key is None and span.project_path:
             key = _FOLDER_PREFIX + span.project_path
-        if (key is None or key not in keys) and span.app_bundle_id:
-            key = _APP_PREFIX + span.app_bundle_id
+        app = span.app_bundle_id or span.app_name
+        if (key is None or key not in keys) and app:
+            key = _APP_PREFIX + app
         if key is not None and key in keys:
             grouped[key].append(index)
     return grouped

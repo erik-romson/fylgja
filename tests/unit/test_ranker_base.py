@@ -24,6 +24,7 @@ from fylgja.rankers.base import (
     natural_key,
     natural_order,
     natural_workspace_order,
+    spans_by_item,
 )
 from fylgja.rankers.recent import RecentSettings
 from fylgja.testing.rankers import IDLE_THRESHOLD, SESSION_BREAK, sample_inputs
@@ -196,6 +197,16 @@ def test_recent_puts_open_never_focused_items_before_closed_ones(small: RankInpu
     )
     keys = [r.key for r in recent.rank(replace(small, items=(*small.items, closed)), RECENT)]
     assert keys[-3:] == [MAIL, GAMMA, "app:com.example.aaa"]
+
+
+def test_a_span_without_a_bundle_id_belongs_to_the_app_of_its_name(small: RankInput) -> None:
+    mail = next(i for i in small.items if i.key == MAIL)
+    notes = replace(mail, key="app:Notes", places=())
+    last = small.activity.spans[-1]
+    span = replace(last, window_id="gone", project_path=None, app_bundle_id=None, app_name="Notes")
+    activity = replace(small.activity, spans=(*small.activity.spans, span))
+    grouped = spans_by_item(replace(small, items=(*small.items, notes), activity=activity))
+    assert grouped["app:Notes"] == [len(activity.spans) - 1]
 
 
 def test_recent_does_not_age_while_away(small: RankInput) -> None:

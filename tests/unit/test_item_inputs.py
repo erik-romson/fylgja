@@ -100,6 +100,7 @@ def span(
     bundle: str | None = None,
     session_key: str | None = None,
     title: str | None = None,
+    app: str | None = None,
 ) -> SpanRow:
     """A span from ``start`` to ``end`` minutes before T0 (``end=None``: still open)."""
     return SpanRow(
@@ -112,6 +113,7 @@ def span(
         started_at=T0 - timedelta(minutes=start),
         ended_at=None if end is None else T0 - timedelta(minutes=end),
         end_reason=None,
+        app_name=app,
     )
 
 
@@ -240,6 +242,24 @@ def test_a_closed_span_without_a_folder_makes_an_app_item() -> None:
     (item,) = build_items(now(), {}, spans, CONFIG)
     assert item.key == "app:com.example.app"
     assert item.name == "com.example.app"
+
+
+def test_a_closed_span_with_an_app_name_names_the_item_and_its_place() -> None:
+    spans = [span("gone", start=20, end=10, bundle="com.example.edit", app="Edit")]
+    (item,) = build_items(now(), {}, spans, CONFIG)
+    assert (item.key, item.name) == ("app:com.example.edit", "Edit")
+    assert [place.label for place in item.places] == ["Edit"]
+
+
+def test_a_closed_span_without_a_bundle_id_joins_the_app_named_like_it() -> None:
+    notes = window("w4", app="Notes", bundle=None)
+    spans = [span("gone", start=20, end=10, app="Notes")]
+    (item,) = build_items(now(workspaces=[workspace("1", windows=[notes])]), {}, spans, CONFIG)
+    assert (item.key, item.name) == ("app:Notes", "Notes")
+    assert sorted((place.ref, place.open) for place in item.places) == [
+        ("gone", False),
+        ("w4", True),
+    ]
 
 
 def test_spans_older_than_the_days_are_not_listed() -> None:

@@ -391,6 +391,7 @@ async def test_focus_changed_emits_a_focus_event_enriched_from_the_last_snapshot
     assert event.payload.window_id == "1"
     assert event.payload.workspace == "1"
     assert event.payload.app_bundle_id == "com.example.app"
+    assert event.payload.app_name == "Example"
     assert event.payload.title == "Title"
     assert event.entity_id == "focus"
 
