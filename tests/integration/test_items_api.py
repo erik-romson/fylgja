@@ -380,6 +380,20 @@ async def test_a_bad_parameter_is_422(query: str) -> None:
         )
 
 
+async def test_a_parameter_fastapi_cannot_parse_is_422_without_the_value() -> None:
+    async with world() as daemon:
+        body = await get(daemon, "/items?days=abc-xyzzy", status=422)
+    assert body == {
+        "detail": [
+            {
+                "type": "int_parsing",
+                "loc": ["query", "days"],
+                "msg": "Input should be a valid integer, unable to parse string as an integer",
+            }
+        ]
+    }
+
+
 async def test_a_disabled_ranker_is_422_too() -> None:
     async with world(user_config={"rankers": {"recent": {"enabled": False}}}) as daemon:
         body = await get(daemon, "/items?rank=recent", status=422)

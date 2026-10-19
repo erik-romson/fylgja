@@ -24,6 +24,8 @@ shutdown; a daemon the caller already started is left to the caller.
   the thread id and never text) on ``/events``. It does not touch the live view, so ``/now`` is
   unchanged.
 * Every route is ``async``: they read the live view, which lives on the event loop thread.
+* FastAPI's own **422** keeps ``type``, ``loc`` and ``msg`` of each error and drops ``input``
+  and ``ctx``: a detail never repeats what was sent.
 
 :func:`server_config` is the Uvicorn configuration ``fylgja serve`` runs with: it binds
 ``[api] host`` (which configuration validation pins to ``127.0.0.1``) and ``[api] port``.
@@ -36,7 +38,9 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from fylgja.api import sse
 from fylgja.api.routes import (
@@ -131,6 +135,7 @@ def create_app(
     app.state.secret = bearer
     for router in _ROUTERS:
         app.include_router(router)
+    app.add_exception_handler(RequestValidationError, _invalid_request)
     if bearer:
         register_secret(bearer)
     # The last middleware added is the outermost: the Host check runs first, then the mutation
@@ -140,6 +145,14 @@ def create_app(
     )
     app.add_middleware(HostGuard, port=services.config.api.port)
     return app
+
+
+async def _invalid_request(_: Request, exc: Exception) -> JSONResponse:
+    """FastAPI's **422** without the submitted values: ``input`` holds the bad value, or the whole
+    body when a field is missing."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else ()
+    detail = [{"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]} for e in errors]
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 def _summary_ready(events: sse.EventHub) -> Callable[[str, str, str], None]:

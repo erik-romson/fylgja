@@ -18,8 +18,14 @@ Every route goes through the guards in `api/security.py` (A6) before any route c
   3. `Content-Type: application/json` (**415**);
   4. a body of at most 16 KiB, 64 KiB for `/sessions/{key}/message` (**413**).
 
-Reads need no authentication. Errors are FastAPI's `{"detail": "..."}`; a detail never repeats a submitted text,
-label or secret.
+Reads need no authentication. An error is `{"detail": ...}` in one of two shapes, and a client handles both:
+
+- a string, from a route's own check (`{"detail": "days must be between 1 and 14"}`);
+- an array, from FastAPI's parsing of the query, path or body (**422**): one `{type, loc, msg}` per error, for example
+  `{"detail": [{"type": "int_parsing", "loc": ["query", "days"], "msg": "Input should be a valid integer, …"}]}`.
+  FastAPI's `input` and `ctx` are dropped.
+
+A detail never repeats a submitted text, label or secret.
 
 ## Read routes
 
