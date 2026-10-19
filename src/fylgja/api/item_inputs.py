@@ -637,6 +637,7 @@ def build_items_answer(
     now: Now,
     *,
     query: str | None = None,
+    only_open: bool = False,
     limit: int | None = None,
     summaries_enabled: bool = False,
     stories: Mapping[str, ItemStory] | None = None,
@@ -645,10 +646,11 @@ def build_items_answer(
     """``fylgja.items/1`` of a ranking.
 
     ``now`` is the ``/now`` picture of the request (its waiting entries feed ``while_away``).
-    ``query`` keeps the items :func:`item_matches` accepts, in rank order; ``limit`` keeps the
-    first ones after that. ``total`` counts the items before both and ``shown`` after. The day
-    groups hold the shown items. ``while_away`` and ``last_session`` do not depend on the ranker,
-    ``query`` or ``limit``. ``stories`` holds the cached folder summaries by item id
+    ``query`` keeps the items :func:`item_matches` accepts, in rank order; ``only_open`` keeps the
+    items with an open place (those with a ``go``); ``limit`` keeps the first ones after that.
+    ``total`` counts the items before all three and ``shown`` after. The day groups hold the shown
+    items. ``while_away`` and ``last_session`` do not depend on the ranker, ``query``,
+    ``only_open`` or ``limit``. ``stories`` holds the cached folder summaries by item id
     (:func:`fylgja.api.summary_inputs.item_stories`); ``journals`` the journal fields by item id
     (``docs/decisions/0057``)."""
     found = stories or {}
@@ -661,6 +663,8 @@ def build_items_answer(
             for pair in pairs
             if item_matches(pair[0], needle, _story_text(found.get(pair[0].id)))
         ]
+    if only_open:
+        pairs = [pair for pair in pairs if any(place.open for place in pair[0].places)]
     if limit is not None:
         pairs = pairs[:limit]
     shown = [item for item, _ in pairs]

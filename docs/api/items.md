@@ -5,7 +5,7 @@ and one per app (decision 0051), in the order of a **ranker** (decision 0052). `
 are reads: no authentication, Host-checked like every route. `fylgja.now/1` is unchanged.
 
 ```text
-GET /items?rank=<name>&days=<1..14>&q=<text>&limit=<1..500>
+GET /items?rank=<name>&days=<1..14>&q=<text>&open=<bool>&limit=<1..500>
 GET /rankers?rank=<name>
 ```
 
@@ -27,15 +27,16 @@ shows "`shown` of `total`" and fills its ranker list from `choices`; it never fi
 | `rank` | A loaded ranker, or `natural` (the floor). Default: the default ranker in effect (see `GET /rankers`). An empty value is the default. |
 | `days` | How far back an item without an open place may have had focus: 1 to 14. Default 14. |
 | `q` | Search text, at most 200 characters. Case-insensitive; matched against the item name, its tickets, its path, its summary, its `story` text and its place titles. |
+| `open` | `1` or `true`: keep only the items with at least one open place, which are exactly the items that have `go`. Default `false`. |
 | `limit` | Keep the first `limit` items: 1 to 500. Default: all. |
 
 **422** with a `detail`: a `rank` that names neither a loaded ranker nor `natural` (an unknown, disabled, uninstalled
-or broken ranker; the detail lists the loaded ones), `days` outside 1–14, `limit` outside 1–500, or a `q` over 200
-characters.
+or broken ranker; the detail lists the loaded ones), `days` outside 1–14, `limit` outside 1–500, a `q` over 200
+characters, or an `open` that is not a boolean.
 
-**Search and limit run on the server, after ranking.** `q` keeps the matching items in rank order and `limit` the first
-ones after that. `total` is the number of items before both, `shown` the number after both (the length of `items`).
-The day groups hold the shown items.
+**Search, the open filter and limit run on the server, after ranking.** `q` keeps the matching items in rank order,
+`open` keeps those with an open place, and `limit` the first ones after that. `total` is the number of items before
+all three, `shown` the number after all three (the length of `items`). The day groups hold the shown items.
 
 ### Answer
 
@@ -87,11 +88,11 @@ The day groups hold the shown items.
 | `activity` | `ActivityInfo` | Working time as of `generated_at` |
 | `while_away[]` | `AwayChange` | What started waiting during the latest absence |
 | `last_session` | `LastSession`, optional | The work session before the current one |
-| `items[]` | `NavItem` | Rank order, after `q` and `limit` |
+| `items[]` | `NavItem` | Rank order, after `q`, `open` and `limit` |
 | `days[]` | `DayGroup` | The shown items by the local day of their last focus, newest day first |
 | `summaries_enabled` | boolean | `[summaries] enabled`: a client may offer `POST /summaries/folder/{id}` |
 | `query` | string, optional | `q` as given |
-| `total` | integer | Items before `q` and `limit` |
+| `total` | integer | Items before `q`, `open` and `limit` |
 | `shown` | integer | Items in `items` |
 
 **`NavItem`**:
@@ -140,7 +141,7 @@ urgent first. Focusing the item takes it off the list.
 session (decision 0050). Absent when there is none.
 
 `while_away` and `last_session` come from the working time and the items, so they are the same for every ranker, every
-`q` and every `limit`.
+`q`, every `open` and every `limit`.
 
 ### Ranking
 

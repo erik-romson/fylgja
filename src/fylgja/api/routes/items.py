@@ -3,12 +3,13 @@
 
 Both are reads: no authentication, Host-checked like every route.
 
-* ``GET /items?rank=&days=&q=&limit=`` answers ``fylgja.items/1``
+* ``GET /items?rank=&days=&q=&open=&limit=`` answers ``fylgja.items/1``
   (:class:`~fylgja.api.items_models.Items`): the items of ``/now`` and the span window, ranked by
-  ``rank`` (default: the default ranker in effect), searched by ``q`` and cut to ``limit`` after
-  ranking. A ``rank`` that names neither a loaded ranker nor the ``natural`` floor is **422** and
-  the detail lists the loaded rankers; so are ``days`` outside 1–14, ``limit`` outside 1–500 and a
-  ``q`` over 200 characters. While summaries are enabled an item carries its cached folder summary
+  ``rank`` (default: the default ranker in effect), searched by ``q``, kept to those with an open
+  place by ``open`` and cut to ``limit`` after ranking. A ``rank`` that names neither a loaded
+  ranker nor the ``natural`` floor is **422** and the detail lists the loaded rankers; so are
+  ``days`` outside 1–14, ``limit`` outside 1–500, a ``q`` over 200 characters and an ``open``
+  that is not a boolean. While summaries are enabled an item carries its cached folder summary
   as ``story`` (``docs/decisions/0053``), judged against the inputs ``POST
   /summaries/folder/{id}`` would take (the items of the default ``days``); nothing is generated.
 * ``GET /rankers?rank=`` answers ``fylgja.rankers/1`` (:class:`~fylgja.api.items_models.Rankers`):
@@ -20,8 +21,9 @@ Both are reads: no authentication, Host-checked like every route.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from fylgja.api.deps import current_items, current_now, daemon_of, json_response, ranked_or_422
@@ -71,6 +73,7 @@ async def get_items(
     rank: str | None = None,
     days: int = DEFAULT_DAYS,
     q: str | None = None,
+    only_open: Annotated[bool, Query(alias="open")] = False,
     limit: int | None = None,
 ) -> Response:
     if not 1 <= days <= MAX_DAYS:
@@ -92,6 +95,7 @@ async def get_items(
         result,
         now,
         query=q,
+        only_open=only_open,
         limit=limit,
         summaries_enabled=service.enabled,
         stories=stories,

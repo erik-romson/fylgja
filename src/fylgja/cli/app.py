@@ -334,6 +334,9 @@ def items(
             "--search", metavar="TEXT", help="Only items matching TEXT (the daemon searches)."
         ),
     ] = None,
+    only_open: Annotated[
+        bool, typer.Option("--open", help="Only items with something open (the daemon filters).")
+    ] = False,
     limit: Annotated[
         int | None, typer.Option("--limit", metavar="N", help="At most N items (the daemon caps).")
     ] = None,
@@ -342,7 +345,13 @@ def items(
     """Folders and apps you worked in, ranked by the daemon, grouped by day."""
     query = {
         key: str(value)
-        for key, value in (("rank", rank), ("days", days), ("q", search), ("limit", limit))
+        for key, value in (
+            ("rank", rank),
+            ("days", days),
+            ("q", search),
+            ("open", 1 if only_open else None),
+            ("limit", limit),
+        )
         if value is not None
     }
     payload = _fetch("/items" + (f"?{urllib.parse.urlencode(query)}" if query else ""))

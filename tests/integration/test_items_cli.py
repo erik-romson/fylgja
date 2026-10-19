@@ -130,6 +130,15 @@ def test_search_limit_rank_and_days_are_sent_to_the_server() -> None:
     assert parsed == {"rank": ["recent"], "days": ["3"], "q": ["a b&c"], "limit": ["5"]}
 
 
+def test_open_is_sent_to_the_server_only_when_asked() -> None:
+    with FakeDaemon({"/items?open=1": ITEMS, "/items": ITEMS}) as daemon:
+        _configure_port(daemon.port)
+        flagged = runner.invoke(app, ["items", "--open"])
+        plain = runner.invoke(app, ["items"])
+    assert (flagged.exit_code, plain.exit_code) == (0, 0), flagged.output + plain.output
+    assert [path for path, _ in daemon.requests] == ["/items?open=1", "/items"]
+
+
 def test_the_client_filters_nothing() -> None:
     answer = {**ITEMS, "query": "zzz"}
     with FakeDaemon({"/items?q=zzz": answer}) as daemon:

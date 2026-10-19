@@ -203,6 +203,37 @@ def test_a_blank_query_filters_nothing() -> None:
     assert (body.shown, body.total) == (4, 4)
 
 
+def test_open_keeps_only_the_items_with_an_open_place() -> None:
+    plain = answer()
+    body = answer(only_open=True)
+    open_ids = {item_id(ALPHA), item_id(APP)}  # beta has only a closed place, the other app none
+    assert [shown.id for shown in body.items] == [i.id for i in plain.items if i.id in open_ids]
+    assert all(shown.go is not None for shown in body.items)
+    assert (body.shown, body.total) == (2, 4)
+    assert sorted(i for day in body.days for i in day.items) == sorted(
+        shown.id for shown in body.items
+    )
+
+
+def test_open_combines_with_q_and_limit_and_total_counts_before_all_three() -> None:
+    searched = answer(only_open=True, query="example")  # the open app; not the closed one
+    assert ([i.id for i in searched.items], searched.shown, searched.total) == (
+        [item_id(APP)],
+        1,
+        4,
+    )
+    first = answer(only_open=True).items[0].id
+    capped = answer(only_open=True, limit=1)
+    assert ([i.id for i in capped.items], capped.shown, capped.total) == ([first], 1, 4)
+
+
+def test_open_false_is_no_filter_and_open_never_changes_the_absence() -> None:
+    plain = answer()
+    assert answer(only_open=False) == plain
+    filtered = answer(only_open=True)
+    assert (filtered.while_away, filtered.last_session) == (plain.while_away, plain.last_session)
+
+
 def test_item_matches_name_tickets_path_summary_and_titles_only() -> None:
     alpha = world()[0][0]
     assert item_matches(alpha, "alpha/main")

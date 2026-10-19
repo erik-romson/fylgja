@@ -34,7 +34,7 @@ label or secret.
 | `GET /todos` | `ws` \| `project` \| `session`, `status`, `order`, `limit` | `Todo[]`, see [Todos](#todos) | |
 | `GET /next` | | `{list_id, items[]}`: "what next", best first | [`next.md`](next.md) |
 | `GET /history` | `since`, `until` | `fylgja.history/1`: focus spans with per-workspace, project and app totals | [`history.md`](history.md) |
-| `GET /items` | `rank`, `days`, `q`, `limit` | `fylgja.items/1`: one navigation item per git-root folder and per app, ranked | [`items.md`](items.md) |
+| `GET /items` | `rank`, `days`, `q`, `open`, `limit` | `fylgja.items/1`: one navigation item per git-root folder and per app, ranked | [`items.md`](items.md) |
 | `GET /rankers` | `rank` | `fylgja.rankers/1`: the discovered rankers and the selected one | [`items.md`](items.md#get-rankers) |
 | `GET /journal/threads` | `days` (1–90, default 14) | `fylgja.journal/1`: the threads with an entry lately, only each thread's shown items; `enabled: false` and no threads while `[journal] enabled = false` | [`journal.md`](journal.md#get-journalthreads) |
 | `GET /journal/threads/{id}` | `entries` (1–100, default 20) | `fylgja.journal/1`: one thread's journal; **404** for an unknown or malformed id; **409** while the journal is off | [`journal.md`](journal.md#get-journalthreadsid) |

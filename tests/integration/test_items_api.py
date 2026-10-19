@@ -368,6 +368,7 @@ async def test_the_answer_carries_scores_parts_and_an_explanation() -> None:
         "limit=0",
         "limit=501",
         "q=" + "x" * 201,
+        "open=maybe",
     ],
 )
 async def test_a_bad_parameter_is_422(query: str) -> None:
@@ -440,6 +441,19 @@ async def test_limit_keeps_the_first_items_and_leaves_the_total() -> None:
     assert two["days"] == [{"day": "2026-10-05", "items": ids(two)}]
     assert (searched["shown"], searched["total"]) == (1, 3)
     assert ids(searched) == [WORKTREE_ID]
+
+
+async def test_open_keeps_items_with_a_go_and_false_is_no_filter() -> None:
+    async with world() as daemon:
+        await populate(daemon)
+        plain = await get(daemon, "/items?rank=workspace")
+        not_open = await get(daemon, "/items?rank=workspace&open=false")
+        only_open = await get(daemon, "/items?rank=workspace&open=1")
+    assert not_open == plain
+    assert only_open["items"]
+    assert all("go" in item for item in only_open["items"])
+    assert ids(only_open) == [item["id"] for item in plain["items"] if "go" in item]
+    assert (only_open["shown"], only_open["total"]) == (len(only_open["items"]), plain["total"])
 
 
 async def test_shown_is_the_number_of_items_returned() -> None:
