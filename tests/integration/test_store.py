@@ -392,7 +392,7 @@ def test_migration_from_empty_creates_every_table(db_path: Path) -> None:
     assert not db_path.exists()
     connection = db.open_store(db_path)
     try:
-        assert db.schema_version(connection) == len(db.load_migrations()) == 4
+        assert db.schema_version(connection) == len(db.load_migrations()) == 5
         tables = {
             row[0]
             for row in connection.execute(
@@ -517,7 +517,7 @@ def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
 
     again = db.open_store(db_path)  # a rerun on the migrated file is a no-op
     try:
-        assert db.schema_version(again) == 4
+        assert db.schema_version(again) == 5
         assert [row[0] for row in _summaries(again)] == [7, 8, 9, 12, 20]
         stored = queries.load_summaries(again)
         assert [
@@ -590,7 +590,7 @@ def test_migration_0004_names_the_apps_of_stored_spans(db_path: Path) -> None:
             ],
         )
 
-        assert db.migrate(connection) == 4
+        assert db.migrate(connection, db.load_migrations()[:4]) == 4
         spans = connection.execute(
             "SELECT id, app_bundle_id, app_name FROM focus_spans ORDER BY id"
         ).fetchall()
@@ -604,6 +604,52 @@ def test_migration_0004_names_the_apps_of_stored_spans(db_path: Path) -> None:
             row[0] for row in connection.execute("SELECT app_bundle_id FROM windows_snapshot")
         }
         assert bundles == {"com.example.edit", None}
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        connection.close()
+
+
+def test_migration_0005_gives_a_span_without_a_bundle_id_its_window_app(db_path: Path) -> None:
+    """0005 fills a span's missing bundle id (and missing name) from the newest snapshot row of
+    its window that overlaps the span, else the bundle id from the newest row of its app name."""
+    connection = db.connect_writer(db_path)
+    try:
+        assert db.migrate(connection, db.load_migrations()[:4]) == 4
+        t1, t2, t3, t4 = (f"2026-10-0{day}T12:00:00.000000Z" for day in (1, 2, 3, 4))
+        connection.executemany(
+            _SNAPSHOT_ROW,
+            [
+                ("1", "com.example.old", "Old", t1, t2),
+                ("1", "com.example.edit", "Edit", t2, None),
+                ("2", None, "Bundleless", t1, None),
+                ("3", "com.example.later", "Later", t4, None),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO focus_spans (id, window_id, app_bundle_id, app_name, started_at, "
+            "ended_at) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (1, "1", None, None, t3, None),  # open, focused before it was listed
+                (2, "1", None, "Named", t2, t3),  # a name it already had is kept
+                (3, "2", None, None, t2, t3),  # the window has a name only
+                (4, "3", None, None, t1, t2),  # no snapshot row overlaps the span
+                (5, "1", "com.example.kept", "Kept", t1, t2),
+                (6, "9", None, "Later", t1, t2),  # its window was never listed: by its name
+            ],
+        )
+
+        assert db.migrate(connection) == 5
+        spans = connection.execute(
+            "SELECT id, app_bundle_id, app_name FROM focus_spans ORDER BY id"
+        ).fetchall()
+        assert [tuple(row) for row in spans] == [
+            (1, "com.example.edit", "Edit"),
+            (2, "com.example.edit", "Named"),
+            (3, None, "Bundleless"),
+            (4, None, None),
+            (5, "com.example.kept", "Kept"),
+            (6, "com.example.later", "Later"),
+        ]
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     finally:
         connection.close()

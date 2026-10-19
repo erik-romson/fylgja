@@ -313,6 +313,29 @@ def test_attribution_is_taken_at_open_and_completed_at_close() -> None:
     assert (unplaced.window_id, unplaced.project_path, unplaced.session_key) == ("e", None, None)
 
 
+def test_a_window_focused_before_it_was_listed_gets_its_app_from_describe() -> None:
+    listed: dict[str, tuple[str | None, str | None]] = {"a": ("com.listed", "Listed")}
+
+    def describe(window_id: str) -> tuple[str | None, str | None]:
+        return listed.get(window_id, (None, None))
+
+    t = SpanTracker(idle_threshold=THRESHOLD, describe=describe)
+    opened = t.focus(at(0), Target("a"))[0]
+    assert isinstance(opened, Opened)
+    assert (opened.span.app_bundle_id, opened.span.app_name) == ("com.listed", "Listed")
+
+    # the window list shows the window after the span opened: it is filled in at close
+    t.focus(at(1), Target("b"))
+    listed["b"] = ("com.late", "Late")
+    done = closed(t.focus(at(2), target("c")))
+    assert (done.app_bundle_id, done.app_name) == ("com.late", "Late")
+
+    # an app the focus event named is kept
+    listed["c"] = ("com.other", "Other")
+    kept = closed(t.focus(at(3), target("d")))
+    assert (kept.app_bundle_id, kept.app_name) == ("com.app", None)
+
+
 def test_the_idle_threshold_must_be_positive() -> None:
     with pytest.raises(ValueError, match="positive"):
         SpanTracker(idle_threshold=timedelta(0))
@@ -398,6 +421,23 @@ def test_a_stored_span_keeps_the_app_name_of_its_focus_event(rig: Rig) -> None:
         ("a", "com.app", "App"),
         ("b", "com.app", "App"),
     ]
+
+
+def test_a_stored_span_gets_the_app_its_window_showed_later(rig: Rig) -> None:
+    listed: dict[str, tuple[str | None, str | None]] = {}
+    rig.engine = SpanEngine(rig._run, describe=lambda w: listed.get(w, (None, None)))
+    unlisted = FocusEvent(
+        source="wm", entity_id="focus", observed_at=at(0), payload=FocusPayload(window_id="a")
+    )
+    rig.engine.observe(unlisted)
+    listed["a"] = ("com.late", "Late")
+    rig.engine.observe(focus_event(10, "b"))
+    stored = queries.load_spans(rig.connection, since=stamp(0), until=stamp(20))
+    assert (stored[0].window_id, stored[0].app_bundle_id, stored[0].app_name) == (
+        "a",
+        "com.late",
+        "Late",
+    )
 
 
 def test_the_engine_turns_presence_events_into_idle_and_lock_closes(rig: Rig) -> None:

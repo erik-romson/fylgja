@@ -513,6 +513,7 @@ class Daemon:
         self.spans = spans.SpanEngine(
             self.writer.enqueue,
             self._attribute,
+            describe=self._describe,
             idle_threshold_seconds=config.spans.idle_threshold_seconds,
         )
         """Focus spans (WP5.2): derived from focus, idle and lock events, written by the writer."""
@@ -900,6 +901,11 @@ class Daemon:
             return self.window_folders.folder_of(window_id), None
         newest = max(here, key=lambda row: (row.state_since or row.first_seen, row.session_key))
         return newest.project_path, newest.session_key
+
+    def _describe(self, window_id: str) -> tuple[str | None, str | None]:
+        """The bundle id and app name of an open window; ``(None, None)`` when it is not open."""
+        row = self.view.windows.get(window_id)
+        return (None, None) if row is None else (row.app_bundle_id, row.app_name)
 
     async def focus_time(self) -> Mapping[str, Mapping[str, float]]:
         """Seconds of focus per project and workspace over the last day (the resolver's input)."""

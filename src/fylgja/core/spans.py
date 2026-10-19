@@ -52,6 +52,7 @@ __all__ = [
     "Action",
     "Attribute",
     "Closed",
+    "Describe",
     "Dropped",
     "EndReason",
     "History",
@@ -81,6 +82,9 @@ LOCK_ENTITY: Final = "lock"
 
 Attribute = Callable[[str], tuple[str | None, str | None]]
 """``window_id`` to ``(project_path, session_key)``; either may be unknown."""
+
+Describe = Callable[[str], tuple[str | None, str | None]]
+"""``window_id`` to ``(app_bundle_id, app_name)`` of the open window; either may be unknown."""
 
 
 class EndReason(StrEnum):
@@ -130,7 +134,7 @@ class Dropped:
 Action = Opened | Closed | Dropped
 
 
-def _no_attribution(window_id: str) -> tuple[str | None, str | None]:
+def _unknown(window_id: str) -> tuple[str | None, str | None]:
     return None, None
 
 
@@ -139,7 +143,9 @@ class SpanTracker:
     to store; see the module docstring.
 
     ``attribute`` is asked when a span opens and, if the span had no attribution then (the
-    resolver may be a moment behind), once more when it closes.
+    resolver may be a moment behind), once more when it closes. ``describe`` is asked the same
+    way for a span whose focus event named no app: a window focused before the window list
+    showed it.
     """
 
     def __init__(
@@ -147,11 +153,13 @@ class SpanTracker:
         *,
         idle_threshold: timedelta,
         attribute: Attribute | None = None,
+        describe: Describe | None = None,
     ) -> None:
         if idle_threshold <= timedelta(0):
             raise ValueError("idle_threshold must be positive")
         self._threshold = idle_threshold
-        self._attribute: Attribute = _no_attribution if attribute is None else attribute
+        self._attribute: Attribute = _unknown if attribute is None else attribute
+        self._describe: Describe = _unknown if describe is None else describe
         self._open: Span | None = None
         self._current: Target | None = None
         self._suspended: set[EndReason] = set()
@@ -192,12 +200,17 @@ class SpanTracker:
             found_project, found_session = self._attribute(span.window_id)
             project = project or found_project
             session = session or found_session
+        bundle_id, app_name = span.app_bundle_id, span.app_name
+        if bundle_id is None and app_name is None and span.window_id is not None:
+            bundle_id, app_name = self._describe(span.window_id)
         closed = replace(
             span,
             ended_at=end,
             end_reason=reason.value,
             project_path=project,
             session_key=session,
+            app_bundle_id=bundle_id,
+            app_name=app_name,
         )
         return [Closed(closed)]
 
@@ -207,11 +220,14 @@ class SpanTracker:
             return []
         start = self._clamp(at)
         project, session = self._attribute(target.window_id)
+        bundle_id, app_name = target.app_bundle_id, target.app_name
+        if bundle_id is None and app_name is None:
+            bundle_id, app_name = self._describe(target.window_id)
         self._open = Span(
             window_id=target.window_id,
             workspace=target.workspace,
-            app_bundle_id=target.app_bundle_id,
-            app_name=target.app_name,
+            app_bundle_id=bundle_id,
+            app_name=app_name,
             title=target.title,
             project_path=project,
             session_key=session,
@@ -323,6 +339,8 @@ def _persist(action: Action) -> Callable[[Tx], object]:
             end_reason=span.end_reason,
             project_path=span.project_path,
             session_key=span.session_key,
+            app_bundle_id=span.app_bundle_id,
+            app_name=span.app_name,
         )
 
     def drop_job(tx: Tx) -> object:
@@ -354,11 +372,14 @@ class SpanEngine:
         enqueue: Enqueue,
         attribute: Attribute | None = None,
         *,
+        describe: Describe | None = None,
         idle_threshold_seconds: float = 300.0,
     ) -> None:
         self._enqueue = enqueue
         self.tracker = SpanTracker(
-            idle_threshold=timedelta(seconds=idle_threshold_seconds), attribute=attribute
+            idle_threshold=timedelta(seconds=idle_threshold_seconds),
+            attribute=attribute,
+            describe=describe,
         )
         self.listeners: list[Callable[[Action], None]] = []
         """Called with every action, after its write was queued."""

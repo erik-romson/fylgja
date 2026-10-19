@@ -1377,7 +1377,9 @@ UPDATE focus_spans
 SET ended_at = :ended_at,
     end_reason = :end_reason,
     project_path = COALESCE(:project_path, project_path),
-    session_key = COALESCE(:session_key, session_key)
+    session_key = COALESCE(:session_key, session_key),
+    app_bundle_id = COALESCE(:app_bundle_id, app_bundle_id),
+    app_name = COALESCE(:app_name, app_name)
 WHERE ended_at IS NULL AND window_id IS :window_id AND started_at = :started_at
 """
 
@@ -1462,9 +1464,11 @@ def close_open_span(
     end_reason: str,
     project_path: str | None,
     session_key: str | None,
+    app_bundle_id: str | None = None,
+    app_name: str | None = None,
 ) -> bool:
     """Close the open span of ``window_id`` that started at ``started_at``; a ``None``
-    attribution keeps what the span has. Returns whether a row was closed."""
+    attribution or app keeps what the span has. Returns whether a row was closed."""
     cursor = connection.execute(
         CLOSE_OPEN_SPAN,
         {
@@ -1474,6 +1478,8 @@ def close_open_span(
             "end_reason": end_reason,
             "project_path": project_path,
             "session_key": session_key,
+            "app_bundle_id": app_bundle_id,
+            "app_name": app_name,
         },
     )
     return cursor.rowcount == 1

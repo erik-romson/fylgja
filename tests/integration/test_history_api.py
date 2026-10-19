@@ -202,7 +202,8 @@ async def test_history_lists_the_spans_and_their_totals(http: httpx.AsyncClient)
         {"workspace": "3", "seconds": 6600.0},
         {"workspace": "4", "seconds": 3300.0},
     ]
-    assert body["apps"] == [{"seconds": 9900.0}]  # the focus events carry no app
+    # the focus events carry no app: the spans take it from the window list
+    assert body["apps"] == [{"app_bundle_id": "com.example.app", "seconds": 9900.0}]
     assert body["spans_truncated"] is False
 
 
