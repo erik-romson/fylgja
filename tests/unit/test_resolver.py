@@ -706,6 +706,20 @@ async def test_the_resolver_only_clears_what_it_wrote_when_a_join_stops_holding(
     assert row.project_path == "/code/app"
 
 
+async def test_a_complete_snapshot_of_another_collector_keeps_the_chains(
+    writer: Writer, view: LiveView
+) -> None:
+    resolver = _resolver(writer, view, FakeFS(), FakeClock(NOW))
+    resolver.observe(await _seed(writer, ("s1", "/code/app", 100)))
+    resolver.observe(
+        SessionSnapshot(
+            source="opencode", entity_id="all", observed_at=NOW, complete=True, items=()
+        )
+    )
+    await resolver.refresh()
+    assert view.sessions["claude:s1"].window_id == "66"
+
+
 async def test_hook_time_cmux_ids_reach_the_resolution(writer: Writer, view: LiveView) -> None:
     resolver = _resolver(writer, view, FakeFS(), FakeClock(NOW))
     resolver.observe(await _seed(writer, ("s1", "/code/app", 100)))

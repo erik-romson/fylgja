@@ -18,7 +18,7 @@
       "host": {
         "via": "none",
         "confidence": "none",
-        "unresolved": "no process chain recorded for the session"
+        "unresolved": "no ancestor process owns an AeroSpace window"
       },
       "entrypoint": "cli",
       "model": "claude-opus-4-8",
@@ -65,7 +65,7 @@
       "host": {
         "via": "none",
         "confidence": "none",
-        "unresolved": "no process chain recorded for the session"
+        "unresolved": "no ancestor process owns an AeroSpace window"
       },
       "entrypoint": "cli",
       "version": "2.1.289",
@@ -90,7 +90,7 @@
       "host": {
         "via": "none",
         "confidence": "none",
-        "unresolved": "no process chain recorded for the session"
+        "unresolved": "no ancestor process owns an AeroSpace window"
       },
       "entrypoint": "cli",
       "model": "claude-opus-4-8",
@@ -145,7 +145,7 @@
       "host": {
         "via": "none",
         "confidence": "none",
-        "unresolved": "no process chain recorded for the session"
+        "unresolved": "no ancestor process owns an AeroSpace window"
       },
       "model": "gpt-5-codex",
       "branch": "main",
@@ -172,7 +172,7 @@
       "host": {
         "via": "none",
         "confidence": "none",
-        "unresolved": "no process chain recorded for the session"
+        "unresolved": "no ancestor process owns an AeroSpace window"
       },
       "model": "gpt-5-codex",
       "branch": "feature/login",
@@ -216,7 +216,7 @@
           "host": {
             "via": "none",
             "confidence": "none",
-            "unresolved": "no process chain recorded for the session"
+            "unresolved": "no ancestor process owns an AeroSpace window"
           },
           "lane_key": "4110-1790000000",
           "process_key": "4110-1790000000",
@@ -253,7 +253,7 @@
       "host": {
         "via": "none",
         "confidence": "none",
-        "unresolved": "no process chain recorded for the session"
+        "unresolved": "no ancestor process owns an AeroSpace window"
       },
       "model": "example-model",
       "version": "1.18.26",
@@ -293,7 +293,7 @@
       "host": {
         "via": "none",
         "confidence": "none",
-        "unresolved": "no process chain recorded for the session"
+        "unresolved": "no ancestor process owns an AeroSpace window"
       },
       "model": "example-model",
       "version": "1.18.26",

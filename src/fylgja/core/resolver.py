@@ -510,7 +510,8 @@ class Resolver:
         self._locator = locator
         self._clock = clock
         self._focus_time = focus_time
-        self._ancestry: dict[str, tuple[ProcessRef, ...]] = {}
+        self._ancestry: dict[str, tuple[str, tuple[ProcessRef, ...]]] = {}
+        """Session key to the collector that sent the chain, and the chain."""
         self._cmux_ids: dict[str, CmuxIds] = {}
         self.on_ids_changed: Callable[[], None] | None = None
         """Called when a hook brought cmux ids a session did not have, so a refresh can use them."""
@@ -519,12 +520,15 @@ class Resolver:
         """Remember the ancestor chains of the sessions a record lists."""
         if isinstance(record, SessionSnapshot):
             for item in record.items:
-                self._remember(item.payload)
+                self._remember(record.source, item.payload)
             if record.complete:
+                # A complete snapshot closes the sessions of its own collector only.
                 live = {f"{item.payload.kind}:{item.payload.native_id}" for item in record.items}
-                self._ancestry = {k: v for k, v in self._ancestry.items() if k in live}
+                self._ancestry = {
+                    k: v for k, v in self._ancestry.items() if k in live or v[0] != record.source
+                }
         elif isinstance(record, SessionEvent):
-            self._remember(record.payload)
+            self._remember(record.source, record.payload)
         elif isinstance(record, HookEvent):
             ids = cmux_ids_from_env(record.payload.ids)
             if ids is not None and self._cmux_ids.get(record.entity_id) != ids:
@@ -532,9 +536,9 @@ class Resolver:
                 if self.on_ids_changed is not None:
                     self.on_ids_changed()
 
-    def _remember(self, payload: SessionPayload) -> None:
+    def _remember(self, source: str, payload: SessionPayload) -> None:
         if payload.ancestry:
-            self._ancestry[f"{payload.kind}:{payload.native_id}"] = payload.ancestry
+            self._ancestry[f"{payload.kind}:{payload.native_id}"] = (source, payload.ancestry)
 
     def observe_cmux_ids(self, session_key: str, ids: CmuxIds) -> None:
         """Remember the hook-time cmux ids of a session (A3); they make the join exact."""
@@ -558,7 +562,7 @@ class Resolver:
         """Resolve from the live view and write what changed. Returns the resolution."""
         snapshot = self._view.snapshot()
         inputs = [
-            session_input(row, self._ancestry.get(key, ()), self._cmux_ids.get(key))
+            session_input(row, self._ancestry.get(key, ("", ()))[1], self._cmux_ids.get(key))
             for key, row in snapshot.sessions.items()
         ]
         facts = {
