@@ -57,6 +57,7 @@ async def test_three_callers_never_exceed_two_slots(tmp_path: Path) -> None:
         (OSError("boom"), "spawn_failed"),
         (ValueError("odd"), "runner_error"),
         (RunOutput(1, "partial"), "nonzero_exit"),
+        (RunOutput(0, "  \n "), "empty_output"),
     ],
 )
 async def test_failures_map_to_error_kinds(
@@ -114,3 +115,13 @@ def test_a_gate_without_a_runner_calls_haiku() -> None:
         "haiku",
         "--strict-mcp-config",
     ]
+
+
+async def test_an_unexpected_runner_failure_logs_its_type_only(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    gate = gate_in(tmp_path, FakeRunner([ValueError("prompt text")]))
+    assert await call(gate) == ModelOutcome(error_kind="runner_error")
+    (record,) = caplog.records
+    assert record.getMessage() == "the model runner failed: ValueError"
+    assert record.exc_info is None

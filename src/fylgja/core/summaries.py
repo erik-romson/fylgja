@@ -692,7 +692,8 @@ class ModelGate:
     together they never run more than ``max_concurrent`` calls.
 
     The gate does not look at ``[summaries] enabled``, redacts nothing and parses nothing: it
-    returns raw stdout. Call every method on the event loop thread.
+    returns raw stdout, or ``empty_output`` when that is blank. Call every method on the event
+    loop thread.
     """
 
     def __init__(
@@ -748,11 +749,13 @@ class ModelGate:
             return ModelOutcome(error_kind="not_installed")
         except OSError:
             return ModelOutcome(error_kind="spawn_failed")
-        except Exception:
-            logger.exception("the summary runner failed")
+        except Exception as exc:  # the type only: a traceback could carry journal content
+            logger.warning("the model runner failed: %s", type(exc).__name__)
             return ModelOutcome(error_kind="runner_error")
         if result.returncode != 0:
             return ModelOutcome(error_kind="nonzero_exit")
+        if not result.stdout.strip():
+            return ModelOutcome(error_kind="empty_output")
         return ModelOutcome(stdout=result.stdout)
 
     async def _race(self, call: Awaitable[RunOutput]) -> RunOutput:

@@ -381,6 +381,8 @@ def journal(
     """
     if sum((thread is not None, here, list_threads)) > 1:
         _fail("give a thread id, --here or --list (not several)", EXIT_CONFIG)
+    if days is not None and not list_threads:
+        _fail("--days needs --list", EXIT_CONFIG)
     if list_threads:
         query = f"?days={days}" if days is not None else ""
         payload = _fetch(f"/journal/threads{query}", on_api_error=_journal_error)

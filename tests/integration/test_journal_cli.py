@@ -155,6 +155,13 @@ def test_two_selectors_are_a_usage_error() -> None:
     assert daemon.requests == []
 
 
+def test_days_without_list_is_a_usage_error() -> None:
+    result, daemon = invoke({}, "--days", "30")
+    assert result.exit_code == 2
+    assert "--days needs --list" in result.output
+    assert daemon.requests == []
+
+
 def test_a_daemon_that_is_down_exits_3(down_port: int) -> None:  # noqa: F811
     result = runner.invoke(app, ["journal"])
     assert result.exit_code == client.EXIT_DAEMON_DOWN
