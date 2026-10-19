@@ -71,6 +71,7 @@ __all__ = [
     "parse_cmux_store",
     "parse_cmux_version",
     "parse_recent_projects",
+    "folder_names",
     "path_contains",
     "title_project",
     "version_is_tested",
@@ -585,9 +586,17 @@ def window_match(title: str, project: JetBrainsProject, home: str) -> str | None
     if clash:
         same = clash["path"].replace("~", home, 1).rstrip("/") == project.path
         return "path" if same else None
-    names = {title_project(project.frame_title), project.ide_name, os.path.basename(project.path)}
+    names = {title_project(project.frame_title), project.ide_name, *folder_names(project.path)}
     names.discard("")
     return "name" if shown in names else None
+
+
+def folder_names(path: str) -> tuple[str, ...]:
+    """The names a window title shows for a project folder: ``<directory>`` and
+    ``<parent> <directory>`` (the IDE's title when the project name differs from the directory)."""
+    base = os.path.basename(path)
+    parent = os.path.basename(os.path.dirname(path))
+    return (base, f"{parent} {base}") if parent else (base,)
 
 
 class JetBrainsHost:
@@ -609,7 +618,7 @@ class JetBrainsHost:
         stem = jetbrains_stem_for(windows[0].app_bundle_id or "")
         matching = [p for p in self._projects.get(stem, ()) if path_contains(p.path, cwd)]
         if not matching:
-            return _unresolved(self.kind, "no opened JetBrains project contains the cwd")
+            return self._join_by_title(cwd, windows)
         project = max(matching, key=lambda p: len(p.path))  # the longest prefix wins
         extra: dict[str, Any] = {"host_ref": project.path, "host_project": project.path}
         matches = [(w, window_match(w.title or "", project, self._home)) for w in windows]
@@ -640,6 +649,35 @@ class JetBrainsHost:
             note=f"{len(candidates)} windows share the project name",
             **extra,
         )
+
+    def _join_by_title(self, cwd: str, windows: Sequence[WindowRow]) -> Join:
+        """A project the IDE opened after it last saved ``recentProjects.xml``: the nearest folder
+        of the cwd (below the home directory) whose name a window title shows, at ``medium``."""
+        folder = cwd
+        while path_contains(self._home, folder) and folder != self._home:
+            names = folder_names(folder)
+            candidates = [w for w in windows if title_project(w.title or "") in names]
+            extra: dict[str, Any] = {"host_ref": folder, "host_project": folder}
+            if len(candidates) == 1:
+                window = candidates[0]
+                return Join(
+                    host=self.kind,
+                    via=VIA_PROJECT_PATH,
+                    confidence=MEDIUM,
+                    window_id=window.window_id,
+                    workspace=window.workspace,
+                    **extra,
+                )
+            if candidates:
+                return _workspace_level(
+                    self.kind,
+                    candidates,
+                    via=VIA_PROJECT_PATH,
+                    note=f"{len(candidates)} windows share the project name",
+                    **extra,
+                )
+            folder = os.path.dirname(folder)
+        return _unresolved(self.kind, "no opened JetBrains project contains the cwd")
 
 
 def load_jetbrains(fs: FileSystem, home: str) -> dict[str, tuple[JetBrainsProject, ...]]:

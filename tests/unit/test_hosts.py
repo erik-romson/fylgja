@@ -569,6 +569,22 @@ def test_jetbrains_project_without_a_matching_title_on_several_workspaces_is_unr
     assert "no window title matches" in join.unresolved
 
 
+def test_jetbrains_project_opened_after_the_last_save_is_found_by_its_title() -> None:
+    windows = [
+        window("1", "2", PYCHARM, 10, title="cbslink main – a.py"),
+        window("2", "4", PYCHARM, 10, title="cbslink CBS-2 – b.py"),
+    ]
+    session = _session(cwd=f"{HOME}/w/cbslink/CBS-2/src")
+    join = _jb(JetBrainsProject(f"{HOME}/w/cbslink/main")).join(session, windows)
+    assert (join.window_id, join.workspace, join.confidence) == ("2", "4", "medium")
+    assert join.host_ref == f"{HOME}/w/cbslink/CBS-2"
+    shared = [
+        window("1", "2", PYCHARM, 10, title="CBS-2"),
+        window("2", "2", PYCHARM, 10, title="CBS-2"),
+    ]
+    assert _jb().join(session, shared).window_id is None
+
+
 def test_jetbrains_reasons_for_no_project() -> None:
     windows = [window("1", "2", PYCHARM, 10, title="x")]
     assert _jb().join(_session(cwd=""), windows).unresolved == "session has no cwd"

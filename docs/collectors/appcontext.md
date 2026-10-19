@@ -56,6 +56,7 @@ this order:
 | several have it and exactly one is `opened` | high | `recentProjects.xml:opened` |
 | several are open (or none is) and exactly one `frameTitle` equals the window title | medium | `recentProjects.xml:frameTitle` |
 | otherwise the newest open entry (the newest of all when none is open) | medium | `recentProjects.xml` |
+| no entry has it, the name is `<parent> <directory>`, and exactly one listed project's parent folder is called `<parent>` and holds `<directory>` (decision 0062) | medium | `recentProjects.xml:sibling` |
 
 The project name in the title matches an entry by any name the IDE shows for it, ignoring case: its `displayName`, its
 `frameTitle`, the project its `frameTitle` names (`alpha main` in `alpha main – notes.md`), its directory name (`main`)

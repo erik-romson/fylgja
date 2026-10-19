@@ -948,6 +948,26 @@ def test_jetbrains_parsing_edge_cases() -> None:
     assert parse.jetbrains_product_prefixes("com.google.android.studio") == ()
 
 
+def test_a_project_opened_after_the_last_save_is_found_next_to_its_siblings() -> None:
+    listed = [
+        parse.JetBrainsProject("/w/cbslink/main", ("cbslink main",)),
+        parse.JetBrainsProject("/w/cbslink/CBS-1", ("cbslink CBS-1",)),
+        parse.JetBrainsProject("/w/other/main", ("other main",)),
+    ]
+    dirs = {"/w/cbslink/CBS-2", "/w/other/CBS-2"}
+    fields = {"project": "cbslink CBS-2"}
+    assert parse.resolve_jetbrains_project(fields, listed, "/h", is_dir=dirs.__contains__) == (
+        "/w/cbslink/CBS-2",
+        "medium",
+        "recentProjects.xml:sibling",
+    )
+    assert parse.resolve_jetbrains_project(fields, listed, "/h") is None  # nothing to check with
+    missing = {"project": "cbslink CBS-3"}
+    assert parse.resolve_jetbrains_project(missing, listed, "/h", is_dir=dirs.__contains__) is None
+    bare = {"project": "CBS-2"}
+    assert parse.resolve_jetbrains_project(bare, listed, "/h", is_dir=dirs.__contains__) is None
+
+
 def test_obsidian_parsing_edge_cases() -> None:
     assert parse.parse_obsidian_vaults("[]") is None
     assert parse.parse_obsidian_vaults('{"vaults": []}') is None

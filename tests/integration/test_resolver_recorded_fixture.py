@@ -169,7 +169,7 @@ def test_resolver_agrees_with_the_spike_table_on_every_row(
 def test_the_unresolved_rows_say_why(capture: Capture) -> None:
     resolution = capture.resolve()
     unresolved = [p for p in resolution.sessions.values() if p.unresolved]
-    assert len(unresolved) == 3
+    assert len(unresolved) == 1
     assert {p.host_kind for p in unresolved} == {"jetbrains"}
     assert all("window" in (p.unresolved or "") for p in unresolved)
     assert all(p.via == "none" and p.confidence == "none" for p in unresolved)

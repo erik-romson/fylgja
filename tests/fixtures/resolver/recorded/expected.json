@@ -10,13 +10,13 @@
     "project": "coverage-cc-skill",
     "host": "jetbrains",
     "bundle_id": "com.jetbrains.pycharm",
-    "window_id": null,
-    "workspace": null,
-    "via": "none",
-    "confidence": "none",
+    "window_id": 2569,
+    "workspace": "11",
+    "via": "chain+project-path",
+    "confidence": "medium",
     "cmux_ids": {},
     "note": "",
-    "unresolved": "project is open but no window title matches it"
+    "unresolved": null
   },
   {
     "pid": 14936,
@@ -200,13 +200,13 @@
     "project": "main",
     "host": "jetbrains",
     "bundle_id": "com.jetbrains.pycharm",
-    "window_id": null,
-    "workspace": null,
-    "via": "none",
-    "confidence": "none",
+    "window_id": 123,
+    "workspace": "12",
+    "via": "chain+project-path",
+    "confidence": "medium",
     "cmux_ids": {},
     "note": "",
-    "unresolved": "project is open but no window title matches it"
+    "unresolved": null
   },
   {
     "pid": 57597,

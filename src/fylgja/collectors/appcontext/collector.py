@@ -391,7 +391,9 @@ class AppContextCollector:
             if not force and self._ide_seen.get(window.window_id) == seen:
                 return
             self._ide_seen[window.window_id] = seen
-            resolved = parse.resolve_jetbrains_project(fields, projects, home, title=window.title)
+            resolved = parse.resolve_jetbrains_project(
+                fields, projects, home, title=window.title, is_dir=self._inputs.fs.is_dir
+            )
         except InputError as error:
             self._failed_input(KEY_JETBRAINS, error)
             return

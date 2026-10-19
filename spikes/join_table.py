@@ -168,15 +168,17 @@ def window_match(title: str, project: Mapping[str, Any], home: str) -> str | Non
     """How does a JetBrains window title name this project: "path", "name" or not at all?
 
     JetBrains shows `<name> [<path>]` when two open projects share a name; the path then
-    decides exactly. Otherwise only the name is shown (the frame title's project part, or the
-    directory name), and two different projects can share it.
+    decides exactly. Otherwise only the name is shown (the frame title's project part, the
+    directory name, or `<parent> <directory>`), and two different projects can share it.
     """
     shown = title_project(title)
     clash = TITLE_PATH.match(shown)
     if clash:
         same = clash["path"].replace("~", home, 1).rstrip("/") == project["path"]
         return "path" if same else None
-    names = {title_project(project["frame_title"]), os.path.basename(project["path"])}
+    base = os.path.basename(project["path"])
+    parent = os.path.basename(os.path.dirname(project["path"]))
+    names = {title_project(project["frame_title"]), base, f"{parent} {base}"}
     names.discard("")
     return "name" if shown in names else None
 

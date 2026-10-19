@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
@@ -463,6 +463,7 @@ def resolve_jetbrains_project(
     home: str,
     *,
     title: str | None = None,
+    is_dir: Callable[[str], bool] | None = None,
 ) -> tuple[str, str, str] | None:
     """``(path, confidence, via)`` of the project a JetBrains title names, or ``None``.
 
@@ -474,7 +475,10 @@ def resolve_jetbrains_project(
     * several open (or none open) matches of which exactly one has a ``frameTitle`` equal to
       ``title`` is ``medium`` (``…:frameTitle``);
     * otherwise the most recently opened of the open matches (all of them when none is open) is
-      ``medium``.
+      ``medium``;
+    * with no match, a ``<parent> <directory>`` name whose directory ``is_dir`` finds next to a
+      listed project in a folder called ``<parent>`` is ``medium`` (``…:sibling``): the IDE
+      opened it after it last saved ``recentProjects.xml``.
     """
     explicit = fields.get("path")
     if explicit:
@@ -485,7 +489,7 @@ def resolve_jetbrains_project(
     wanted = name.casefold()
     matches = [p for p in projects if any(n.casefold() == wanted for n in p.names)]
     if not matches:
-        return None
+        return _sibling_project(name, projects, is_dir)
     if len(matches) == 1:
         return matches[0].path, "high", "recentProjects.xml"
     open_matches = [p for p in matches if p.opened]
@@ -498,6 +502,27 @@ def resolve_jetbrains_project(
             return framed[0].path, "medium", "recentProjects.xml:frameTitle"
     best = max(pool, key=lambda p: (p.opened_ms, p.path))
     return best.path, "medium", "recentProjects.xml"
+
+
+def _sibling_project(
+    name: str, projects: Sequence[JetBrainsProject], is_dir: Callable[[str], bool] | None
+) -> tuple[str, str, str] | None:
+    """The one existing ``<folder>/<directory>`` for a ``<parent> <directory>`` name, where
+    ``<folder>`` is the parent folder of a listed project and is called ``<parent>``."""
+    parent, _, directory = name.partition(" ")
+    if is_dir is None or not parent or not directory or "/" in directory:
+        return None
+    folders = sorted(
+        {
+            str(PurePosixPath(p.path).parent)
+            for p in projects
+            if PurePosixPath(p.path).parent.name.casefold() == parent.casefold()
+        }
+    )
+    found = [f"{folder}/{directory}" for folder in folders if is_dir(f"{folder}/{directory}")]
+    if len(found) != 1:
+        return None
+    return found[0], "medium", "recentProjects.xml:sibling"
 
 
 # --------------------------------------------------------------------------------------------
