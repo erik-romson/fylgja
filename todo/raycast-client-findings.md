@@ -10,4 +10,11 @@ The Raycast extension (`~/projects/erik-romson/fylgja-raycast/main`) ran its liv
 - [ ] `summary` is empty on most app items, so the Raycast subtitle falls back to a window title.
 - [ ] The API docs do not describe the FastAPI 422 error body with an array `detail` (it echoes `input`). Clients have
       to handle it next to the string `detail`.
+- [ ] A journal thread for a checkout without a git remote is named after its generic directory: `fylgja-raycast/main`
+      gets the name `main`, while `fylgja/main` (with a remote) gets `fylgja`. The cause: with no remote,
+      `collectors/project/state.py:310` falls back to the directory's basename for `repo_name`, and
+      `core/labels.py:project_name` returns `repo_name` before its `GENERIC_DIRECTORIES` rule, so that rule never
+      applies. The fallback should be left to `project_name` (keep `repo_name` `None` without a remote). Threads also
+      keep the name they were created with (`JournalService._name` returns the stored row name), so existing threads
+      need a rename or migration after the fix. The Raycast client now shows `folder` instead, so it is not affected.
 - [ ] Wishes from the Raycast brief: `bundle_id` and the host app on `ItemPlace`, and a short headline per item.
