@@ -199,6 +199,24 @@ def test_render_items_groups_by_day_and_flags_a_fallback() -> None:
     assert lines[8] == "  Example · — · 0s · — · —"
 
 
+def test_render_items_strips_control_characters() -> None:
+    payload = {
+        "ranker": "natural",
+        "items": [
+            {
+                "id": "a",
+                "name": "re\x9bpo\x1b]52;c;cm0gLXJm\x07",
+                "places": [{"label": "IDE\x1b[2J"}],
+                "summary": "on\x1b[31m main",
+            }
+        ],
+        "days": [{"day": "2026-10-05", "items": ["a"]}],
+    }
+    lines = render.render_items(payload, 100).splitlines()
+    assert lines[3] == "  repo]52;c;cm0gLXJm · — · 0s · IDE[2J · —"
+    assert lines[4] == "    on[31m main"
+
+
 def test_render_items_without_items_says_so() -> None:
     assert render.render_items({"ranker": "natural", "items": [], "days": []}).endswith("no items")
 

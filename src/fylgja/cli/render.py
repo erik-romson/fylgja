@@ -430,7 +430,7 @@ def render_items(payload: Row, width: int = DEFAULT_WIDTH) -> str:
             parts += _item_lines(item, width)
     if not by_id:
         parts += ["", "no items"]
-    return "\n".join(parts)
+    return _printable("\n".join(parts))
 
 
 def _item_lines(item: Row, width: int) -> list[str]:
