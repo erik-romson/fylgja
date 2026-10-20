@@ -506,7 +506,6 @@ BAD = {
     "four-next-adds": reply(add=adds(4)),
     "long-add-text": reply(add=[{"kind": "next", "text": "t" * 101}]),
     "five-did-lines": reply(did=[f"line {n}" for n in range(5)]),
-    "three-sentences": reply(where="You did one. You did two. You did three."),
     "string-skip": reply(skip="true"),
     "unknown-kind": reply(add=[{"kind": "idea", "text": "An idea"}]),
     "headline-not-a-string": reply(headline=7),
@@ -552,7 +551,22 @@ def test_null_optional_keys_count_as_absent() -> None:
 def test_a_where_of_two_sentences_without_a_final_stop_parses() -> None:
     parsed = parse_reply(reply(where="You fixed v1.2 today. Next, the docs"), subject(), no_redact)
     assert parsed is not None
-    assert parse_reply(reply(where="One. Two. Three"), subject(), no_redact) is None
+    assert parsed.where == "You fixed v1.2 today. Next, the docs"
+
+
+@pytest.mark.parametrize(
+    ("where", "kept"),
+    [
+        ("You did one. You did two. You did three.", "You did one. You did two."),
+        ("One! Two?  Three", "One! Two?"),
+        ("One. Two. " + "t" * 300, "One. Two."),
+    ],
+    ids=["three-sentences", "no-final-stop", "long-third-sentence"],
+)
+def test_a_where_of_more_than_two_sentences_keeps_the_first_two(where: str, kept: str) -> None:
+    parsed = parse_reply(reply(where=where), subject(), no_redact)
+    assert parsed is not None
+    assert parsed.where == kept
 
 
 def test_whitespace_is_collapsed_before_the_length_caps() -> None:

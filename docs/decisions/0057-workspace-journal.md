@@ -35,7 +35,8 @@ and that plain code keeps as a ledger of open items.
   a bounded ledger, in at most 8192 bytes. Every entry and item cites sources.
 - **Prompt and reply (J10, J11).** Haiku (D9) writes JSON; `parse_reply` takes the first `{` to the last `}`
   (Assumption 28), validates every type and cap, redacts per field (Assumption 16) and rejects the whole reply
-  on any violation.
+  on any violation. One exception: a `where` of more than two sentences keeps its first two, because Haiku
+  often writes three.
 - **Merge and write (J12, J13).** Plain code merges the ledger inside the writer job, so a person's change wins.
   One transaction per attempt writes thread, entry and items.
 - **Failures and logs (J14).** Error kinds are the gate's plus `bad_output`. Logs carry ids, triggers and counts only.

@@ -1121,10 +1121,13 @@ def _list(value: Any, most: int) -> list[Any]:
     return value
 
 
-def _sentences(text: str) -> int:
+def _first_sentences(value: Any, most: int) -> Any:
+    """A text value cut after its ``most``-th sentence; any other value as it is."""
+    if not isinstance(value, str):
+        return value
+    text = _collapse(value)
     ends = list(_SENTENCE_END.finditer(text))
-    trailing = text[ends[-1].end() :].strip() if ends else text.strip()
-    return len(ends) + (1 if trailing else 0)
+    return text[: ends[most - 1].end()] if len(ends) >= most else text
 
 
 def _source_id(value: Any) -> str | None:
@@ -1195,9 +1198,9 @@ def parse_reply(text: str, inputs: JournalInputs, redact: Callable[[str], str]) 
 
     The object is the text from the first ``{`` to the last ``}`` after a single fenced block is
     unwrapped. Every text value is whitespace-collapsed and redacted before its length is
-    checked. Unknown source ids fall back to ``S1`` (adds) or are dropped (entry-level); closes
-    of ids the input does not list are dropped. An optional key set to ``null`` counts as
-    absent.
+    checked. A ``where`` of more than two sentences keeps the first two. Unknown source ids
+    fall back to ``S1`` (adds) or are dropped (entry-level); closes of ids the input does not
+    list are dropped. An optional key set to ``null`` counts as absent.
     """
     found = _object(text)
     if found is None:
@@ -1209,9 +1212,9 @@ def parse_reply(text: str, inputs: JournalInputs, redact: Callable[[str], str]) 
         if skip:
             return Reply(skip=True)
         headline = _string(found.get("headline"), HEADLINE_MAX_CHARS, redact)
-        where = _string(found.get("where"), WHERE_MAX_CHARS, redact)
-        if _sentences(where) > WHERE_MAX_SENTENCES:
-            raise _Bad
+        where = _string(
+            _first_sentences(found.get("where"), WHERE_MAX_SENTENCES), WHERE_MAX_CHARS, redact
+        )
         cites = _cites(found, inputs)
         did_raw = _optional(found, "did")
         did = (
