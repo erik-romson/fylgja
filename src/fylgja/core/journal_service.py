@@ -39,7 +39,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final, Protocol, cast
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, cast
 
 from fylgja.collectors.base import Clock
 from fylgja.collectors.seams import FileSystem, PathResolver, ProcessRunner
@@ -90,6 +90,7 @@ from fylgja.core.journal import (
 )
 from fylgja.core.labels import project_name
 from fylgja.core.live_view import Change, Collection, LiveUpdate, LiveView
+from fylgja.core.one_liner import WAITING_STATES
 from fylgja.core.span_window import SpanWindow
 from fylgja.core.spans import Action, Closed, Opened
 from fylgja.core.summaries import MODEL, ModelGate, input_digest, normalize
@@ -121,8 +122,10 @@ __all__ = [
     "ItemResult",
     "JournalError",
     "JournalService",
+    "CLOSED_BY_FYLGJA",
     "JournalTracker",
     "LiveRows",
+    "Resumed",
     "ThreadBrief",
     "ThreadIdentity",
     "ThreadNotFound",
@@ -156,6 +159,21 @@ _NOT_INPUT: Final = frozenset({"seen", "ended"})
 _ENDED: Final = "ended"
 _RUN_OUTCOMES: Final = frozenset({"passed", "failed", "cancelled"})
 """The states a finished run ends in (decision 0056); ``stale`` is not one."""
+CLOSED_BY_FYLGJA: Final = "fylgja"
+"""The ``closed_by`` of a blocked item the daemon closed itself (decision 0063)."""
+
+
+def _went_on(state: str | None) -> bool:
+    """A session that waited for the person and is now in ``state`` went on (decision 0063)."""
+    return state is not None and state not in WAITING_STATES and state != _ENDED
+
+
+class Resumed(NamedTuple):
+    """A session that went on after waiting for the person (decision 0063)."""
+
+    session_key: str
+    waiting_since: datetime | None
+    """When it began to wait: a blocked item added before then is about something else."""
 
 
 class LiveRows(Protocol):
@@ -209,6 +227,8 @@ class _Session:
     child: bool
     state: str | None
     source: Source
+    since: datetime | None = None
+    """The session's ``state_since``."""
     ended: bool = False
     """Its ``session_end`` was taken (fired, dropped on a clean thread, or ignored while the
     checkout had no thread): it fires once per session key."""
@@ -223,6 +243,7 @@ class _Session:
             child=row.parent_key is not None,
             state=row.state,
             source=session_source(row),
+            since=row.state_since,
             ended=row.state == _ENDED,
             finished=frozenset({row.state_since}) if row.state in _RUN_OUTCOMES else frozenset(),
         )
@@ -331,18 +352,21 @@ class JournalTracker:
 
     def observe(
         self, update: LiveUpdate, view: LiveRows, *, linked: Container[str] = frozenset()
-    ) -> None:
+    ) -> tuple[Resumed, ...]:
         """Take one live-view update (J2, J3). ``view`` is the live view after it; ``linked``
-        holds the ids of todos linked from journal items, which are never input."""
+        holds the ids of todos linked from journal items, which are never input. Returns the
+        sessions that went on after waiting for the person, children too (decision 0063)."""
+        resumed: list[Resumed] = []
         for change in update.changes:
             if change.collection is Collection.SESSIONS:
-                self._session(change, view)
+                self._session(change, view, resumed)
             elif change.collection is Collection.ACTIVITY:
                 self._activity(change, view)
             elif change.collection is Collection.PROJECTS:
                 self._project(change)
             elif change.collection is Collection.TODOS:
                 self._todo(change, view, linked)
+        return tuple(resumed)
 
     def on_span(self, action: Action) -> None:
         """Take one focus span action (J4): visits and ``focus_left``."""
@@ -414,7 +438,7 @@ class JournalTracker:
 
     # -- changes ------------------------------------------------------------------------------
 
-    def _session(self, change: Change, view: LiveRows) -> None:
+    def _session(self, change: Change, view: LiveRows, resumed: list[Resumed]) -> None:
         memo = self._memo.sessions
         before = memo.get(change.key)
         row = change.row
@@ -440,6 +464,10 @@ class JournalTracker:
             previous = None if before is None else before.state
             if state == _TURN_DONE or (state == _IDLE and previous in _BUSY):
                 self._boundary(path, "turn_done", now.source)
+        if changed and before is not None and before.state in WAITING_STATES and _went_on(state):
+            resumed.append(Resumed(change.key, before.since))
+            if not now.child:
+                self._boundary(path, "resumed", now.source)
         if not now.child and state == _ENDED and not now.ended:
             now = replace(now, ended=True)
             self._boundary(path, "session_end", now.source)
@@ -738,6 +766,8 @@ class _Window:
     intervals: tuple[ActivityIntervalRow, ...]
     todos: tuple[TodoRow, ...]
     open_items: tuple[JournalItemRow, ...]
+    waiting_at_start: frozenset[str] = frozenset()
+    """The checkout's sessions that waited for the person at the window's start."""
 
 
 @dataclass(frozen=True)
@@ -947,8 +977,9 @@ class JournalService:
         self._wake.set()
 
     def observe(self, update: LiveUpdate) -> None:
-        """Take one live-view update (the writer's callback): the tracker only, then a wake."""
-        self.tracker.observe(update, self._view, linked=self._linked)
+        """Take one live-view update (the writer's callback): the tracker, a job per linked todo
+        that left and per session that went on after waiting, then a wake."""
+        resumed = self.tracker.observe(update, self._view, linked=self._linked)
         if not self._closed:
             for change in update.changes:
                 if (
@@ -957,6 +988,8 @@ class JournalService:
                     and change.key in self._linked
                 ):
                     self._spawn(self._todo_gone(change.key))
+            for session in resumed:
+                self._spawn(self._session_resumed(session))
         self.wake()
 
     def on_span(self, action: Action) -> None:
@@ -1150,7 +1183,7 @@ class JournalService:
             as_of=capture.as_of,
             trigger=capture.trigger,
             trigger_source=capture.source,
-            sessions=_session_parts(window.intervals, view),
+            sessions=_session_parts(window.intervals, view, window.waiting_at_start),
             run_outcome=_run_outcome(capture),
             run_sections=_run_sections(capture),
             commits=commits,
@@ -1177,6 +1210,13 @@ class JournalService:
                     queries.todos_between(connection, scope_ref=root, since=since, until=until)
                 ),
                 open_items=tuple(queries.list_journal_items(connection, tid, statuses=_OPEN)),
+                waiting_at_start=frozenset(
+                    key
+                    for key, state in queries.activity_states_at(
+                        connection, project_path=root, at=since
+                    ).items()
+                    if state in WAITING_STATES
+                ),
             )
         finally:
             connection.close()
@@ -1370,6 +1410,41 @@ class JournalService:
             if acted.item.todo_id is None:
                 self._linked.discard(todo_id)
             self._result(acted)
+
+    async def _session_resumed(self, resumed: Resumed) -> None:
+        """A session went on after waiting for the person (decision 0063): the open blocked items
+        it is the source of, added since it began to wait, are done with ``closed_by = fylgja``.
+        An item the person kept or edited stays open, as in the merge (J12)."""
+        now = self._clock.now()
+        try:
+            changed = await self._writer.execute(lambda tx: self._close_blocked(tx, resumed, now))
+        except WriterClosed:
+            return
+        except Exception as error:
+            self._failed_once("closing the blocked items of a resumed session", error)
+            return
+        for acted in changed:
+            self._result(acted)
+
+    def _close_blocked(self, tx: Tx, resumed: Resumed, now: datetime) -> list[_Acted]:
+        connection = tx.connection
+        found: list[_Acted] = []
+        for item in queries.load_open_journal_items(connection):
+            source = item.source
+            if (
+                item.kind != "blocked"
+                or item.pinned
+                or item.edited
+                or source.get("kind") != "session"
+                or source.get("ref") != resumed.session_key
+                or (resumed.waiting_since is not None and item.created_at < resumed.waiting_since)
+            ):
+                continue
+            row = replace(
+                item, status="done", closed_by=CLOSED_BY_FYLGJA, closed_at=now, closed_entry=None
+            )
+            found.append(self._store_item(connection, item, row))
+        return found
 
     def _reconcile_all(self, tx: Tx) -> None:
         self._reconcile(tx, None)
@@ -1783,8 +1858,14 @@ def _facts(facts: Mapping[str, Any] | None) -> tuple[list[str], list[str], list[
     return names, open_tasks, done_tasks
 
 
-def _session_parts(intervals: Sequence[ActivityIntervalRow], view: StateView) -> list[SessionPart]:
-    """J8 section 1, from the intervals of the window (oldest first) and the live facts."""
+def _session_parts(
+    intervals: Sequence[ActivityIntervalRow],
+    view: StateView,
+    waiting_at_start: Container[str] = frozenset(),
+) -> list[SessionPart]:
+    """J8 section 1, from the intervals of the window (oldest first) and the live facts. A session
+    that waited at the window's start or in it, and whose newest state goes on, stopped waiting
+    (decision 0063)."""
     by_session: dict[str, list[ActivityIntervalRow]] = {}
     for interval in intervals:
         by_session.setdefault(interval.session_key, []).append(interval)
@@ -1793,6 +1874,7 @@ def _session_parts(intervals: Sequence[ActivityIntervalRow], view: StateView) ->
         newest = rows[-1]
         extras = view.sessions.get(key)
         files, open_tasks, done_tasks = _facts(None if extras is None else extras.facts)
+        waited = key in waiting_at_start or any(row.state in WAITING_STATES for row in rows)
         parts.append(
             SessionPart(
                 key=key,
@@ -1808,6 +1890,7 @@ def _session_parts(intervals: Sequence[ActivityIntervalRow], view: StateView) ->
                 files=tuple(files),
                 open_tasks=tuple(open_tasks),
                 done_tasks=tuple(done_tasks),
+                stopped_waiting=waited and _went_on(newest.state),
             )
         )
     return parts

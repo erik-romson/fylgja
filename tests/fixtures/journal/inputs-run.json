@@ -14,7 +14,8 @@
       "last_at": "2026-10-18T11:29:00+00:00",
       "title": "implement report cuts",
       "state": "passed",
-      "stages": ["implement", "review", "verify"]
+      "stages": ["implement", "review", "verify"],
+      "stopped_waiting": true
     },
     {
       "key": "claude:demo-agent",

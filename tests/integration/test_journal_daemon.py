@@ -998,3 +998,71 @@ async def test_a_project_todo_is_input_and_a_source_of_its_window() -> None:
         await w.advance(120)
         assert len(w.runner.calls) == 2
         assert "todo done: Ship the form" in w.runner.calls[1].prompt
+
+
+# --------------------------------------------------------------------------------------------
+# A session that goes on after waiting (decision 0063)
+# --------------------------------------------------------------------------------------------
+
+
+async def test_a_session_that_goes_on_after_waiting_closes_its_blockers_and_gets_an_entry() -> None:
+    blockers = [
+        {"kind": "blocked", "text": "The agent waits for your permission", "source": "S2"},
+        {"kind": "blocked", "text": "The thread waits for a review", "source": "S1"},
+    ]
+    runner = FakeRunner([RunOutput(0, reply(add=blockers))], default=reply())
+    async with world(runner) as w:
+        await w.hook(A, "PermissionRequest")
+        await w.advance(10)
+        assert await w.journal.refresh(MAIN_ID) == "pending"
+        await w.quiet()
+        open_blockers = [item for item in stored(w.daemon).items if item.kind == "blocked"]
+        assert [(item.source["ref"], item.status) for item in open_blockers] == [
+            (A, "open"),
+            (MAIN_ID, "open"),
+        ]
+        w.changed.clear()
+
+        await w.until(100)
+        await w.hook(A, "PostToolUse")
+        by_ref = {item.source["ref"]: item for item in stored(w.daemon).items}
+        closed = by_ref[A]
+        assert (closed.status, closed.closed_by, closed.closed_entry) == ("done", "fylgja", None)
+        assert closed.closed_at == w.clock.now()
+        assert by_ref[MAIN_ID].status == "open"  # another source: not this session's blocker
+        assert w.changed == [MAIN_ID]
+        brief = w.journal.brief(MAIN_ID)
+        assert brief is not None
+        assert [item.source["ref"] for item in brief.open_items if item.kind == "blocked"] == [
+            MAIN_ID
+        ]
+
+        await w.until(609)
+        assert len(w.runner.calls) == 1  # the interval since the refresh at 10
+        await w.until(610)
+        assert len(w.runner.calls) == 2
+        assert [entry.trigger for entry in stored(w.daemon).entries] == ["manual", "resumed"]
+        prompt = w.runner.calls[1].prompt
+        assert "S1 what started this entry, a session went on after waiting for you" in prompt
+        assert "  It waited for you, then went on." in prompt
+
+
+async def test_a_blocker_added_before_the_wait_or_kept_by_the_person_stays_open() -> None:
+    blocker = {"kind": "blocked", "text": "The agent waits for your permission", "source": "S2"}
+    runner = FakeRunner([RunOutput(0, reply(add=[blocker]))], default=reply())
+    async with world(runner) as w:
+        assert await w.journal.refresh(MAIN_ID) == "pending"  # before the wait
+        await w.quiet()
+        (early,) = stored(w.daemon).items
+        await w.until(700)
+        await w.hook(A, "PermissionRequest")
+        await w.advance(10)
+        blocker["text"] = "The agent still waits for your permission"
+        runner.script.append(RunOutput(0, reply(add=[blocker])))
+        assert await w.journal.refresh(MAIN_ID) == "pending"
+        await w.quiet()
+        kept = next(item for item in stored(w.daemon).items if item.id != early.id)
+        assert early.source["ref"] == kept.source["ref"] == A
+        await w.journal.patch_item(kept.id, pinned=True)
+        await w.hook(A, "PostToolUse")
+        assert [item.status for item in stored(w.daemon).items] == ["open", "open"]

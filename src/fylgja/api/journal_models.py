@@ -70,7 +70,7 @@ class JournalItem(NowModel):
     source: JournalSource
     created_at: AwareDatetime
     closed_at: AwareDatetime | None = None
-    closed_by: Literal["model", "user"] | None = None
+    closed_by: Literal["model", "user", "fylgja"] | None = None
     todo_id: str | None = None
     """The Fylgja todo made from the item."""
     has_how: bool

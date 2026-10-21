@@ -26,7 +26,7 @@ from fylgja.core.journal import (
     highest_trigger,
     thread_id,
 )
-from fylgja.core.journal_service import JournalTracker
+from fylgja.core.journal_service import JournalTracker, Resumed
 from fylgja.core.live_view import Change, Collection, LiveUpdate, LiveView
 from fylgja.core.spans import Closed, Dropped, Opened
 from fylgja.store.rows import (
@@ -235,6 +235,8 @@ class World:
         self.clock = Clock()
         self.view = LiveView()
         self.version = 0
+        self.resumed: list[Resumed] = []
+        """What every ``observe`` returned, in order."""
         seeded: list[StoreRow] = [project(), session(A)] if default else []
         seeded += rows
         self.view.apply(Change(_COLLECTIONS[type(row)], _key(row), row) for row in seeded)
@@ -252,7 +254,8 @@ class World:
         self.clock.t = t
         self.view.apply(changes)
         self.version += 1
-        self.tracker.observe(LiveUpdate(self.version, changes), self.view, linked=set(linked))
+        update = LiveUpdate(self.version, changes)
+        self.resumed += self.tracker.observe(update, self.view, linked=set(linked))
 
     def put(self, t: float, row: StoreRow, *, linked: Iterable[str] = ()) -> None:
         self.change(t, Change(_COLLECTIONS[type(row)], _key(row), row), linked=linked)
@@ -446,6 +449,49 @@ def test_08_idle_to_idle_with_unchanged_activity_is_not_dirty() -> None:
         Change(Collection.ACTIVITY, "codex:y", activity("codex:y", prompt="same", valid_from=10)),
     )
     assert world.states == {}
+
+
+def test_a_run_that_goes_on_after_waiting_is_resumed_without_a_quiet() -> None:
+    run = "norn:r"
+    world = World(session(run, state="running"))
+    world.entry(0)
+    world.state(100, run, "waiting_input")
+    assert world.state_of().pending == {}
+    world.state(400, run, "running")
+    assert world.resumed == [Resumed(run, at(100))]
+    assert world.state_of().pending == {"resumed": session_source(run)}
+    assert world.due(599) == Due((), 600)  # the interval since the entry at 0
+    world.prompt(590, run, "the run keeps going")  # input does not hold it back
+    assert world.due(600).threads == (DueThread(MAIN, "resumed", session_source(run)),)
+
+
+def test_a_permission_answered_is_resumed_and_a_stop_after_it_too() -> None:
+    world = World()
+    world.state(0, A, "waiting_permission")
+    world.state(10, A, "working")
+    world.state(20, A, "turn_done")
+    assert world.resumed == [Resumed(A, at(0))]
+    assert set(world.state_of().pending) == {"resumed", "turn_done"}
+    assert due_now(world, 20) == [(MAIN, "resumed")]
+
+
+def test_a_child_that_goes_on_is_resumed_but_no_boundary() -> None:
+    run = "norn:r"
+    world = World(session(run, state="running"), session("norn:c", parent=run))
+    world.state(10, "norn:c", "waiting_input")
+    world.state(20, "norn:c", "running")
+    assert world.resumed == [Resumed("norn:c", at(10))]
+    assert world.state_of().dirty
+    assert world.state_of().pending == {}
+
+
+def test_waiting_that_ends_or_keeps_waiting_is_not_resumed() -> None:
+    world = World(session("norn:r", state="waiting_input"), session("claude:b", state="waiting"))
+    world.state(10, "norn:r", "ended")
+    world.state(20, "claude:b", "waiting_permission")
+    world.state(30, A, "idle")
+    assert world.resumed == []
+    assert "resumed" not in world.state_of().pending
 
 
 def test_09_focus_alone_gives_nothing() -> None:
@@ -688,6 +734,8 @@ def test_18_cancelled_before_capture_keeps_the_thread_dirty() -> None:
 def test_the_order_of_triggers() -> None:
     assert highest_trigger("turn_done", ["focus_left", "session_end"]) == "session_end"
     assert highest_trigger("focus_left", ["turn_done"]) == "focus_left"
+    assert highest_trigger("turn_done", ["resumed"]) == "resumed"
+    assert highest_trigger("resumed", ["focus_left"]) == "focus_left"
     assert highest_trigger("session_end", ["run_finished", "branch_changed"]) == "run_finished"
     assert highest_trigger("manual", ["run_finished"]) == "manual"
     assert highest_trigger("turn_done", []) == "turn_done"

@@ -48,6 +48,7 @@ __all__ = [
     "ACTIVITY_OWNED",
     "Put",
     "PutStatus",
+    "activity_states_at",
     "checkpoint_truncate",
     "close_open_span",
     "close_stale_spans",
@@ -1826,6 +1827,14 @@ WHERE s.project_path = :project_path AND a.valid_from > :since AND a.valid_from 
 ORDER BY a.valid_from, a.id
 """
 
+ACTIVITY_STATES_AT: Final = """
+SELECT a.session_key, a.state
+FROM session_snapshots a
+JOIN sessions s ON s.session_key = a.session_key
+WHERE s.project_path = :project_path AND a.valid_from <= :at
+  AND (a.valid_to IS NULL OR a.valid_to > :at)
+"""
+
 LATEST_ACTIVITY: Final = """
 SELECT a.session_key, s.kind, s.title, s.parent_key, a.valid_from, a.state, a.last_prompt,
        a.last_reply, a.one_liner, a.open_task, a.stage
@@ -1945,6 +1954,14 @@ def load_activity_between(
         LOAD_ACTIVITY_BETWEEN, {"project_path": project_path, "since": since, "until": until}
     )
     return [ActivityIntervalRow.from_db(row) for row in found]
+
+
+def activity_states_at(
+    connection: sqlite3.Connection, *, project_path: str, at: str
+) -> dict[str, str | None]:
+    """The state of each session of one checkout in its activity interval open at ``at``."""
+    found = connection.execute(ACTIVITY_STATES_AT, {"project_path": project_path, "at": at})
+    return {row[0]: row[1] for row in found}
 
 
 def latest_activity(connection: sqlite3.Connection, session_key: str) -> ActivityIntervalRow | None:

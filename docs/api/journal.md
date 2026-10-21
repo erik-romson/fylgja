@@ -26,9 +26,10 @@ serialization rule: **a field without a value is absent, never `null`**. Lists a
 `file` source `path` and `section`. **`EntrySource`** is a `JournalSource` with `id`, the `S` id the entry cited it by.
 
 **`JournalItem`**: `id`, `kind` (`next`, `remember`, `blocked`), `text`, `status` (`open`, `done`, `dropped`), `pinned`,
-`shown`, `source`, `created_at`, `closed_at`, `closed_by` (`model` or `user`), `todo_id` and `has_how`. Open items come
-in this order within a kind: pinned first, then the newest `created_at`, then the higher sequence number. `shown` is true
-for the first three open items of a kind.
+`shown`, `source`, `created_at`, `closed_at`, `closed_by` (`model`, `user` or `fylgja`), `todo_id` and `has_how`. Open
+items come in this order within a kind: pinned first, then the newest `created_at`, then the higher sequence number.
+`shown` is true for the first three open items of a kind. `fylgja` closed a blocked item because its session went on
+after waiting for you (decision 0063).
 
 **`Where`**: `text`, `generated_at` and `state`:
 
@@ -53,8 +54,9 @@ other days), `headlines[]` (up to three entry headlines of the day, newest first
 `done` that day, newest first). The list covers the last seven local days, today included, newest first; a day with
 neither headlines nor items is left out. The days follow the local time zone, daylight saving included.
 
-**`JournalEntry`**: `trigger` (`turn_done`, `session_end`, `run_finished`, `branch_changed`, `focus_left` or `manual`),
-`started_at`, `ended_at`, `headline`, `did[]` and `sources[]` (`EntrySource`). `entries` are newest first.
+**`JournalEntry`**: `trigger` (`turn_done`, `resumed`, `session_end`, `run_finished`, `branch_changed`, `focus_left` or
+`manual`), `started_at`, `ended_at`, `headline`, `did[]` and `sources[]` (`EntrySource`). `entries` are newest first.
+`resumed` means a session went on after waiting for you (decision 0063).
 
 **`JournalHow`**: `item`, `state` (`fresh`, `stale`, `pending`, `failed`, `missing`), `steps[]`, `generated_at` and
 `error_kind`. `steps` is present whenever an answer is stored, also while `stale`, `pending` or `failed`;

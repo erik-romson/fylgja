@@ -392,7 +392,7 @@ def test_migration_from_empty_creates_every_table(db_path: Path) -> None:
     assert not db_path.exists()
     connection = db.open_store(db_path)
     try:
-        assert db.schema_version(connection) == len(db.load_migrations()) == 5
+        assert db.schema_version(connection) == len(db.load_migrations()) == 6
         tables = {
             row[0]
             for row in connection.execute(
@@ -517,7 +517,7 @@ def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
 
     again = db.open_store(db_path)  # a rerun on the migrated file is a no-op
     try:
-        assert db.schema_version(again) == 5
+        assert db.schema_version(again) == 6
         assert [row[0] for row in _summaries(again)] == [7, 8, 9, 12, 20]
         stored = queries.load_summaries(again)
         assert [
@@ -638,7 +638,7 @@ def test_migration_0005_gives_a_span_without_a_bundle_id_its_window_app(db_path:
             ],
         )
 
-        assert db.migrate(connection) == 5
+        assert db.migrate(connection, db.load_migrations()[:5]) == 5
         spans = connection.execute(
             "SELECT id, app_bundle_id, app_name FROM focus_spans ORDER BY id"
         ).fetchall()
@@ -651,6 +651,64 @@ def test_migration_0005_gives_a_span_without_a_bundle_id_its_window_app(db_path:
             (6, "com.example.later", "Later"),
         ]
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        connection.close()
+
+
+def test_migration_0006_lets_the_journal_take_resumed_and_fylgja(db_path: Path) -> None:
+    """0006 rebuilds journal_entries and journal_items with their rows: an entry may have the
+    ``resumed`` trigger and an item ``closed_by = fylgja``; other values are still refused."""
+    connection = db.connect_writer(db_path)
+    try:
+        assert db.migrate(connection, db.load_migrations()[:5]) == 5
+        noon = "2026-10-20T12:00:00.000000Z"
+        connection.execute(
+            "INSERT INTO journal_threads (thread_id, repo_root, branch, name, first_at) "
+            "VALUES ('t1', '/w/repo', 'main', 'repo', ?)",
+            (noon,),
+        )
+        entry = (
+            "INSERT INTO journal_entries (id, thread_id, started_at, ended_at, trigger, headline, "
+            "did, sources, input_digest, model, generated_at) "
+            "VALUES (?, 't1', ?, ?, ?, 'a headline', '[]', '[\"S1\"]', 'd', 'haiku', ?)"
+        )
+        connection.execute(entry, (4, noon, noon, "turn_done", noon))
+        item = (
+            "INSERT INTO journal_items (id, thread_id, seq, kind, text, status, source, "
+            "created_at, created_entry, closed_at, closed_by, closed_entry) "
+            "VALUES (?, 't1', ?, 'blocked', 'a blocker', ?, '{}', ?, 4, ?, ?, ?)"
+        )
+        connection.execute(item, ("i1", 1, "done", noon, noon, "model", 4))
+        connection.execute(item, ("i2", 2, "open", noon, None, None, None))
+        before = [
+            tuple(row) for row in connection.execute("SELECT * FROM journal_items ORDER BY seq")
+        ]
+
+        assert db.migrate(connection) == 6
+        after = [
+            tuple(row) for row in connection.execute("SELECT * FROM journal_items ORDER BY seq")
+        ]
+        assert after == before
+        entries = connection.execute("SELECT id, trigger FROM journal_entries").fetchall()
+        assert [tuple(row) for row in entries] == [(4, "turn_done")]
+        connection.execute(entry, (5, noon, noon, "resumed", noon))
+        connection.execute("UPDATE journal_items SET closed_by = 'fylgja' WHERE id = 'i2'")
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(entry, (6, noon, noon, "unknown", noon))
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("UPDATE journal_items SET closed_by = 'someone' WHERE id = 'i2'")
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(item, ("i3", 3, "open", noon, None, None, 99))  # no entry 99
+        objects = {
+            (row[0], row[1]) for row in connection.execute("SELECT type, name FROM sqlite_master")
+        }
+        assert ("index", "journal_entries_thread") in objects
+        assert ("index", "journal_items_thread") in objects
+        assert ("index", "journal_items_todo") in objects
+        for table in ("journal_entries", "journal_items"):
+            assert _columns(connection, table) == EXPECTED_COLUMNS[table]
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         connection.close()
 
