@@ -29,6 +29,7 @@ __all__ = [
     "JournalThread",
     "JournalThreads",
     "OpenItems",
+    "Recap",
     "ThreadBrief",
     "Where",
 ]
@@ -85,6 +86,15 @@ class Where(NowModel):
     state: Literal["pending", "failed", "fresh", "missing"]
     """``pending``: an attempt is running. ``failed``: the last attempt failed (earlier text is
     kept). ``fresh``: there is text. ``missing``: otherwise."""
+
+
+class Recap(NowModel):
+    """The newest recap a session of the checkout wrote (docs/decisions/0064)."""
+
+    text: str
+    at: AwareDatetime
+    session: str
+    """The session key."""
 
 
 class ThreadBrief(NowModel):
@@ -159,6 +169,8 @@ class JournalThread(NowModel):
     repo_root: str
     last_at: AwareDatetime | None = None
     where: Where
+    recap: Recap | None = None
+    """The newest recap of a session of the checkout on this branch; absent while there is none."""
     open: OpenItems
     done_recent: list[DoneDay]
     entries: list[JournalEntry]

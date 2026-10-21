@@ -315,6 +315,15 @@ def _activity(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
     before = queries.get_session(connection, key)
     if before is None or before.ended_at is not None:
         return  # activity of an ended session is not recorded
+    recap = activity.recap
+    if recap is not None:
+        queries.add_recap(
+            connection,
+            session_key=key,
+            at=db.to_db_time(recap.at),
+            branch=recap.branch,
+            text=recap.text,
+        )
     columns = _columns(activity)
     # The title may have arrived with an earlier record; the one-liner uses the session's latest.
     known = activity if activity.title else activity.model_copy(update={"title": before.title})

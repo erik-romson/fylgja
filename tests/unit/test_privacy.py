@@ -28,6 +28,7 @@ from fylgja.models import (
     SessionActivity,
     SessionActivityEvent,
     SessionPayload,
+    SessionRecap,
     SessionSnapshot,
     SnapshotItem,
     TodoEvent,
@@ -39,6 +40,7 @@ from fylgja.models import (
 from fylgja.privacy import (
     HOOK_FIELDS,
     PROMPT_MAX_CHARS,
+    RECAP_MAX_CHARS,
     REDACTED,
     REPLY_MAX_CHARS,
     PrivacyFilter,
@@ -261,6 +263,24 @@ def test_prompt_and_reply_are_capped_after_redaction() -> None:
     assert activity.last_prompt.endswith(" [redacted")  # 291 + 9 characters
     assert activity.last_reply == "r" * REPLY_MAX_CHARS
     assert activity.open_task == REDACTED
+
+
+def test_a_recap_is_redacted_then_capped() -> None:
+    privacy = make_filter()
+    recap = SessionRecap(text=f"use {SECRET} " + "r" * 700, at=T0, branch="main")
+    record = SessionActivityEvent(
+        source="claude",
+        entity_id="claude:s",
+        observed_at=T0,
+        payload=SessionActivity(recap=recap),
+    )
+    filtered = privacy.filter(record)
+    assert isinstance(filtered, SessionActivityEvent)
+    kept = filtered.payload.recap
+    assert kept is not None
+    assert kept.text.startswith(f"use {REDACTED} r")
+    assert len(kept.text) == RECAP_MAX_CHARS
+    assert (kept.at, kept.branch) == (T0, "main")
 
 
 def test_context_item_data_is_redacted_recursively() -> None:

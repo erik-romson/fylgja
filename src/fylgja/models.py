@@ -70,6 +70,7 @@ __all__ = [
     "SessionActivitySnapshot",
     "SessionEvent",
     "SessionPayload",
+    "SessionRecap",
     "SessionSnapshot",
     "Snapshot",
     "SnapshotItem",
@@ -247,6 +248,15 @@ class ReportSection(_Frozen):
     text: str
 
 
+class SessionRecap(_Frozen):
+    """A recap an agent wrote of its session (docs/decisions/0064)."""
+
+    text: str
+    at: AwareDatetime
+    branch: str | None = None
+    """The branch the session was on when the recap was written."""
+
+
 class SessionActivity(_Frozen):
     """Normalized activity of one session (§4.6). Every field is optional."""
 
@@ -271,6 +281,8 @@ class SessionActivity(_Frozen):
     """The session's total cost, from the statusline snapshot (§4.7). A reading."""
     report: list[ReportSection] | None = None
     """Sections of the reports a finished run left for the person (docs/decisions/0057)."""
+    recap: SessionRecap | None = None
+    """The newest recap of the session (Claude's ``away_summary``, docs/decisions/0064)."""
 
 
 class TodoPayload(_Frozen):

@@ -37,7 +37,7 @@ from summary_support import FakeRunner
 from fylgja.collectors.base import Capability
 from fylgja.core.daemon import Daemon
 from fylgja.core.journal import ThreadKey, thread_id
-from fylgja.models import ProjectEvent, ProjectPayload, SessionActivity
+from fylgja.models import ProjectEvent, ProjectPayload, SessionActivity, SessionRecap
 from fylgja.store import db, queries
 from fylgja.testing.fakes import FakeFS, FakeProcessRunner
 
@@ -256,6 +256,37 @@ async def test_the_focused_checkout_of_a_new_thread_answers_the_empty_journal() 
         assert body["open"] == {"next": [], "remember": [], "blocked": []}
         assert list(nulls(body)) == []
         assert await get(daemon, f"/journal/threads/{MAIN}") == body  # the id reads it too
+
+
+async def recap(daemon: Daemon, seconds: float, text: str, branch: str) -> None:
+    """Session ``a`` (in the repo) writes a recap."""
+    written = SessionRecap(text=text, at=T0 + timedelta(seconds=seconds), branch=branch)
+    daemon.sink("agents").emit(
+        activity_snapshot(
+            "agents",
+            {
+                "claude:a": SessionActivity(state="idle", title="Form", recap=written),
+                "claude:b": SessionActivity(state="idle", title="Notes"),
+            },
+            T0 + timedelta(seconds=seconds + 1),
+        )
+    )
+    await daemon.settle()
+
+
+async def test_the_thread_carries_the_newest_recap_of_its_sessions_on_its_branch() -> None:
+    async with world() as daemon:
+        await recap(daemon, 10, "Writing the form; next, test it.", "main")
+        await recap(daemon, 20, "Elsewhere on another branch.", "topic")
+        body = await get(daemon, "/journal/focused")  # a thread without a row has it too
+        assert body["recap"] == {
+            "text": "Writing the form; next, test it.",
+            "at": "2026-10-05T12:00:10Z",
+            "session": "claude:a",
+        }
+        assert list(nulls(body)) == []
+        await fresh(daemon)
+        assert (await get(daemon, f"/journal/threads/{MAIN}"))["recap"] == body["recap"]
 
 
 async def test_a_focused_folder_with_no_git_root_has_no_journal() -> None:

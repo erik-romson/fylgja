@@ -56,6 +56,7 @@ __all__ = [
 REDACTED: Final = "[redacted]"
 PROMPT_MAX_CHARS: Final = 300
 REPLY_MAX_CHARS: Final = 800
+RECAP_MAX_CHARS: Final = 600
 
 _FIELD_MAX_CHARS: Final = 1024
 """Cap on every other string the hook minimizer keeps (ids, paths, names)."""
@@ -202,6 +203,10 @@ class PrivacyFilter:
             ]
             if report != payload.report:
                 update["report"] = report
+        if isinstance(payload, SessionActivity) and payload.recap:
+            text = truncate(self.redact(payload.recap.text), RECAP_MAX_CHARS)
+            if text != payload.recap.text:
+                update["recap"] = payload.recap.model_copy(update={"text": text})
         if isinstance(payload, ContextItemPayload) and payload.data:
             data = self._redact_json(payload.data)
             if data != payload.data:

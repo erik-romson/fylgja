@@ -23,13 +23,14 @@ from fylgja.api.journal_models import (
     JournalThread,
     JournalThreads,
     OpenItems,
+    Recap,
     ThreadBrief,
     Where,
 )
 from fylgja.core.items import folder_name
 from fylgja.core.journal import SHOWN_PER_KIND, done_by_day, mark_shown, order_open
 from fylgja.core.journal_service import HowAnswer
-from fylgja.store.rows import JournalEntryRow, JournalItemRow, JournalThreadRow
+from fylgja.store.rows import JournalEntryRow, JournalItemRow, JournalThreadRow, RecapRow
 
 __all__ = [
     "build_item_journal",
@@ -161,10 +162,11 @@ def build_thread(
     done: Sequence[JournalItemRow],
     now: datetime,
     tz: tzinfo | None,
+    recap: RecapRow | None = None,
 ) -> JournalThread:
     """One thread's journal. ``row`` is ``None`` for a thread that has no row yet: the empty
     journal, with ``where.state`` ``missing`` (or ``pending``). ``entries`` are the newest ones
-    to show; ``recent`` and ``done`` feed "Done lately"."""
+    to show; ``recent`` and ``done`` feed "Done lately". ``recap`` is the checkout's newest."""
     days = [
         DoneDay(
             day=day.day.isoformat(),
@@ -183,6 +185,9 @@ def build_thread(
         repo_root=repo_root,
         last_at=None if row is None else row.last_at,
         where=where_of(row, pending=pending),
+        recap=None
+        if recap is None
+        else Recap(text=recap.text, at=recap.at, session=recap.session_key),
         open=open_items(items),
         done_recent=days,
         entries=[_entry(entry) for entry in entries],

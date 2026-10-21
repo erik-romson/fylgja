@@ -28,7 +28,13 @@ from pathlib import Path
 from typing import Any, Final
 
 from fylgja.collectors.claude.costs import TokenAccumulator, TokenSums
-from fylgja.collectors.claude.facts import FactsAccumulator, PendingTool, TaskItem, decode_line
+from fylgja.collectors.claude.facts import (
+    FactsAccumulator,
+    PendingTool,
+    RecapLine,
+    TaskItem,
+    decode_line,
+)
 from fylgja.collectors.seams import FileSystem, RangeReader
 
 __all__ = [
@@ -242,3 +248,7 @@ class SessionTranscript:
 
     def pending_tool(self) -> PendingTool | None:
         return self._facts.pending_tool()
+
+    def recap(self) -> RecapLine | None:
+        """The newest recap of the transcript read so far."""
+        return self._facts.recap()

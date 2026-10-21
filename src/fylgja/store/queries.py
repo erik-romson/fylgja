@@ -31,6 +31,7 @@ from fylgja.store.rows import (
     JournalItemRow,
     JournalThreadRow,
     ProjectRow,
+    RecapRow,
     SessionRow,
     SpanRow,
     StoreRow,
@@ -49,6 +50,7 @@ __all__ = [
     "Put",
     "PutStatus",
     "activity_states_at",
+    "add_recap",
     "checkpoint_truncate",
     "close_open_span",
     "close_stale_spans",
@@ -61,6 +63,7 @@ __all__ = [
     "delete_expired",
     "end_missing_sessions",
     "ensure_session",
+    "latest_recap",
     "entries_between",
     "get_journal_item",
     "get_journal_thread",
@@ -1962,6 +1965,43 @@ def activity_states_at(
     """The state of each session of one checkout in its activity interval open at ``at``."""
     found = connection.execute(ACTIVITY_STATES_AT, {"project_path": project_path, "at": at})
     return {row[0]: row[1] for row in found}
+
+
+# --------------------------------------------------------------------------------------------
+# session_recaps
+# --------------------------------------------------------------------------------------------
+
+INSERT_RECAP: Final = """
+INSERT OR IGNORE INTO session_recaps (session_key, at, branch, text)
+VALUES (:session_key, :at, :branch, :text)
+"""
+
+LATEST_RECAP: Final = """
+SELECT r.session_key, r.at, r.branch, r.text
+FROM session_recaps r
+JOIN sessions s ON s.session_key = r.session_key
+WHERE s.project_path = :project_path AND (r.branch IS NULL OR r.branch = :branch)
+ORDER BY r.at DESC, r.session_key
+LIMIT 1
+"""
+
+
+def add_recap(
+    connection: sqlite3.Connection, *, session_key: str, at: str, branch: str | None, text: str
+) -> None:
+    """Store a recap of a session; a recap already stored for that session and time is kept."""
+    connection.execute(
+        INSERT_RECAP, {"session_key": session_key, "at": at, "branch": branch, "text": text}
+    )
+
+
+def latest_recap(
+    connection: sqlite3.Connection, *, project_path: str, branch: str
+) -> RecapRow | None:
+    """The newest recap of a session of one checkout on ``branch`` (or of no known branch)."""
+    found = connection.execute(LATEST_RECAP, {"project_path": project_path, "branch": branch})
+    row = found.fetchone()
+    return None if row is None else RecapRow.from_db(row)
 
 
 def latest_activity(connection: sqlite3.Connection, session_key: str) -> ActivityIntervalRow | None:

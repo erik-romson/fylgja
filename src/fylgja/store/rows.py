@@ -27,6 +27,7 @@ __all__ = [
     "JournalItemRow",
     "JournalThreadRow",
     "ProjectRow",
+    "RecapRow",
     "SessionRow",
     "SpanRow",
     "StoreRow",
@@ -376,6 +377,18 @@ class ActivityIntervalRow(StoreRow):
 
     _times = frozenset({"valid_from"})
     _json = frozenset({"stage"})
+
+
+@dataclass(frozen=True)
+class RecapRow(StoreRow):
+    """One ``session_recaps`` row (docs/decisions/0064)."""
+
+    session_key: str
+    at: datetime
+    branch: str | None
+    text: str
+
+    _times = frozenset({"at"})
 
 
 @dataclass(frozen=True)

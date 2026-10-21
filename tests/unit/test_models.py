@@ -363,6 +363,7 @@ def test_session_activity_fields_all_optional() -> None:
         "context_pct": None,
         "cost_usd": None,
         "report": None,
+        "recap": None,
     }
     assert set(Stage.model_fields) == {"name", "index", "total"}
     full = SessionActivity(

@@ -44,6 +44,7 @@ from fylgja.models import (
     SessionActivitySnapshot,
     SessionEvent,
     SessionPayload,
+    SessionRecap,
     SessionSnapshot,
     SnapshotItem,
     TodoPayload,
@@ -253,6 +254,7 @@ EXPECTED_COLUMNS = {
         "tokens_cache_read",
         "tokens_cache_write",
     },
+    "session_recaps": {"session_key", "at", "branch", "text"},
     "projects": {
         "path",
         "repo_root",
@@ -392,7 +394,7 @@ def test_migration_from_empty_creates_every_table(db_path: Path) -> None:
     assert not db_path.exists()
     connection = db.open_store(db_path)
     try:
-        assert db.schema_version(connection) == len(db.load_migrations()) == 6
+        assert db.schema_version(connection) == len(db.load_migrations()) == 7
         tables = {
             row[0]
             for row in connection.execute(
@@ -517,7 +519,7 @@ def test_migration_2_keeps_existing_summaries(db_path: Path) -> None:
 
     again = db.open_store(db_path)  # a rerun on the migrated file is a no-op
     try:
-        assert db.schema_version(again) == 6
+        assert db.schema_version(again) == 7
         assert [row[0] for row in _summaries(again)] == [7, 8, 9, 12, 20]
         stored = queries.load_summaries(again)
         assert [
@@ -684,7 +686,7 @@ def test_migration_0006_lets_the_journal_take_resumed_and_fylgja(db_path: Path) 
             tuple(row) for row in connection.execute("SELECT * FROM journal_items ORDER BY seq")
         ]
 
-        assert db.migrate(connection) == 6
+        assert db.migrate(connection, db.load_migrations()[:6]) == 6
         after = [
             tuple(row) for row in connection.execute("SELECT * FROM journal_items ORDER BY seq")
         ]
@@ -1351,6 +1353,54 @@ async def test_session_activity_intervals(writer: Writer, db_path: Path, view: L
     await emit_all(writer, snapshot)
     assert "claude:h1" not in view.activity  # closed by the complete snapshot
     assert view.sessions["claude:bare"].native_id == "bare"  # key without a kind
+
+
+async def test_session_recaps_are_kept_apart_from_the_activity_intervals(
+    writer: Writer, db_path: Path
+) -> None:
+    """A recap is stored once per session and time, opens no activity interval, and the newest
+    recap of a checkout's sessions on the branch (or on no known branch) is the one read."""
+
+    def activity(seconds: float, key: str, recap: SessionRecap | None) -> SessionActivityEvent:
+        return SessionActivityEvent(
+            source="claude",
+            entity_id=key,
+            observed_at=at(seconds),
+            payload=SessionActivity(state="idle", recap=recap),
+        )
+
+    first = SessionRecap(text="Writing the parser.", at=at(0), branch="main")
+    await emit_all(writer, activity(1, "claude:r1", first), activity(2, "claude:r1", first))
+    assert count(db_path, "session_recaps") == 1
+    assert count(db_path, "session_snapshots") == 1
+    other = SessionRecap(text="On another branch.", at=at(5), branch="topic")
+    unknown = SessionRecap(text="No branch known.", at=at(3))
+    await emit_all(writer, activity(6, "claude:r2", other), activity(7, "claude:r3", unknown))
+    elsewhere = SessionRecap(text="Another checkout.", at=at(9), branch="main")
+    await emit_all(writer, activity(10, "claude:r4", elsewhere))
+    assert count(db_path, "session_recaps") == 4
+
+    connection = db.connect_writer(db_path)
+    try:
+        connection.execute(
+            "UPDATE sessions SET project_path = '/w/repo' WHERE session_key != 'claude:r4'"
+        )
+        connection.execute(
+            "UPDATE sessions SET project_path = '/w/other' WHERE session_key = 'claude:r4'"
+        )
+        newest = queries.latest_recap(connection, project_path="/w/repo", branch="main")
+        assert newest is not None
+        assert (newest.session_key, newest.at, newest.text) == (
+            "claude:r3",
+            at(3),
+            "No branch known.",
+        )
+        topic = queries.latest_recap(connection, project_path="/w/repo", branch="topic")
+        assert topic is not None
+        assert topic.text == "On another branch."
+        assert queries.latest_recap(connection, project_path="/w/none", branch="main") is None
+    finally:
+        connection.close()
 
 
 async def test_projects_builds_and_usage(writer: Writer, db_path: Path, view: LiveView) -> None:

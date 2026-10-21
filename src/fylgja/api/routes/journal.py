@@ -97,6 +97,7 @@ async def _thread(
 ) -> Response:
     brief = service.brief(found.id)
     read = _EMPTY if brief is None else await service.read_thread(found.id, entries)
+    recap = await service.read_recap(found.key)
     answer = build_thread(
         tid=found.id,
         name=found.name,
@@ -110,6 +111,7 @@ async def _thread(
         done=read.done,
         now=daemon.clock.now(),
         tz=None,
+        recap=recap,
     )
     return json_response(dump_json(answer))
 

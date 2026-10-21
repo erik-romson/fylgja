@@ -106,6 +106,7 @@ from fylgja.store.rows import (
     JournalItemRow,
     JournalThreadRow,
     ProjectRow,
+    RecapRow,
     SessionRow,
     TodoRow,
 )
@@ -907,6 +908,18 @@ class JournalService:
                 if item.closed_at is not None and item.closed_at >= since
             ]
             return ThreadRead(tuple(newest), tuple(recent), tuple(done))
+        finally:
+            connection.close()
+
+    async def read_recap(self, key: ThreadKey) -> RecapRow | None:
+        """The newest recap of a session of the checkout on the thread's branch, from the store
+        (a worker thread; docs/decisions/0064)."""
+        return await asyncio.to_thread(self._read_recap, key)
+
+    def _read_recap(self, key: ThreadKey) -> RecapRow | None:
+        connection = db.connect_reader(self._writer.database)
+        try:
+            return queries.latest_recap(connection, project_path=key.repo_root, branch=key.branch)
         finally:
             connection.close()
 

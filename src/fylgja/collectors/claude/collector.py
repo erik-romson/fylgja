@@ -293,6 +293,7 @@ class ClaudeCollector:
                     tokens=None if tail is None else tail.tokens(),
                     context_pct=context_pct,
                     cost_usd=cost_usd,
+                    recap=None if tail is None else tail.recap(),
                 ),
             )
             if tail is not None and not tail.backlog:

@@ -40,12 +40,17 @@ after waiting for you (decision 0063).
 | `fresh` | The thread has a "where you are" text. |
 | `missing` | Otherwise. |
 
+**`Recap`**: `text`, `at` and `session` (the session key). The newest recap a session of the checkout wrote on the
+thread's branch, or on no known branch: Claude Code's `away_summary`, written when you come back to a session after being
+away (decision 0064). The text is redacted and at most 600 characters. The journal model does not write it.
+
 **`ThreadBrief`** (the list): `id`, `name`, `folder`, `branch`, `last_at`, `where`, `next[]`, `remember[]`, `blocked[]`
 (shown items only), `open` (the number of all open items) and `error_kind`.
 
 **`JournalThreads`**: `schema`, `enabled`, `threads[]` (`ThreadBrief`, newest `last_at` first).
 
-**`JournalThread`**: `schema`, `enabled`, `id`, `name`, `folder`, `branch`, `repo_root`, `last_at`, `where`, `open`
+**`JournalThread`**: `schema`, `enabled`, `id`, `name`, `folder`, `branch`, `repo_root`, `last_at`, `where`, `recap`
+(absent while there is none), `open`
 (`OpenItems`: `next[]`, `remember[]`, `blocked[]`, every open item with `shown`), `done_recent[]`, `entries[]`,
 `error_kind` and `error_at`.
 

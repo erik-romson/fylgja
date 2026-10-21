@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -509,6 +510,55 @@ def test_open_task_is_the_first_task_in_progress() -> None:
     assert facts.open_task([]) is None
 
 
+def _away_summary(content: str, ts: str, **extra: Any) -> str:
+    return line(type="system", subtype="away_summary", content=content, timestamp=ts, **extra)
+
+
+def test_the_newest_away_summary_is_the_recap_without_the_config_hint() -> None:
+    accumulator = facts.FactsAccumulator()
+    accumulator.feed_all(
+        _entries(
+            user("hi"),
+            _away_summary("Old recap.", "2026-10-05T10:01:00.000Z", gitBranch="main"),
+            _away_summary(
+                "We are  writing\nthe parser; next, run the tests. (disable recaps in /config)",
+                "2026-10-05T10:30:00.500Z",
+                gitBranch="topic",
+            ),
+        )
+    )
+    assert accumulator.recap() == facts.RecapLine(
+        "We are writing the parser; next, run the tests.",
+        facts.epoch("2026-10-05T10:30:00Z"),
+        "topic",
+    )
+    assert "recap" not in accumulator.facts()  # the facts block keeps parity with Lidskjalv
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        _away_summary("", "2026-10-05T10:30:00Z"),
+        _away_summary(" (disable recaps in /config)", "2026-10-05T10:30:00Z"),
+        _away_summary("A recap.", "not a time"),
+        _away_summary("A recap.", "2026-10-05T10:30:00Z", isSidechain=True),
+        line(type="system", subtype="other", content="A recap.", timestamp="2026-10-05T10:30:00Z"),
+    ],
+)
+def test_lines_that_are_no_recap_leave_none(entry: str) -> None:
+    accumulator = facts.FactsAccumulator()
+    accumulator.feed_all(_entries(entry))
+    assert accumulator.recap() is None
+
+
+def test_a_recap_is_cut_to_its_cap() -> None:
+    accumulator = facts.FactsAccumulator()
+    accumulator.feed_all(_entries(_away_summary("r" * 700, "2026-10-05T10:30:00Z")))
+    recap = accumulator.recap()
+    assert recap is not None
+    assert (recap.text, recap.branch) == ("r" * facts.RECAP_CHARS, None)
+
+
 # --------------------------------------------------------------------------------------------
 # The collector attaches the facts to the session and its activity
 # --------------------------------------------------------------------------------------------
@@ -565,6 +615,25 @@ async def test_a_session_without_a_transcript_is_listed_from_its_row(tmp_path: P
     assert activity.title == "registry name"
     assert activity.facts is None
     assert (activity.state, activity.waiting_reason) == ("waiting", "input needed")
+
+
+async def test_the_collector_attaches_the_recap_to_the_activity(tmp_path: Path) -> None:
+    world = World(tmp_path / "sessions")
+    world.add(4206, "s-206", status="idle", cwd="/work/proj")
+    path = _transcript_path(world, "s-206", "/work/proj")
+    path.write_text(user("hi"), encoding="utf-8")
+    await world.collector.poll()
+    assert _activity(world, "claude:s-206").recap is None
+    append(path, _away_summary("Fixing the build.", "2026-10-05T10:30:00Z", gitBranch="main"))
+    await world.clock.advance(2)
+    await world.collector.poll()
+    recap = _activity(world, "claude:s-206").recap
+    assert recap is not None
+    assert (recap.text, recap.at, recap.branch) == (
+        "Fixing the build.",
+        datetime(2026, 10, 5, 10, 30, tzinfo=UTC),
+        "main",
+    )
 
 
 async def test_a_vanishing_transcript_is_looked_for_again(tmp_path: Path) -> None:

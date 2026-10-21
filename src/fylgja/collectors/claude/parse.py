@@ -32,13 +32,14 @@ from pathlib import PurePosixPath
 from typing import Any, Final
 
 from fylgja.collectors.claude.costs import TokenSums
-from fylgja.collectors.claude.facts import PendingTool, TaskItem, open_task
+from fylgja.collectors.claude.facts import PendingTool, RecapLine, TaskItem, open_task
 from fylgja.collectors.todo_lists import agent_status, todo_list_snapshot
 from fylgja.models import (
     ProcessRef,
     SessionActivity,
     SessionActivitySnapshot,
     SessionPayload,
+    SessionRecap,
     SessionSnapshot,
     SnapshotItem,
     TodoPayload,
@@ -390,6 +391,7 @@ def activity_of(
     tokens: TokenSums | None = None,
     context_pct: float | None = None,
     cost_usd: float | None = None,
+    recap: RecapLine | None = None,
 ) -> SessionActivity:
     """The Claude ``SessionActivity`` (§4.6): the registry state plus the transcript's facts.
 
@@ -398,7 +400,8 @@ def activity_of(
     the transcript has an ``ai-title``.
 
     ``tokens`` (the transcript's token sums), ``context_pct`` and ``cost_usd`` (the statusline
-    snapshot) are the readings of §4.7; each is left out when it is not known.
+    snapshot) are the readings of §4.7; each is left out when it is not known. ``recap`` is the
+    transcript's newest ``away_summary`` (docs/decisions/0064).
     """
     state = map_state(row.status)
     tool = pending if state in ("working", "waiting") else None
@@ -419,7 +422,13 @@ def activity_of(
         tokens=None if tokens is None else TokenCounts(**tokens.as_dict()),
         context_pct=context_pct,
         cost_usd=cost_usd,
+        recap=None if recap is None else _recap(recap),
     )
+
+
+def _recap(recap: RecapLine) -> SessionRecap:
+    at = datetime.fromtimestamp(recap.at, UTC)
+    return SessionRecap(text=recap.text, at=at, branch=recap.branch)
 
 
 def session_snapshot(

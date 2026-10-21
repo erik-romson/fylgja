@@ -28,6 +28,10 @@ task with its key and its text up to :data:`TASK_TEXT_CHARS`. A task-tool task i
 native id (``task-<id>``); a ``TodoWrite`` item has no id, and ``TodoWrite`` rewrites the whole
 list each time, so it is keyed by its position in the list (``todo-<n>``, from 0).
 
+**The recap** (:meth:`FactsAccumulator.recap`, docs/decisions/0064) is the newest ``away_summary``
+line: the short summary Claude Code writes when the person comes back to a session. It is not part
+of the facts block, so the block keeps parity with the jq program.
+
 Where jq would abort on a malformed value (a string where it expects an array, say), the port
 ignores the value instead of failing: a live transcript is never trusted.
 
@@ -51,6 +55,7 @@ __all__ = [
     "TASK_TEXT_CHARS",
     "FactsAccumulator",
     "PendingTool",
+    "RecapLine",
     "TaskItem",
     "decode_line",
     "epoch",
@@ -68,6 +73,7 @@ TASK_COUNT: Final = 20
 TASK_CHARS: Final = 80
 TASK_TEXT_CHARS: Final = 1000
 """The text of a task kept for the whole list (the facts block shows :data:`TASK_CHARS`)."""
+RECAP_CHARS: Final = 600
 MAX_OPEN_TOOLS: Final = 64
 """Tool calls awaiting a result that are remembered; the oldest is forgotten first."""
 
@@ -80,6 +86,8 @@ _CREATE_TOOLS: Final = frozenset({"TaskCreate"})
 _UPDATE_TOOLS: Final = frozenset({"TaskUpdate"})
 _PATH_KEYS: Final = ("file_path", "notebook_path", "path")
 _CREATED: Final = re.compile(r"\s*Task #([A-Za-z0-9_-]{1,64}) created\b")
+_RECAP_HINT: Final = re.compile(r"\s*\(disable recaps in /config\)\s*$")
+"""The hint Claude Code appends to every recap."""
 """The result text of ``TaskCreate`` (``Task #<id> created successfully: <subject>``)."""
 
 
@@ -195,6 +203,18 @@ class TaskItem:
     """The text, at most :data:`TASK_TEXT_CHARS` characters (may be empty)."""
 
 
+@dataclass(frozen=True)
+class RecapLine:
+    """The newest ``away_summary`` of a transcript."""
+
+    text: str
+    """Whitespace collapsed, without Claude Code's hint, at most :data:`RECAP_CHARS` characters."""
+    at: int
+    """The line's timestamp in epoch seconds."""
+    branch: str | None
+    """The line's ``gitBranch``."""
+
+
 class _Task:
     """A task as the accumulator tracks it: the native id or the ``TodoWrite`` position."""
 
@@ -258,6 +278,7 @@ class FactsAccumulator:
         self._creating: dict[str, _Task] = {}
         """``TaskCreate`` calls whose result (the id Claude gave) has not been read yet."""
         self._pending: dict[str, PendingTool] = {}
+        self._recap: RecapLine | None = None
         self.lines = 0
         """Objects folded in so far."""
 
@@ -285,10 +306,20 @@ class FactsAccumulator:
             self._assistant(entry)
         elif kind == "user":
             self._user(entry)
+        elif kind == "system" and entry.get("subtype") == "away_summary":
+            self._away_summary(entry)
 
     def feed_all(self, entries: Iterable[Mapping[str, Any]]) -> None:
         for entry in entries:
             self.feed(entry)
+
+    def _away_summary(self, entry: Mapping[str, Any]) -> None:
+        text = _collapse(_RECAP_HINT.sub("", _text(entry.get("content")))).strip()[:RECAP_CHARS]
+        at = epoch(entry.get("timestamp"))
+        if text == "" or at == 0 or _truthy(entry.get("isSidechain")):
+            return
+        branch = entry.get("gitBranch")
+        self._recap = RecapLine(text, at, branch if isinstance(branch, str) and branch else None)
 
     def _assistant(self, entry: Mapping[str, Any]) -> None:
         message = entry.get("message")
@@ -420,6 +451,10 @@ class FactsAccumulator:
     def task_list(self) -> tuple[TaskItem, ...]:
         """The session's whole task list with each task's key, in list order (WP4.3)."""
         return tuple(TaskItem(task.key, task.status, task.content) for task in self._tasks)
+
+    def recap(self) -> RecapLine | None:
+        """The newest recap Claude Code wrote, or ``None``."""
+        return self._recap
 
     def pending_tool(self) -> PendingTool | None:
         """The newest tool call that has no result yet (running, or waiting for permission)."""
