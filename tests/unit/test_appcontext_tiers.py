@@ -964,8 +964,25 @@ def test_a_project_opened_after_the_last_save_is_found_next_to_its_siblings() ->
     assert parse.resolve_jetbrains_project(fields, listed, "/h") is None  # nothing to check with
     missing = {"project": "cbslink CBS-3"}
     assert parse.resolve_jetbrains_project(missing, listed, "/h", is_dir=dirs.__contains__) is None
-    bare = {"project": "CBS-2"}
+    bare = {"project": "CBS-2"}  # in two folders
     assert parse.resolve_jetbrains_project(bare, listed, "/h", is_dir=dirs.__contains__) is None
+
+
+def test_a_bare_directory_title_is_found_in_the_one_folder_that_holds_it() -> None:
+    listed = [
+        parse.JetBrainsProject("/w/norn/main", ("norn main",)),
+        parse.JetBrainsProject("/w/cbslink/main", ("cbslink main",)),
+    ]
+    dirs = {"/w/norn/refactor", "/w/norn/main", "/w/cbslink/main"}
+    found = parse.resolve_jetbrains_project(
+        {"project": "refactor"}, listed, "/h", is_dir=dirs.__contains__
+    )
+    assert found == ("/w/norn/refactor", "medium", "recentProjects.xml:sibling")
+    for name in ("other", "..", "norn/refactor"):
+        fields = {"project": name}
+        assert (
+            parse.resolve_jetbrains_project(fields, listed, "/h", is_dir=dirs.__contains__) is None
+        )
 
 
 def test_obsidian_parsing_edge_cases() -> None:

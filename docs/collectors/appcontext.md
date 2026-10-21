@@ -57,12 +57,14 @@ this order:
 | several are open (or none is) and exactly one `frameTitle` equals the window title | medium | `recentProjects.xml:frameTitle` |
 | otherwise the newest open entry (the newest of all when none is open) | medium | `recentProjects.xml` |
 | no entry has it, the name is `<parent> <directory>`, and exactly one listed project's parent folder is called `<parent>` and holds `<directory>` (decision 0062) | medium | `recentProjects.xml:sibling` |
+| no entry has it, it is not found as `<parent> <directory>`, and exactly one listed project's parent folder holds a directory of that name (decision 0062) | medium | `recentProjects.xml:sibling` |
 
 The project name in the title matches an entry by any name the IDE shows for it, ignoring case: its `displayName`, its
 `frameTitle`, the project its `frameTitle` names (`alpha main` in `alpha main – notes.md`), its directory name (`main`)
 or its parent and directory joined by a space (`alpha main`, the way the IDE titles a project whose name differs from
 its directory). The IDE writes `recentProjects.xml` rarely, typically when a project closes, so a project opened since
-then has no entry and gets no path until the file is written again, unless the title carries it.
+then has no entry and gets no path until the file is written again, unless the title carries it or the last two rules
+find it next to a listed project.
 
 A window remembers its path. A later, weaker reading for the same project name does not replace it; a new project name
 does; a closed window forgets it. The setting's label was verified against `jetbrains.com/help/idea/settings-appearance.html`

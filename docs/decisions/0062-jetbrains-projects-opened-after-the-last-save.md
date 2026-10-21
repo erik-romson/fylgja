@@ -22,6 +22,9 @@ not compare either.
 - **appcontext.** A title project name that no entry has, of the form `<parent> <directory>`, resolves to
   `<folder>/<directory>` when exactly one parent folder of a listed project is called `<parent>` and holds that
   directory (an `is_dir` check through the filesystem seam). Confidence `medium`, via `recentProjects.xml:sibling`.
+- **A bare `<directory>` title** of a project no entry has resolves to `<folder>/<directory>` when exactly one parent
+  folder of a listed project holds that directory, whatever the folder is called (`norn/refactor-…` next to a listed
+  `norn/main`). Same confidence and via. A name found in several folders stays unresolved.
 - **Resolver.** When no listed project contains the session's cwd, the JetBrains join walks from the cwd up to (not
   including) the home directory and takes the nearest folder whose `<directory>` or `<parent> <directory>` one window
   title shows: `parent-chain+project-path` at `medium`, with that folder as `host_ref`. Several such windows give the
@@ -33,8 +36,7 @@ not compare either.
 
 ## Consequences
 
-- A bare `<directory>` title of an unlisted project is still not resolved by appcontext; a session inside it still
-  is, by the resolver.
-- The check costs one `is_dir` per unmatched IDE title change or focus; nothing is read.
+- The check costs one `is_dir` per parent folder of a listed project, per unmatched IDE title change or focus;
+  nothing is read.
 - A session placed by the single-window rule gets a working Go, but the window's focus still goes to the item the
   window belongs to, not to the session's folder.

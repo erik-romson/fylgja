@@ -478,7 +478,8 @@ def resolve_jetbrains_project(
       ``medium``;
     * with no match, a ``<parent> <directory>`` name whose directory ``is_dir`` finds next to a
       listed project in a folder called ``<parent>`` is ``medium`` (``…:sibling``): the IDE
-      opened it after it last saved ``recentProjects.xml``.
+      opened it after it last saved ``recentProjects.xml``. A bare ``<directory>`` name is found
+      the same way when exactly one parent folder of a listed project holds it.
     """
     explicit = fields.get("path")
     if explicit:
@@ -508,17 +509,25 @@ def _sibling_project(
     name: str, projects: Sequence[JetBrainsProject], is_dir: Callable[[str], bool] | None
 ) -> tuple[str, str, str] | None:
     """The one existing ``<folder>/<directory>`` for a ``<parent> <directory>`` name, where
-    ``<folder>`` is the parent folder of a listed project and is called ``<parent>``."""
-    parent, _, directory = name.partition(" ")
-    if is_dir is None or not parent or not directory or "/" in directory:
+    ``<folder>`` is the parent folder of a listed project and is called ``<parent>``; failing that,
+    the one existing ``<folder>/<name>`` for a bare directory name, in any such parent folder."""
+    if is_dir is None:
         return None
-    folders = sorted(
-        {
-            str(PurePosixPath(p.path).parent)
-            for p in projects
-            if PurePosixPath(p.path).parent.name.casefold() == parent.casefold()
-        }
-    )
+    folders = sorted({str(PurePosixPath(p.path).parent) for p in projects})
+    parent, _, directory = name.partition(" ")
+    if parent and directory and "/" not in directory:
+        named = [f for f in folders if PurePosixPath(f).name.casefold() == parent.casefold()]
+        found = _one_dir(named, directory, is_dir)
+        if found is not None:
+            return found
+    if "/" in name or name in (".", ".."):
+        return None
+    return _one_dir(folders, name, is_dir)
+
+
+def _one_dir(
+    folders: Sequence[str], directory: str, is_dir: Callable[[str], bool]
+) -> tuple[str, str, str] | None:
     found = [f"{folder}/{directory}" for folder in folders if is_dir(f"{folder}/{directory}")]
     if len(found) != 1:
         return None
