@@ -267,6 +267,7 @@ def _end_session(tx: Tx, key: str, at: str) -> None:
     todo_import.close_session_lists(tx, key, at)
     tx.changed(Change(Collection.SESSIONS, key, None))
     tx.changed(Change(Collection.ACTIVITY, key, None))
+    tx.changed(Change(Collection.RECAPS, key, None))
 
 
 def _publish_session(tx: Tx, row: SessionRow) -> None:
@@ -316,14 +317,14 @@ def _activity(tx: Tx, obs: _Obs, payload: BaseModel) -> None:
     if before is None or before.ended_at is not None:
         return  # activity of an ended session is not recorded
     recap = activity.recap
-    if recap is not None:
-        queries.add_recap(
-            connection,
-            session_key=key,
-            at=db.to_db_time(recap.at),
-            branch=recap.branch,
-            text=recap.text,
-        )
+    if recap is not None and queries.add_recap(
+        connection,
+        session_key=key,
+        at=db.to_db_time(recap.at),
+        branch=recap.branch,
+        text=recap.text,
+    ):
+        tx.changed(Change(Collection.RECAPS, key, queries.session_recap(connection, key)))
     columns = _columns(activity)
     # The title may have arrived with an earlier record; the one-liner uses the session's latest.
     known = activity if activity.title else activity.model_copy(update={"title": before.title})

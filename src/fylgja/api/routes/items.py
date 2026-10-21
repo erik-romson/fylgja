@@ -61,9 +61,13 @@ def _journals(daemon: Daemon, items: Sequence[Item]) -> dict[str, ItemJournal]:
         return found
     for item in items:
         key = service.thread_for_path(item.path) if item.kind == "folder" and item.path else None
-        brief = None if key is None else service.brief(thread_id(key))
+        if key is None:
+            continue
+        brief = service.brief(thread_id(key))
         if brief is not None:
-            found[item.id] = build_item_journal(brief.row.thread_id, brief.row, brief.open_items)
+            found[item.id] = build_item_journal(
+                brief.row.thread_id, brief.row, brief.open_items, service.recap(key)
+            )
     return found
 
 

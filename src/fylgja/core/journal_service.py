@@ -822,6 +822,8 @@ class JournalService:
         self._open: dict[str, tuple[JournalItemRow, ...]] = {}
         self._linked: set[str] = set()
         """The todos linked from journal items: their changes are never input (J2)."""
+        self._recaps: dict[tuple[str, str | None], RecapRow] = {}
+        """The newest recap per checkout and the recap's branch (docs/decisions/0064)."""
         self._attempts: dict[str, asyncio.Task[None]] = {}
         self._decisions: dict[str, asyncio.Future[str]] = {}
         """Per attempt started by a refresh: resolved once the attempt knows whether its window
@@ -861,6 +863,19 @@ class JournalService:
         rows = [row for row in self._threads.values() if row.last_at and row.last_at >= since]
         rows.sort(key=lambda row: (-cast(datetime, row.last_at).timestamp(), row.thread_id))
         return [cast(ThreadBrief, self.brief(row.thread_id)) for row in rows]
+
+    def recap(self, key: ThreadKey) -> RecapRow | None:
+        """The newest recap of a session of the checkout, written on the thread's branch or on no
+        known branch (docs/decisions/0064). From the cache: no I/O."""
+        found = [
+            row
+            for row in (
+                self._recaps.get((key.repo_root, key.branch)),
+                self._recaps.get((key.repo_root, None)),
+            )
+            if row is not None
+        ]
+        return max(found, key=lambda row: row.at, default=None)
 
     def identity_of_path(self, path: str) -> ThreadIdentity | None:
         """The current thread of the checkout at ``path`` with its name, whether it has a row or
@@ -911,18 +926,6 @@ class JournalService:
         finally:
             connection.close()
 
-    async def read_recap(self, key: ThreadKey) -> RecapRow | None:
-        """The newest recap of a session of the checkout on the thread's branch, from the store
-        (a worker thread; docs/decisions/0064)."""
-        return await asyncio.to_thread(self._read_recap, key)
-
-    def _read_recap(self, key: ThreadKey) -> RecapRow | None:
-        connection = db.connect_reader(self._writer.database)
-        try:
-            return queries.latest_recap(connection, project_path=key.repo_root, branch=key.branch)
-        finally:
-            connection.close()
-
     def add_listener(self, listener: Listener) -> Callable[[], None]:
         """Call ``listener`` with the thread id after every write; returns the function that
         stops it."""
@@ -940,8 +943,11 @@ class JournalService:
         """Read the thread rows, the open items and the linked todos, and seed the tracker from
         the live view with the bootstrap of J6. Run at start, after the live view is rebuilt."""
         await self._writer.execute(self._reconcile_all)  # J19 at start
-        threads, open_items, linked = await asyncio.to_thread(self._read_index)
+        threads, open_items, linked, recaps = await asyncio.to_thread(self._read_index)
         self._threads = {row.thread_id: row for row in threads}
+        self._recaps = {(path, row.branch): row for path, row in recaps}
+        for session_key in self._view.recaps:
+            self._note_recap(session_key)
         grouped: dict[str, list[JournalItemRow]] = {}
         for item in open_items:
             grouped.setdefault(item.thread_id, []).append(item)
@@ -951,13 +957,19 @@ class JournalService:
 
     def _read_index(
         self,
-    ) -> tuple[list[JournalThreadRow], list[JournalItemRow], list[JournalItemRow]]:
+    ) -> tuple[
+        list[JournalThreadRow],
+        list[JournalItemRow],
+        list[JournalItemRow],
+        list[tuple[str, RecapRow]],
+    ]:
         connection = db.connect_reader(self._writer.database)
         try:
             return (
                 queries.load_journal_threads(connection),
                 queries.load_open_journal_items(connection),
                 queries.linked_journal_items(connection),
+                queries.latest_recaps(connection),
             )
         finally:
             connection.close()
@@ -993,6 +1005,9 @@ class JournalService:
         """Take one live-view update (the writer's callback): the tracker, a job per linked todo
         that left and per session that went on after waiting, then a wake."""
         resumed = self.tracker.observe(update, self._view, linked=self._linked)
+        for change in update.changes:
+            if change.collection in (Collection.RECAPS, Collection.SESSIONS) and change.row:
+                self._note_recap(change.key)
         if not self._closed:
             for change in update.changes:
                 if (
@@ -1004,6 +1019,18 @@ class JournalService:
             for session in resumed:
                 self._spawn(self._session_resumed(session))
         self.wake()
+
+    def _note_recap(self, session_key: str) -> None:
+        """Keep the live session's newest recap when it is the newest of its checkout and branch.
+        A session placed in a checkout after its recap arrived is seen by its own change."""
+        recap = self._view.recaps.get(session_key)
+        session = self._view.sessions.get(session_key)
+        if recap is None or session is None or session.project_path is None:
+            return
+        key = (session.project_path, recap.branch)
+        known = self._recaps.get(key)
+        if known is None or recap.at >= known.at:
+            self._recaps[key] = recap
 
     def on_span(self, action: Action) -> None:
         """Take one focus span action (J4): the tracker only, then a wake."""

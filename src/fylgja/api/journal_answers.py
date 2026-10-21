@@ -12,7 +12,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, tzinfo
 from typing import Any, Final
 
-from fylgja.api.items_models import ItemJournal, ItemJournalNext
+from fylgja.api.items_models import ItemJournal, ItemJournalNext, ItemJournalRecap
 from fylgja.api.journal_models import (
     DoneDay,
     EntrySource,
@@ -197,16 +197,23 @@ def build_thread(
 
 
 def build_item_journal(
-    tid: str, row: JournalThreadRow, items: Sequence[JournalItemRow]
+    tid: str,
+    row: JournalThreadRow,
+    items: Sequence[JournalItemRow],
+    recap: RecapRow | None = None,
 ) -> ItemJournal:
-    """The ``journal`` field of a folder item (D6): the thread's "where you are" and its shown
-    ``next`` items, with ``next_more`` for the open ones that are not shown."""
+    """The ``journal`` field of a folder item (D6): the thread's "where you are", the checkout's
+    newest recap and its shown ``next`` items, with ``next_more`` for the open ones that are not
+    shown."""
     nexts = [item for item in order_open(items) if item.status == "open" and item.kind == "next"]
     shown = nexts[:SHOWN_PER_KIND]
     more = len(nexts) - len(shown)
     return ItemJournal(
         thread=tid,
         where=row.where_text,
+        recap=None
+        if recap is None
+        else ItemJournalRecap(text=recap.text, at=recap.at, session=recap.session_key),
         next=[ItemJournalNext(id=item.id, text=item.text) for item in shown],
         next_more=more or None,
     )

@@ -1356,10 +1356,11 @@ async def test_session_activity_intervals(writer: Writer, db_path: Path, view: L
 
 
 async def test_session_recaps_are_kept_apart_from_the_activity_intervals(
-    writer: Writer, db_path: Path
+    writer: Writer, db_path: Path, view: LiveView
 ) -> None:
-    """A recap is stored once per session and time, opens no activity interval, and the newest
-    recap of a checkout's sessions on the branch (or on no known branch) is the one read."""
+    """A recap is stored once per session and time and opens no activity interval. The live view
+    holds each live session's newest recap until the session ends; the store keeps the newest per
+    checkout and branch after that."""
 
     def activity(seconds: float, key: str, recap: SessionRecap | None) -> SessionActivityEvent:
         return SessionActivityEvent(
@@ -1373,32 +1374,48 @@ async def test_session_recaps_are_kept_apart_from_the_activity_intervals(
     await emit_all(writer, activity(1, "claude:r1", first), activity(2, "claude:r1", first))
     assert count(db_path, "session_recaps") == 1
     assert count(db_path, "session_snapshots") == 1
+    assert view.recaps["claude:r1"].text == "Writing the parser."
+    newer = SessionRecap(text="Testing the parser.", at=at(4), branch="main")
     other = SessionRecap(text="On another branch.", at=at(5), branch="topic")
     unknown = SessionRecap(text="No branch known.", at=at(3))
-    await emit_all(writer, activity(6, "claude:r2", other), activity(7, "claude:r3", unknown))
-    elsewhere = SessionRecap(text="Another checkout.", at=at(9), branch="main")
-    await emit_all(writer, activity(10, "claude:r4", elsewhere))
+    await emit_all(
+        writer,
+        activity(5, "claude:r1", newer),
+        activity(6, "claude:r2", other),
+        activity(7, "claude:r3", unknown),
+    )
     assert count(db_path, "session_recaps") == 4
+    assert (view.recaps["claude:r1"].text, view.recaps["claude:r1"].at) == (
+        "Testing the parser.",
+        at(4),
+    )
 
     connection = db.connect_writer(db_path)
     try:
-        connection.execute(
-            "UPDATE sessions SET project_path = '/w/repo' WHERE session_key != 'claude:r4'"
-        )
-        connection.execute(
-            "UPDATE sessions SET project_path = '/w/other' WHERE session_key = 'claude:r4'"
-        )
-        newest = queries.latest_recap(connection, project_path="/w/repo", branch="main")
-        assert newest is not None
-        assert (newest.session_key, newest.at, newest.text) == (
+        connection.execute("UPDATE sessions SET project_path = '/w/repo'")
+        assert [r.session_key for r in queries.load_live_recaps(connection)] == [
+            "claude:r1",
+            "claude:r2",
             "claude:r3",
-            at(3),
-            "No branch known.",
-        )
-        topic = queries.latest_recap(connection, project_path="/w/repo", branch="topic")
-        assert topic is not None
-        assert topic.text == "On another branch."
-        assert queries.latest_recap(connection, project_path="/w/none", branch="main") is None
+        ]
+    finally:
+        connection.close()
+
+    ended = SessionSnapshot(source="claude", entity_id="all", observed_at=at(20), complete=True)
+    await emit_all(writer, ended)
+    assert dict(view.recaps) == {}
+    connection = db.connect_reader(db_path)
+    try:
+        assert queries.load_live_recaps(connection) == []
+        newest = {
+            (path, row.branch): (row.session_key, row.text)
+            for path, row in queries.latest_recaps(connection)
+        }
+        assert newest == {
+            ("/w/repo", None): ("claude:r3", "No branch known."),
+            ("/w/repo", "main"): ("claude:r1", "Testing the parser."),
+            ("/w/repo", "topic"): ("claude:r2", "On another branch."),
+        }
     finally:
         connection.close()
 

@@ -63,7 +63,9 @@ __all__ = [
     "delete_expired",
     "end_missing_sessions",
     "ensure_session",
-    "latest_recap",
+    "latest_recaps",
+    "load_live_recaps",
+    "session_recap",
     "entries_between",
     "get_journal_item",
     "get_journal_thread",
@@ -1976,32 +1978,64 @@ INSERT OR IGNORE INTO session_recaps (session_key, at, branch, text)
 VALUES (:session_key, :at, :branch, :text)
 """
 
-LATEST_RECAP: Final = """
-SELECT r.session_key, r.at, r.branch, r.text
-FROM session_recaps r
-JOIN sessions s ON s.session_key = r.session_key
-WHERE s.project_path = :project_path AND (r.branch IS NULL OR r.branch = :branch)
-ORDER BY r.at DESC, r.session_key
-LIMIT 1
+SESSION_RECAP: Final = """
+SELECT session_key, at, branch, text FROM session_recaps
+WHERE session_key = ? ORDER BY at DESC LIMIT 1
+"""
+
+LIVE_RECAPS: Final = """
+SELECT session_key, at, branch, text FROM (
+    SELECT r.*, row_number() OVER (PARTITION BY r.session_key ORDER BY r.at DESC) AS n
+    FROM session_recaps r
+    JOIN sessions s ON s.session_key = r.session_key
+    WHERE s.ended_at IS NULL
+)
+WHERE n = 1
+ORDER BY session_key
+"""
+
+LATEST_RECAPS: Final = """
+SELECT project_path, session_key, at, branch, text FROM (
+    SELECT s.project_path, r.*, row_number() OVER (
+        PARTITION BY s.project_path, r.branch ORDER BY r.at DESC, r.session_key
+    ) AS n
+    FROM session_recaps r
+    JOIN sessions s ON s.session_key = r.session_key
+    WHERE s.project_path IS NOT NULL
+)
+WHERE n = 1
+ORDER BY project_path, branch
 """
 
 
 def add_recap(
     connection: sqlite3.Connection, *, session_key: str, at: str, branch: str | None, text: str
-) -> None:
-    """Store a recap of a session; a recap already stored for that session and time is kept."""
-    connection.execute(
+) -> bool:
+    """Store a recap of a session. ``False`` when a recap for that session and time is stored
+    already, which is kept."""
+    found = connection.execute(
         INSERT_RECAP, {"session_key": session_key, "at": at, "branch": branch, "text": text}
     )
+    return found.rowcount == 1
 
 
-def latest_recap(
-    connection: sqlite3.Connection, *, project_path: str, branch: str
-) -> RecapRow | None:
-    """The newest recap of a session of one checkout on ``branch`` (or of no known branch)."""
-    found = connection.execute(LATEST_RECAP, {"project_path": project_path, "branch": branch})
-    row = found.fetchone()
+def session_recap(connection: sqlite3.Connection, session_key: str) -> RecapRow | None:
+    """The newest recap of one session."""
+    row = connection.execute(SESSION_RECAP, (session_key,)).fetchone()
     return None if row is None else RecapRow.from_db(row)
+
+
+def load_live_recaps(connection: sqlite3.Connection) -> list[RecapRow]:
+    """The newest recap of each live session that has one (the live view's ``recaps``)."""
+    return [RecapRow.from_db(row) for row in connection.execute(LIVE_RECAPS)]
+
+
+def latest_recaps(connection: sqlite3.Connection) -> list[tuple[str, RecapRow]]:
+    """The newest recap per checkout and branch (the recap's own, ``None`` when unknown), with
+    the checkout's path, across live and ended sessions."""
+    return [
+        (row["project_path"], RecapRow.from_db(row)) for row in connection.execute(LATEST_RECAPS)
+    ]
 
 
 def latest_activity(connection: sqlite3.Connection, session_key: str) -> ActivityIntervalRow | None:

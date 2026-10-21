@@ -31,6 +31,7 @@ __all__ = [
     "GoTarget",
     "ItemJournal",
     "ItemJournalNext",
+    "ItemJournalRecap",
     "ItemPlace",
     "ItemStory",
     "Items",
@@ -102,6 +103,15 @@ class ItemJournalNext(NowModel):
     text: str
 
 
+class ItemJournalRecap(NowModel):
+    """The newest recap a session of the checkout wrote (``docs/decisions/0064``)."""
+
+    text: str
+    at: AwareDatetime
+    session: str
+    """The session key."""
+
+
 class ItemJournal(NowModel):
     """The work journal of a folder item's thread (``docs/decisions/0057``): where the person is
     and what comes next. Matched by the daemon, so the page only renders it."""
@@ -110,6 +120,9 @@ class ItemJournal(NowModel):
     """The 16-hex thread id (``GET /journal/threads/{id}``)."""
     where: str | None = None
     """"Where you are"; absent while the thread has none."""
+    recap: ItemJournalRecap | None = None
+    """The newest recap of a session of the checkout on the thread's branch; absent while there
+    is none."""
     next: list[ItemJournalNext]
     """At most three open items."""
     next_more: int | None = None

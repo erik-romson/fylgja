@@ -23,14 +23,20 @@ writes from the activity window. Fylgja tailed the line already but ignored it.
   `branch`) carries it, and the ingest gate redacts the text and cuts it to 600 characters.
 - **Store.** A recap is an event, not session state, so it does not open an activity interval. Migration 0007 adds
   `session_recaps`, keyed by the session and the recap's time; the writer inserts a recap it has not stored yet.
-- **Journal.** `JournalThread.recap` (`text`, `at`, `session`) is the newest recap of a session whose `project_path` is
-  the thread's checkout, written on the thread's branch or on no known branch. It is read from the store with every
-  thread answer, also for a thread with no row yet, and is absent while there is none.
+- **Live view.** The `recaps` collection holds the newest recap of each live session. The writer publishes a recap it
+  stored and removes it when the session ends, so a new recap also sends `now.changed`.
+- **Journal.** The journal service caches the newest recap per checkout and branch: read from the store at start,
+  then taken from the live view, so a recap outlives its session. A thread's recap is the newest of a session whose
+  `project_path` is the thread's checkout, written on the thread's branch or on no known branch.
+  `JournalThread.recap` and the Navigator's `ItemJournal.recap` (`text`, `at`, `session`) both come from that cache,
+  so `/items` still does no I/O for the journal. `JournalThread.recap` is there also for a thread with no row yet;
+  `ItemJournal` exists only for a thread with a row. Both are absent while there is none.
 - **Not in the journal's input.** The journal model does not see the recap; "where you are" and the items stay its own.
 
 ## Consequences
 
-- Raycast can show what the agent itself last said about the work, next to "Do next", without a model call.
+- Raycast can show what the agent itself last said about the work, in the journal next to "Do next" and in the
+  Navigator, without a model call.
 - A recap only exists when the person was away, so it can be older than the newest entry; the answer carries `at` so a
   client can show its age.
 - The `away_summary` line is not a documented format. A line of another shape is ignored, and no recap is shown.

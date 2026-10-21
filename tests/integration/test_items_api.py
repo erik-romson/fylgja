@@ -63,6 +63,7 @@ from fylgja.models import (
     ProjectEvent,
     ProjectPayload,
     SessionActivity,
+    SessionRecap,
 )
 from fylgja.rankers.base import Part, Ranked, RankerPlugin, RankInput
 from fylgja.store import db, queries
@@ -986,6 +987,32 @@ async def test_a_checkout_folder_item_carries_the_threads_journal() -> None:
     assert "journal" not in items[WORKTREE_ID]  # a checkout without a thread row
     assert "journal" not in items[TERM_ID]  # an app
     assert list(nulls(body)) == []
+
+
+async def test_the_items_journal_carries_the_newest_recap_of_the_checkout() -> None:
+    """A recap arriving from a live session reaches ``/items`` through the journal's cache and
+    stays there after the session ends."""
+    async with journal_world(enabled=True) as daemon:
+        written = daemon.clock.now() - timedelta(minutes=2)
+        recap = SessionRecap(text="Fixing the form; next, test it.", at=written, branch="main")
+        agents = daemon.sink("agents")
+        agents.emit(
+            activity_snapshot(
+                "agents", {SESSION: SessionActivity(state="idle", recap=recap)}, daemon.clock.now()
+            )
+        )
+        await daemon.settle()
+        journal = by_id(await get(daemon, "/items"))[ALPHA_ID]["journal"]
+        assert journal["recap"] == {
+            "text": "Fixing the form; next, test it.",
+            "at": written.isoformat().replace("+00:00", "Z"),
+            "session": SESSION,
+        }
+        agents.emit(session_snapshot("agents", [], daemon.clock.now()))
+        await daemon.settle()
+        assert SESSION not in daemon.view.recaps
+        after = by_id(await get(daemon, "/items"))[ALPHA_ID]["journal"]
+        assert after["recap"] == journal["recap"]
 
 
 async def test_while_the_journal_is_off_no_item_has_a_journal_field() -> None:
