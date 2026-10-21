@@ -115,7 +115,8 @@ class LabelInput:
     """What is in one workspace."""
 
     projects: Sequence[str] = ()
-    """The project name of each live session placed in the workspace (see :func:`project_name`)."""
+    """The project name of each live session placed in the workspace, or, with none, of each
+    window whose context names a folder (see :func:`project_name`)."""
     windows: Sequence[WindowFacts] = ()
 
 

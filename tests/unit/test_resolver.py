@@ -21,6 +21,7 @@ from resolver_support import (
 from fylgja import paths
 from fylgja.collectors.claude import parse
 from fylgja.core import hosts
+from fylgja.core.context_items import ContextMemory
 from fylgja.core.hosts import (
     CmuxData,
     CmuxIds,
@@ -41,8 +42,11 @@ from fylgja.core.resolver import (
     apply_resolution,
     resolve,
 )
+from fylgja.core.window_folders import WindowFolders
 from fylgja.core.writer import Writer
 from fylgja.models import (
+    ContextItemEvent,
+    ContextItemPayload,
     HookEvent,
     HookEventPayload,
     ProcessRef,
@@ -545,6 +549,43 @@ def test_a_window_only_workspace_is_labelled_by_app_and_title() -> None:
     assert resolution.labels["ws1"].text == "Safari Kubernetes"
 
 
+def test_a_workspace_without_a_session_is_labelled_by_its_windows_folder() -> None:
+    windows = [
+        window("1", "ws1", PYCHARM, 10, title="refactor-x – plan.md", app_name="PyCharm"),
+        window("2", "ws2", PYCHARM, 10, title="other – a.md", app_name="PyCharm"),
+    ]
+    folders = {
+        "1": ProjectFact(git_root="/code/norn/refactor-x", group="norn"),
+        "2": ProjectFact(git_root="/code/other/main"),
+    }
+    resolution = resolve(
+        [session_input("claude:a", cwd="/code/fylgja/main", host_pid=99)],
+        windows,
+        adapters=_adapters(),
+        window_projects=folders,
+    )
+    assert resolution.sessions["claude:a"].workspace is None
+    assert (resolution.labels["ws1"].text, resolution.labels["ws1"].rule) == ("norn", "project")
+    assert resolution.labels["ws2"].text == "other"
+
+
+def test_a_placed_sessions_project_wins_over_its_workspaces_window_folders() -> None:
+    windows = [
+        window("1", "ws1", SAFARI, 10, app_name="Safari"),
+        window("2", "ws1", PYCHARM, 20, app_name="PyCharm"),
+        window("3", "ws1", PYCHARM, 20, app_name="PyCharm"),
+    ]
+    norn = ProjectFact(git_root="/code/norn/main")
+    folders = {"2": norn, "3": norn}
+    resolution = resolve(
+        [session_input("claude:a", cwd="/code/fylgja/main", host_pid=10)],
+        windows,
+        adapters=_adapters(),
+        window_projects=folders,
+    )
+    assert resolution.labels["ws1"].text == "fylgja"
+
+
 # --- determinism ----------------------------------------------------------------------------------
 
 
@@ -680,6 +721,49 @@ async def test_refresh_writes_the_columns_and_updates_the_live_view(
     assert labels == {"1": "fylgja", "2": "—"}
     assert project["repo_root"] == "/code/fylgja/main"
     assert view.workspaces["1"].inferred_label == "fylgja"
+
+
+async def test_refresh_labels_a_workspace_by_the_folder_its_window_names(
+    writer: Writer, view: LiveView
+) -> None:
+    fs = FakeFS()
+    fs.add_dir("/code/norn/main/.git")
+    contexts = ContextMemory()
+    contexts.observe(
+        ContextItemEvent(
+            source="cmux",
+            entity_id="66:tab",
+            observed_at=NOW,
+            payload=ContextItemPayload(
+                context_kind="cmux_tab",
+                data={
+                    "window_id": "66",
+                    "key": "tab",
+                    "tier": 2,
+                    "fields": {"cwd": "/code/norn/main/src"},
+                },
+            ),
+        )
+    )
+    locator = ProjectLocator(fs)
+
+    async def load() -> HostData:
+        return HostData(home=HOME)
+
+    resolver = Resolver(
+        writer,
+        view,
+        hosts=load,
+        locator=locator,
+        clock=FakeClock(NOW),
+        window_folders=WindowFolders(contexts, locator),
+    )
+    await _seed(writer)
+
+    resolution = await resolver.refresh()
+
+    assert resolution.labels["1"].text == "norn"
+    assert view.workspaces["1"].inferred_label == "norn"
 
 
 async def test_a_second_refresh_changes_nothing(writer: Writer, view: LiveView) -> None:

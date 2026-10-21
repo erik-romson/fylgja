@@ -12,7 +12,8 @@
 * **project → workspace:** the AeroSpace workspace that holds the most focus time of the project
   over the last day (``PLAN.md`` §3 rule 4; the focus spans of :mod:`fylgja.core.spans`), and where
   no span says anything about the project, the workspace where most of its windows are.
-* **workspace → inferred label** (:mod:`fylgja.core.labels`).
+* **workspace → inferred label** (:mod:`fylgja.core.labels`): the projects of its placed sessions,
+  else the folders its windows' context names (docs/decisions/0065).
 
 Every join carries ``via`` and ``confidence``, and one that failed carries ``unresolved: <reason>``.
 :func:`resolve` computes the :class:`Resolution`; :func:`apply_resolution` writes it into the
@@ -42,6 +43,7 @@ from fylgja.core.hosts import (
 from fylgja.core.labels import InferredLabel, LabelInput, WindowFacts, infer_label, project_name
 from fylgja.core.live_view import Change, Collection, LiveView
 from fylgja.core.project_roots import ProjectFact, ProjectLocator
+from fylgja.core.window_folders import WindowFolders
 from fylgja.core.writer import Tx, Writer
 from fylgja.models import (
     HookEvent,
@@ -377,7 +379,10 @@ def _labels(
     placements: Iterable[Placement],
     windows: Iterable[WindowRow],
     workspaces: Iterable[str],
+    window_projects: Mapping[str, ProjectFact],
 ) -> dict[str, InferredLabel]:
+    """Label each workspace by the projects of its placed sessions; a workspace without one by
+    the folders its IDE and terminal windows name (docs/decisions/0065), then by app and title."""
     projects: dict[str, list[str]] = {}
     for placement in placements:
         if placement.workspace is not None and placement.project_path is not None:
@@ -385,11 +390,20 @@ def _labels(
             if name:
                 projects.setdefault(placement.workspace, []).append(name)
     facts: dict[str, list[WindowFacts]] = {}
+    folders: dict[str, list[str]] = {}
     for window in windows:
-        if window.workspace is not None:
-            facts.setdefault(window.workspace, []).append(
-                WindowFacts(window.app_name or "", window.title or "")
-            )
+        if window.workspace is None:
+            continue
+        facts.setdefault(window.workspace, []).append(
+            WindowFacts(window.app_name or "", window.title or "")
+        )
+        fact = window_projects.get(window.window_id)
+        if fact is not None and fact.git_root is not None:
+            name = project_name(fact.git_root, group_name=fact.group)
+            if name:
+                folders.setdefault(window.workspace, []).append(name)
+    for workspace, found in folders.items():
+        projects.setdefault(workspace, found)
     names = {*workspaces, *projects, *facts}
     return {
         name: infer_label(LabelInput(projects=projects.get(name, ()), windows=facts.get(name, ())))
@@ -405,13 +419,16 @@ def resolve(
     adapters: Sequence[HostAdapter],
     facts: Mapping[str, ProjectFact] | None = None,
     focus_time: FocusTime | None = None,
+    window_projects: Mapping[str, ProjectFact] | None = None,
 ) -> Resolution:
     """Place every session and project and label every workspace. Pure and deterministic.
 
     ``facts`` maps a cwd to what the filesystem says about it (see
     :class:`~fylgja.core.project_roots.ProjectLocator`); a cwd without an entry is its own project.
     ``focus_time`` is the seconds of focus per project and workspace over the last day; a project
-    it names is placed by it, any other by its window count.
+    it names is placed by it, any other by its window count. ``window_projects`` maps a window id
+    to the git root and group of the folder its context names
+    (:class:`~fylgja.core.window_folders.WindowFolders`); it only labels workspaces.
     """
     window_list = list(windows)
     owners = _owners(window_list)
@@ -423,7 +440,7 @@ def resolve(
     return Resolution(
         sessions=placements,
         projects=_project_workspaces(placements.values(), focus_time),
-        labels=_labels(placements.values(), window_list, workspaces),
+        labels=_labels(placements.values(), window_list, workspaces, window_projects or {}),
     )
 
 
@@ -503,6 +520,7 @@ class Resolver:
         locator: ProjectLocator,
         clock: Clock,
         focus_time: FocusTimeLoader | None = None,
+        window_folders: WindowFolders | None = None,
     ) -> None:
         self._writer = writer
         self._view = view
@@ -510,6 +528,7 @@ class Resolver:
         self._locator = locator
         self._clock = clock
         self._focus_time = focus_time
+        self._window_folders = window_folders
         self._ancestry: dict[str, tuple[str, tuple[ProcessRef, ...]]] = {}
         """Session key to the collector that sent the chain, and the chain."""
         self._cmux_ids: dict[str, CmuxIds] = {}
@@ -572,6 +591,11 @@ class Resolver:
         focus_time = (
             {} if self._focus_time is None else await self._load_focus_time(self._focus_time)
         )
+        roots = (
+            {}
+            if self._window_folders is None
+            else self._window_folders.snapshot(snapshot.windows.keys())
+        )
         resolution = resolve(
             inputs,
             snapshot.windows.values(),
@@ -579,6 +603,7 @@ class Resolver:
             adapters=default_adapters(data),
             facts=facts,
             focus_time=focus_time,
+            window_projects={window: self._locator.locate(root) for window, root in roots.items()},
         )
         at = db.to_db_time(self._clock.now())
         await self._writer.execute(lambda tx: apply_resolution(tx, resolution, at=at))

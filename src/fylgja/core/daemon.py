@@ -509,6 +509,7 @@ class Daemon:
             locator=self.locator,
             clock=self.clock,
             focus_time=self.focus_time,
+            window_folders=self.window_folders,
         )
         self.spans = spans.SpanEngine(
             self.writer.enqueue,
