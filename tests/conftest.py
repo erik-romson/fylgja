@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_ROOT = REPO_ROOT / "target" / "tests"
 
+# Typer forces a colour terminal when one of these is set (GitHub Actions sets the first), which
+# splits option names such as ``--wait`` with escape codes. It reads them once, on import.
+for _name in ("GITHUB_ACTIONS", "FORCE_COLOR", "PY_COLORS"):
+    os.environ.pop(_name, None)
+
 _GATES = {
     "slow": ("FYLGJA_RUN_SLOW", "slow test: set FYLGJA_RUN_SLOW=1 to run"),
     "live": ("FYLGJA_RUN_LIVE", "live test: set FYLGJA_RUN_LIVE=1 to run"),
