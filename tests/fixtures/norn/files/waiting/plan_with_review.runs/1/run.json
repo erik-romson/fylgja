@@ -1,0 +1,24 @@
+{
+  "pipeline": "plan_with_review",
+  "run_id": 1,
+  "history_run_id": 1,
+  "state_key": "plan_with_review",
+  "pipeline_source": "/Users/user/projects/erik.romson/norn/main/norn/pipelines/plan_with_review.py",
+  "provider": "claude-code",
+  "cost_mode": "tracked",
+  "params": {
+    "args": "<param>"
+  },
+  "budgets": [
+    "Budget(max_cost_usd=50.0, max_tokens=None, on_exceed=<OnFailure.ASK_USER: 2>)"
+  ],
+  "default_model": null,
+  "started_at": "2026-10-05T11:05:09.962634+00:00",
+  "cwd": "/Users/user/projects/erik-romson/fylgja/main",
+  "quota_before": null,
+  "git_head": "22aef75f37421aa2a59c2ec6ebd6c64e86f74751",
+  "argv": [
+    "/Users/user/projects/erik.romson/norn/main/norn/__main__.py",
+    "ui"
+  ]
+}

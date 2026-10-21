@@ -1,0 +1,41 @@
+{
+  "pipeline": "implement_features_v2",
+  "run_id": 12,
+  "history_run_id": 14,
+  "state_key": "implement_features_v2",
+  "pipeline_source": "/Users/user/projects/erik.romson/norn/main/norn/pipelines/implement_features_v2.py",
+  "provider": "claude-code",
+  "cost_mode": "tracked",
+  "params": {
+    "args": "<param>",
+    "skip": "<param>"
+  },
+  "budgets": [
+    "Budget(max_cost_usd=105.0, max_tokens=1800000, on_exceed=<OnFailure.ASK_USER: 2>)"
+  ],
+  "default_model": "standard",
+  "started_at": "2026-09-23T13:57:14.787466+00:00",
+  "cwd": "/Users/user/projects/erik.romson/norn/main",
+  "quota_before": null,
+  "git_head": "481d2fee19822f5c61cf0ed0dc42fdc92593d072",
+  "argv": [
+    "/Users/user/projects/erik.romson/norn/main/norn/__main__.py",
+    "run",
+    "implement_features_v2",
+    "tmp/implement-fire-forget-merge-pipeline-plan-final-plan",
+    "--resume"
+  ],
+  "finished_at": "2026-09-23T13:57:15.215657+00:00",
+  "success": false,
+  "failed_stage": "preflight repository",
+  "duration_ms": 1039,
+  "totals": {
+    "cost": 0,
+    "billed_input_tokens": 0,
+    "output_tokens": 0,
+    "turns": 0,
+    "tool_uses": 0,
+    "tool_errors": 0,
+    "retries": 0
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "pipeline": "stub",
+  "run_id": 1,
+  "state_key": "stub",
+  "pipeline_source": null,
+  "provider": "claude-code",
+  "params": {},
+  "budgets": [],
+  "default_model": null,
+  "started_at": "2026-09-05T21:02:30.834091+00:00",
+  "cwd": "/Users/user/projects/erik.romson/norn",
+  "finished_at": "2026-09-05T21:02:30.884440+00:00",
+  "success": true,
+  "failed_stage": null,
+  "duration_ms": 67,
+  "totals": {
+    "cost": 0,
+    "billed_input_tokens": 0,
+    "output_tokens": 0,
+    "turns": 0,
+    "tool_uses": 0,
+    "tool_errors": 0,
+    "retries": 0
+  }
+}

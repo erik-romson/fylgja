@@ -22,10 +22,11 @@ target/
 .idea/
 .DS_Store
 
-# Leftover norn artefacts
+# Leftover norn artefacts, except the test fixtures made of them
 *.checkpoint
 *.history
 *.runs/
+!/tests/fixtures/norn/files/**
 
 # Local fixture deny-list (customer names); never committed
 tests/fixture-denylist.local.txt
