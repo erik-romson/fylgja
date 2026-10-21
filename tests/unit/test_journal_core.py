@@ -36,6 +36,7 @@ from fylgja.core.journal import (
     Source,
     TodoPart,
     caps_sentence,
+    check_reply,
     done_by_day,
     item_seq_id,
     journal_prompt,
@@ -493,36 +494,45 @@ def test_a_reply_with_a_preface_line_parses() -> None:
 
 
 BAD = {
-    "two-objects": reply() + " " + reply(),
-    "not-json": "not json",
-    "a-list": "[]",
-    "no-headline": reply(headline=...),
-    "long-headline": reply(headline="h" * 101),
-    "no-where": reply(where=...),
-    "empty-where": reply(where=""),
-    "no-sources": reply(sources=...),
-    "empty-sources": reply(sources=[]),
-    "nine-sources": reply(sources=[f"S{n}" for n in range(1, 10)]),
-    "four-next-adds": reply(add=adds(4)),
-    "long-add-text": reply(add=[{"kind": "next", "text": "t" * 101}]),
-    "five-did-lines": reply(did=[f"line {n}" for n in range(5)]),
-    "string-skip": reply(skip="true"),
-    "unknown-kind": reply(add=[{"kind": "idea", "text": "An idea"}]),
-    "headline-not-a-string": reply(headline=7),
-    "did-not-a-list": reply(did="one line"),
-    "empty-did-line": reply(did=["   "]),
-    "source-id-not-a-string": reply(sources=["S2", 3]),
-    "add-not-an-object": reply(add=["next"]),
-    "add-source-not-a-string": reply(add=[{"kind": "next", "text": "x", "source": 2}]),
-    "close-without-item": reply(close=[{"source": "S2"}]),
-    "close-not-a-list": reply(close={"item": "n1"}),
-    "three-blocked-adds": reply(add=adds(3, "blocked")),
+    "two-objects": (reply() + " " + reply(), "no_json"),
+    "not-json": ("not json", "no_json"),
+    "a-list": ("[]", "no_json"),
+    "no-headline": (reply(headline=...), "headline_missing"),
+    "long-headline": (reply(headline="h" * 101), "headline_too_long"),
+    "no-where": (reply(where=...), "where_missing"),
+    "empty-where": (reply(where=""), "where_empty"),
+    "no-sources": (reply(sources=...), "sources_count"),
+    "empty-sources": (reply(sources=[]), "sources_count"),
+    "nine-sources": (reply(sources=[f"S{n}" for n in range(1, 10)]), "sources_count"),
+    "four-next-adds": (reply(add=adds(4)), "add_too_many_next"),
+    "long-add-text": (reply(add=[{"kind": "next", "text": "t" * 101}]), "add_text_too_long"),
+    "five-did-lines": (reply(did=[f"line {n}" for n in range(5)]), "did_too_many"),
+    "string-skip": (reply(skip="true"), "skip_not_bool"),
+    "unknown-kind": (reply(add=[{"kind": "idea", "text": "An idea"}]), "add_kind"),
+    "headline-not-a-string": (reply(headline=7), "headline_not_text"),
+    "did-not-a-list": (reply(did="one line"), "did_not_list"),
+    "empty-did-line": (reply(did=["   "]), "did_line_empty"),
+    "source-id-not-a-string": (reply(sources=["S2", 3]), "sources_not_text"),
+    "add-not-an-object": (reply(add=["next"]), "add_not_object"),
+    "add-source-not-a-string": (
+        reply(add=[{"kind": "next", "text": "x", "source": 2}]),
+        "source_not_text",
+    ),
+    "close-without-item": (reply(close=[{"source": "S2"}]), "close_item"),
+    "close-not-a-list": (reply(close={"item": "n1"}), "close_not_list"),
+    "three-blocked-adds": (reply(add=adds(3, "blocked")), "add_too_many_blocked"),
 }
 
 
-@pytest.mark.parametrize("text", list(BAD.values()), ids=list(BAD))
-def test_a_bad_reply_gives_none(text: str) -> None:
+@pytest.mark.parametrize(("text", "rule"), list(BAD.values()), ids=list(BAD))
+def test_a_bad_reply_gives_none_and_names_the_rule(text: str, rule: str) -> None:
     assert parse_reply(text, subject(), no_redact) is None
+    assert check_reply(text, subject(), no_redact) == rule
+
+
+def test_a_valid_reply_checks_as_the_parsed_reply() -> None:
+    text = reply(did=["You split it."])
+    assert check_reply(text, subject(), no_redact) == parse_reply(text, subject(), no_redact)
 
 
 def test_four_next_adds_parse_in_a_run_reply_and_six_do_not() -> None:

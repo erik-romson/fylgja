@@ -64,6 +64,7 @@ from fylgja.core.journal import (
     ThreadState,
     TodoPart,
     Trigger,
+    check_reply,
     cut_bytes,
     due,
     highest_trigger,
@@ -77,7 +78,6 @@ from fylgja.core.journal import (
     merge,
     order_open,
     parse_log,
-    parse_reply,
     parse_steps,
     refused_name,
     section_excerpt,
@@ -1058,15 +1058,24 @@ class JournalService:
                 outcome = await self._gate.run(journal_prompt(inputs))
             reply: Reply | None = None
             kind = outcome.error_kind
+            rule: str | None = None
             if outcome.stdout is not None:
-                reply = parse_reply(outcome.stdout, inputs, self._privacy.redact)
-                kind = BAD_OUTPUT if reply is None else None
+                checked = check_reply(outcome.stdout, inputs, self._privacy.redact)
+                if isinstance(checked, Reply):
+                    reply, kind = checked, None
+                else:
+                    rule, kind = checked, BAD_OUTPUT
             if reply is None:
                 failure = kind or "runner_error"
                 await self._write_failure(capture, failure)
                 self.tracker.failed(key, failure, capture.snapshot)
                 self._log(capture, failure)
-                log.warning("journal attempt for thread %s failed: %s", capture.id, failure)
+                log.warning(
+                    "journal attempt for thread %s failed: %s%s",
+                    capture.id,
+                    failure,
+                    "" if rule is None else f" ({rule})",
+                )
                 return True
             merged = await self._write_reply(capture, inputs, reply)
             self.tracker.succeeded(key)

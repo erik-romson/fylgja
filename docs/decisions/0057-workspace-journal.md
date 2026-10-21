@@ -39,7 +39,8 @@ and that plain code keeps as a ledger of open items.
   often writes three.
 - **Merge and write (J12, J13).** Plain code merges the ledger inside the writer job, so a person's change wins.
   One transaction per attempt writes thread, entry and items.
-- **Failures and logs (J14).** Error kinds are the gate's plus `bad_output`. Logs carry ids, triggers and counts only.
+- **Failures and logs (J14).** Error kinds are the gate's plus `bad_output`. Logs carry ids, triggers and counts only;
+  a `bad_output` warning also names the rule the reply broke, such as `headline_too_long`, never the reply's text.
 - **Shared model gate (J15).** The journal and the summaries share one runner and one semaphore of
   `[summaries] max_concurrent`. The journal works with summaries off.
 - **Reads and routes (J16, J17, D6, D8).** `fylgja.journal/1` routes; `NavItem.journal` carries "where you are"

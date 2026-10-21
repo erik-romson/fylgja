@@ -519,7 +519,10 @@ async def test_05_a_timeout_writes_no_entry_keeps_the_watermark_and_retries_afte
         assert found.entries[1].started_at == before.watermark
 
 
-async def test_06_bad_output_is_not_retried_without_new_input() -> None:
+async def test_06_bad_output_is_not_retried_without_new_input(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="fylgja.journal")
     async with world(FakeRunner(default="Here is your entry: nothing much.")) as w:
         await w.hook(A, "Stop")
         await w.until(120)
@@ -527,6 +530,9 @@ async def test_06_bad_output_is_not_retried_without_new_input() -> None:
         found = stored(w.daemon)
         assert found.thread is not None
         assert found.thread.error_kind == "bad_output"
+        assert [r.getMessage() for r in caplog.records if r.name == "fylgja.journal"] == [
+            f"journal attempt for thread {found.thread.thread_id} failed: bad_output (no_json)"
+        ]
         assert found.thread.watermark is None
         assert found.entries == []
         assert found.items == []

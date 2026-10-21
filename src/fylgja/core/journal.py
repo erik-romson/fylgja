@@ -75,6 +75,7 @@ __all__ = [
     "TodoPart",
     "Trigger",
     "caps_sentence",
+    "check_reply",
     "cut_bytes",
     "done_by_day",
     "due",
@@ -1071,7 +1072,11 @@ class Reply:
 
 
 class _Bad(Exception):
-    """The reply breaks a rule of J11."""
+    """The reply breaks a rule of J11, named by ``rule``."""
+
+    def __init__(self, rule: str) -> None:
+        super().__init__(rule)
+        self.rule = rule
 
 
 _FENCE: Final = re.compile(r"\A```[A-Za-z]*[ \t]*\n(.*?)\n?[ \t]*```\Z", re.DOTALL)
@@ -1105,19 +1110,23 @@ def _optional(found: Mapping[str, Any], key: str) -> Any:
     return found.get(key)
 
 
-def _string(value: Any, limit: int, redact: Callable[[str], str]) -> str:
+def _string(value: Any, limit: int, redact: Callable[[str], str], field: str) -> str:
     """A text value, whitespace collapsed and redacted, of 1 to ``limit`` characters."""
     if not isinstance(value, str):
-        raise _Bad
+        raise _Bad(f"{field}_missing" if value is None else f"{field}_not_text")
     text = redact(_collapse(value))
-    if not 1 <= len(text) <= limit:
-        raise _Bad
+    if not text:
+        raise _Bad(f"{field}_empty")
+    if len(text) > limit:
+        raise _Bad(f"{field}_too_long")
     return text
 
 
-def _list(value: Any, most: int) -> list[Any]:
-    if not isinstance(value, list) or len(value) > most:
-        raise _Bad
+def _list(value: Any, most: int, field: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise _Bad(f"{field}_not_list")
+    if len(value) > most:
+        raise _Bad(f"{field}_too_many")
     return value
 
 
@@ -1134,7 +1143,7 @@ def _source_id(value: Any) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise _Bad
+        raise _Bad("source_not_text")
     return value.strip()
 
 
@@ -1146,18 +1155,18 @@ def _adds(
         return []
     caps = inputs.caps
     adds: list[Add] = []
-    for value in _list(raw, sum(caps.values())):
+    for value in _list(raw, sum(caps.values()), "add"):
         if not isinstance(value, dict):
-            raise _Bad
+            raise _Bad("add_not_object")
         kind = value.get("kind")
         if kind not in KINDS:
-            raise _Bad
-        text = _string(value.get("text"), ADD_MAX_CHARS, redact)
+            raise _Bad("add_kind")
+        text = _string(value.get("text"), ADD_MAX_CHARS, redact, "add_text")
         cited = inputs.by_id.get(_source_id(_optional(value, "source")) or "")
         adds.append(Add(cast(ItemKind, kind), text, cited or inputs.by_id["S1"]))
     for kind in KINDS:
         if sum(1 for add in adds if add.kind == kind) > caps[kind]:
-            raise _Bad
+            raise _Bad(f"add_too_many_{kind}")
     return adds
 
 
@@ -1166,11 +1175,11 @@ def _closes(found: Mapping[str, Any], inputs: JournalInputs) -> list[Close]:
     if raw is None:
         return []
     if not isinstance(raw, list):
-        raise _Bad
+        raise _Bad("close_not_list")
     closes: dict[str, Close] = {}
     for value in raw:
         if not isinstance(value, dict) or not isinstance(value.get("item"), str):
-            raise _Bad
+            raise _Bad("close_item")
         name = value["item"].strip()
         cited = inputs.by_id.get(_source_id(_optional(value, "source")) or "")
         item = inputs.listed_by_id.get(name)
@@ -1182,9 +1191,9 @@ def _closes(found: Mapping[str, Any], inputs: JournalInputs) -> list[Close]:
 def _cites(found: Mapping[str, Any], inputs: JournalInputs) -> tuple[Cited, ...]:
     raw = found.get("sources")
     if not isinstance(raw, list) or not 1 <= len(raw) <= SOURCES_MAX:
-        raise _Bad
+        raise _Bad("sources_count")
     if not all(isinstance(value, str) for value in raw):
-        raise _Bad
+        raise _Bad("sources_not_text")
     known = {
         value.strip(): inputs.by_id[value.strip()] for value in raw if value.strip() in inputs.by_id
     }
@@ -1195,6 +1204,14 @@ def _cites(found: Mapping[str, Any], inputs: JournalInputs) -> tuple[Cited, ...]
 
 def parse_reply(text: str, inputs: JournalInputs, redact: Callable[[str], str]) -> Reply | None:
     """The model's reply checked against J11; ``None`` (``bad_output``) on any violation.
+    :func:`check_reply` also names the rule."""
+    checked = check_reply(text, inputs, redact)
+    return checked if isinstance(checked, Reply) else None
+
+
+def check_reply(text: str, inputs: JournalInputs, redact: Callable[[str], str]) -> Reply | str:
+    """The model's reply checked against J11, or the name of the first rule it breaks, such as
+    ``no_json`` or ``headline_too_long``. The name carries no reply text, so it can be logged.
 
     The object is the text from the first ``{`` to the last ``}`` after a single fenced block is
     unwrapped. Every text value is whitespace-collapsed and redacted before its length is
@@ -1204,28 +1221,34 @@ def parse_reply(text: str, inputs: JournalInputs, redact: Callable[[str], str]) 
     """
     found = _object(text)
     if found is None:
-        return None
+        return "no_json"
     try:
         skip = _optional(found, "skip")
         if skip is not None and not isinstance(skip, bool):
-            raise _Bad
+            raise _Bad("skip_not_bool")
         if skip:
             return Reply(skip=True)
-        headline = _string(found.get("headline"), HEADLINE_MAX_CHARS, redact)
+        headline = _string(found.get("headline"), HEADLINE_MAX_CHARS, redact, "headline")
         where = _string(
-            _first_sentences(found.get("where"), WHERE_MAX_SENTENCES), WHERE_MAX_CHARS, redact
+            _first_sentences(found.get("where"), WHERE_MAX_SENTENCES),
+            WHERE_MAX_CHARS,
+            redact,
+            "where",
         )
         cites = _cites(found, inputs)
         did_raw = _optional(found, "did")
         did = (
             ()
             if did_raw is None
-            else tuple(_string(line, DID_MAX_CHARS, redact) for line in _list(did_raw, DID_MAX))
+            else tuple(
+                _string(line, DID_MAX_CHARS, redact, "did_line")
+                for line in _list(did_raw, DID_MAX, "did")
+            )
         )
         adds = _adds(found, inputs, redact)
         closes = _closes(found, inputs)
-    except _Bad:
-        return None
+    except _Bad as bad:
+        return bad.rule
     return Reply(
         skip=False,
         headline=headline,
