@@ -13,8 +13,12 @@ into the repository.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -124,8 +128,30 @@ def _plugins() -> list[Synthetic]:
     return [_StandIn(name, frozenset({Capability.SESSIONS})) for name in KINDS]
 
 
+@contextmanager
+def _utc() -> Iterator[None]:
+    """Local time is UTC inside: ``ps -o lstart=`` start times are read as local time, and the
+    recorded payload must not depend on the machine's time zone."""
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = "UTC"
+    time.tzset()
+    try:
+        yield
+    finally:
+        if before is None:
+            del os.environ["TZ"]
+        else:
+            os.environ["TZ"] = before
+        time.tzset()
+
+
 async def build_now(workdir: Path | None = None) -> dict[str, Any]:
     """Run the four collectors over their fixtures and return what ``GET /now`` answers."""
+    with _utc():
+        return await _build_now(workdir)
+
+
+async def _build_now(workdir: Path | None) -> dict[str, Any]:
     owned = workdir is None
     root = Path(tempfile.mkdtemp(prefix="fylgja-phase3-")) if workdir is None else workdir
     try:
