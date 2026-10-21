@@ -14,7 +14,7 @@ import sqlite3
 import threading
 from collections.abc import AsyncIterator, Iterator
 from contextlib import closing
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ import httpx
 import pytest
 from api_support import BASE_URL, make_daemon
 from claude_support import PsRunner
+from http_support import LoopbackHTTPServer
 from message_support import (
     SESSION,
     FakeInbox,
@@ -296,7 +297,7 @@ class FakeDaemon:
             def log_message(self, format: str, *args: object) -> None:  # noqa: A002
                 return
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)

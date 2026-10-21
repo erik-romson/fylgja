@@ -9,11 +9,12 @@ import os
 import stat
 import threading
 from collections.abc import Iterator
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
 import pytest
+from http_support import LoopbackHTTPServer
 from typer.testing import CliRunner
 
 from fylgja import paths
@@ -193,7 +194,7 @@ class _Echo(BaseHTTPRequestHandler):
 @pytest.fixture
 def echo_server() -> Iterator[str]:
     _Echo.seen = []
-    server = HTTPServer(("127.0.0.1", 0), _Echo)
+    server = LoopbackHTTPServer(("127.0.0.1", 0), _Echo)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
