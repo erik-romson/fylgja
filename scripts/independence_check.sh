@@ -40,13 +40,23 @@ FYLGJA="$ROOT/.venv/bin/fylgja"
 [ -x "$FYLGJA" ] || fail "$FYLGJA is missing"
 
 rm -rf "$BASE"
-mkdir -p "$BASE"
+mkdir -p "$BASE/bin"
 
-# in_home <home> <command...>: run with HOME and the FYLGJA_*_DIR variables inside <home>.
+# A stub `claude`: `install hooks` reads the Claude Code version to pick the events, and a CI
+# runner has no Claude. A fixed version also keeps the check the same on every machine.
+cat >"$BASE/bin/claude" <<'EOF'
+#!/bin/sh
+echo "2.1.289 (Claude Code)"
+EOF
+chmod +x "$BASE/bin/claude"
+
+# in_home <home> <command...>: run with HOME and the FYLGJA_*_DIR variables inside <home>, and the
+# stub claude first on PATH.
 in_home() {
   _home=$1
   shift
   env HOME="$_home" \
+    PATH="$BASE/bin:$PATH" \
     FYLGJA_CONFIG_DIR="$_home/.config/fylgja" \
     FYLGJA_DATA_DIR="$_home/.local/share/fylgja" \
     FYLGJA_STATE_DIR="$_home/.local/state/fylgja" \
@@ -94,7 +104,8 @@ PYEOF
   fi
   # The hooks Fylgja registers are guarded by `[ -x ~/.local/bin/fylgja ]`.
   ln -s "$FYLGJA" "$_home/.local/bin/fylgja"
-  in_home "$_home" "$FYLGJA" install hooks --apply >/dev/null
+  in_home "$_home" "$FYLGJA" install hooks --apply >"$BASE/install-$_name.log" ||
+    fail "install hooks in $_name: $(cat "$BASE/install-$_name.log")"
   case $_kind in
     without)
       [ ! -e "$_home/.cache/lidskjalv" ] || fail "$_name has a Lidskjalv cache"
