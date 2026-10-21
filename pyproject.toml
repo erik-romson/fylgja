@@ -56,6 +56,8 @@ select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "PT"]
 [tool.mypy]
 strict = true
 python_version = "3.13"
+# A macOS daemon: check it as macOS on every host, so kqueue resolves on the Linux CI runner too.
+platform = "darwin"
 files = ["src/fylgja"]
 # mypy 2.x caches in SQLite files (cache.*.db) by default. Plain files keep every database in
 # the tree under target/tests, which the store's acceptance check asserts.
